@@ -10,9 +10,10 @@ RENDER = ROOT / "infra/envs/onprem/render-user-data.sh"
 POLICY = ROOT / "services/control-runner/templates/rke2-audit-policy.yaml"
 BOOTSTRAP = ROOT / "infra/shared/rke2/bootstrap.sh"
 POLICY_BLOCK = re.compile(
-    r"install -m 600 /dev/stdin /etc/rancher/rke2/audit-policy\.yaml <<'AUDIT_POLICY'\n(.*?)^AUDIT_POLICY$",
+    r"install -m 600 /dev/stdin /etc/rancher/rke2/audit-policy\.yaml <<'(BRAVO_NODE_FILE_\d+)'\n(.*?)^\1$",
     re.DOTALL | re.MULTILINE,
 )
+NODE_BUNDLE = ROOT / "infra/iac/nodes/target-dev"
 
 
 def render(script=RENDER):
@@ -31,7 +32,9 @@ class OnPremUserDataTests(unittest.TestCase):
     def test_policy_is_the_template_byte_for_byte(self):
         block = POLICY_BLOCK.search(self.user_data)
         self.assertIsNotNone(block, "user-data does not write the audit policy")
-        self.assertEqual(block.group(1), POLICY.read_text())
+        self.assertEqual(block.group(2), POLICY.read_text())
+        # The user-data assembles the T44 node bundle; the bundle is the same reviewed policy.
+        self.assertEqual(block.group(2), (NODE_BUNDLE / "etc/rancher/rke2/audit-policy.yaml").read_text())
 
     # RKE2 writes its own level: None policy on first start when the file is missing.
     def test_policy_is_written_before_rke2_starts(self):
@@ -42,7 +45,7 @@ class OnPremUserDataTests(unittest.TestCase):
     def test_common_bootstrap_is_embedded_unchanged(self):
         self.assertIn(BOOTSTRAP.read_text(), self.user_data)
 
-    def test_missing_template_stops_rendering(self):
+    def test_missing_node_bundle_stops_rendering(self):
         with tempfile.TemporaryDirectory() as temp:
             copy = Path(temp) / "infra/envs/onprem/render-user-data.sh"
             copy.parent.mkdir(parents=True)

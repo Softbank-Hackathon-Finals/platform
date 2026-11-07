@@ -179,3 +179,28 @@ def test_cli_renders_checks_and_verifies(tmp_path, capsys):
     saved.write_text(peers_json([("bravo-target-operator", ["tag:bravo-target-operator"], True)]))
     assert main(["tailnet-verify", "--status-json", str(saved), *paths]) == 0
     assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_a_new_cluster_declares_its_operator_tag_owned_by_admins_and_nothing_else():
+    """ADR-0035: the tag exists in the policy before the federated identity that joins with it."""
+    from bravo_iac import module
+
+    found = module("tailnet-operator", "1")
+    params = found.check({"tag": "tag:bravo-target-gke-operator"})
+    assert found.tag_owners(params) == [{"tailnet": "default", "tag": "tag:bravo-target-gke-operator",
+                                          "owner": "autogroup:admin"}]
+    assert found.grants(params) == [] and found.render(params) == []
+    assert found.exposure(params) == {"anonymous": [], "reach": [], "checks": []}
+    for bad in ({"tag": "tag:bravo-target-gke-db"}, {"tag": "tag:other-operator"}, {"tag": "tag:" "bravo-x-operator", "owner": "x"},
+                {}, {"tag": "tag:bravo-target-gke-operator", "tailnet": "Bad Name"}):
+        with pytest.raises(IacError):
+            found.check(bad)
+    committed = json.loads((REPO / "infra/tailnet/routes-policy.json").read_text())
+    granted = {f"{g['dst'][0]}:{g['ip'][0].removeprefix('tcp:')}" for g in committed["grants"] if "app" not in g}
+    for env in ("target-gke", "target-gce", "t49"):
+        tag = f"tag:bravo-{env}-operator"
+        assert committed["tagOwners"][tag] == ["autogroup:admin"]
+        assert not [g for g in committed["grants"] if tag in g["src"]]  # the path to it is the network API's (#622)
+        [test] = [t for t in committed["tests"] if t["src"] == tag]
+        # Runtime device names escape a repository scan: the policy refuses every granted destination.
+        assert set(test["deny"]) == granted and test["accept"] == [] and "tag:bravo-metrics:9090" in test["deny"]

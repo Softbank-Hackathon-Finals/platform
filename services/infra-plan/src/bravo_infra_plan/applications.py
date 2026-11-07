@@ -6,6 +6,8 @@ resource. Self-heal is on for the resources the Application owns.
 """
 
 # The destination Argo CD is T44's install (infra/iac/argocd); T45 only adds its project and Applications.
+import json
+
 ARGO_NAMESPACE = "bravo-iac-gitops"
 
 
@@ -27,14 +29,27 @@ IGNORE_DIFFERENCES = [
 ]
 
 
-def project(stack, *, repo_url):
-    """One AppProject per stack, limited to the configuration repository and this cluster.
+def project(stack, *, repo_url, files):
+    """One AppProject per stack: the configuration repository, this cluster, and only what T45 makes.
 
-    The Argo CD server is off, so no `default` project exists (found in the kind measurement), and
-    T44's own project `bravo-iac` is limited to the public platform repository.
-    Cluster-scoped kinds stay open in v1 (Namespaces, PersistentVolumes, operator CRDs and
-    ClusterRoles); narrowing them is the agreed follow-up (ADR-0033 3.5).
+    The scope is computed from the approved manifests of every publish step (2026-11-07 이상무 review):
+    destinations are the namespaces those manifests create or write into, and the cluster-scoped
+    allowance is exactly the kinds they contain without a namespace. T44's objects (tailnet routes)
+    are never in these files, so this project cannot take them over. The Argo CD server is off, so no
+    `default` project exists (kind measurement).
     """
+    namespaces, cluster_kinds = set(), set()
+    for rendered in files.values():
+        for text in rendered.values():
+            for item in json.loads(text)["items"]:
+                group = item["apiVersion"].rpartition("/")[0]
+                namespace = item.get("metadata", {}).get("namespace")
+                if item["kind"] == "Namespace":
+                    namespaces.add(item["metadata"]["name"])
+                if namespace:
+                    namespaces.add(namespace)
+                else:
+                    cluster_kinds.add((group, item["kind"]))
     return {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": "AppProject",
@@ -42,13 +57,33 @@ def project(stack, *, repo_url):
                      "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"}},
         "spec": {
             "sourceRepos": [repo_url],
-            "destinations": [{"server": "https://kubernetes.default.svc", "namespace": "*"}],
-            "clusterResourceWhitelist": [{"group": "*", "kind": "*"}],
+            "destinations": [{"server": "https://kubernetes.default.svc", "namespace": n} for n in sorted(namespaces)],
+            "clusterResourceWhitelist": [{"group": g, "kind": k} for g, k in sorted(cluster_kinds)],
         },
     }
 
 
-def application(stack, path, *, repo_url, revision):
+def default_namespace(rendered):
+    """The namespace an Application names as its destination: one its own manifests use.
+
+    Argo CD matches `spec.destination.namespace` against the project's destinations with a glob
+    (v3.6 AppProject.isDestinationMatched): an empty namespace matches only `*`. The project lists
+    exactly the manifests' namespaces, so the Application must name one of them. Every item carries
+    its own namespace, so this is only the default and never moves a resource.
+    """
+    used = set()
+    for text in rendered.values():
+        for item in json.loads(text)["items"]:
+            if item["kind"] == "Namespace":
+                used.add(item["metadata"]["name"])
+            elif item.get("metadata", {}).get("namespace"):
+                used.add(item["metadata"]["namespace"])
+    if not used:
+        raise ValueError("application_namespace_unavailable")  # cluster-scoped only: no project destination fits
+    return sorted(used)[0]
+
+
+def application(stack, path, *, repo_url, revision, namespace):
     return {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": "Application",
@@ -59,7 +94,7 @@ def application(stack, path, *, repo_url, revision):
             "project": stack,
             "source": {"repoURL": repo_url, "targetRevision": revision, "path": path,
                        "directory": {"include": "*.json"}},
-            "destination": {"server": "https://kubernetes.default.svc"},
+            "destination": {"server": "https://kubernetes.default.svc", "namespace": namespace},
             "syncPolicy": {
                 "automated": {"prune": False, "selfHeal": True},
                 "syncOptions": ["ServerSideApply=true", "SkipDryRunOnMissingResource=true",

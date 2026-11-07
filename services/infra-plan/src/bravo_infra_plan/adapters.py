@@ -12,15 +12,38 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import replication
 from .applications import ARGO_NAMESPACE
-from .stack import StackError
+from .executor import HOLD, StepOutcome
+from .stack import StackError, canonical, sha256_text
+
+# Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
+# after it created them exactly as the step declares. The value binds the attestation to that declaration.
+HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+
+
+def host_paths_digest(paths):
+    return sha256_text(canonical(paths))
+
+
+def expected_images(expect, params):
+    """The image names an `expect` names for this request (`images`, or `images_by_arch[arch]`)."""
+    if "images" in expect:
+        return expect["images"]
+    names = expect["images_by_arch"].get(params.get("arch"))
+    if not names:
+        raise StackError("image_unavailable_for_arch")
+    return names
 
 TIMEOUT = 600
+SQL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
@@ -182,12 +205,27 @@ class KubectlCluster:
         command = [self.kubectl, *(["--context", self.context] if self.context else []), *args]
         return _run(command, stdin=stdin, env=self._env(), check=check)
 
+    # The API was not reached at all (a dropped tunnel or forwarded connection), so nothing was decided.
+    TRANSPORT = ("Unable to connect to the server", "broken pipe", "connection reset by peer", "unexpected EOF",
+                 "i/o timeout", "TLS handshake timeout", "connection refused")
+
+    def _read(self, *args, stdin=None, attempts=3):
+        """A read-only kubectl call, retried a few times only when the request never reached the API."""
+        for attempt in range(attempts):
+            result = self._k(*args, stdin=stdin, check=False)
+            if result.returncode == 0 or not any(t in result.stderr for t in self.TRANSPORT):
+                return result
+            if attempt + 1 < attempts:
+                time.sleep(1 + attempt)
+        return result
+
     def _get(self, kind, namespace, name):
-        result = self._k("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json", check=False)
+        result = self._read("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json")
         if result.returncode != 0:
             if "NotFound" in result.stderr or "not found" in result.stderr:
                 return None
-            raise RuntimeError("kubectl get failed")
+            first = (result.stderr.strip().splitlines() or [""])[0][:120]  # a read: no value in it
+            raise RuntimeError(f"kubectl get {kind} failed: {first}")
         return json.loads(result.stdout)
 
     def identity(self, node_name):
@@ -202,11 +240,20 @@ class KubectlCluster:
         return any(c.get("type") == "Ready" and c.get("status") == "True"
                    for c in node.get("status", {}).get("conditions", []))
 
+    def node_annotation(self, node_name, key):
+        node = self._get("node", None, node_name) or {}
+        return node.get("metadata", {}).get("annotations", {}).get(key)
+
+    def node_image_names(self, node_name):
+        """Every name the kubelet reports for the node's images (tags and repo@sha256 aliases)."""
+        node = self._get("node", None, node_name) or {}
+        return {name for image in node.get("status", {}).get("images", []) for name in image.get("names", [])}
+
     def diff(self, items):
         """True when applying would change the cluster (server-side diff)."""
         manifest = json.dumps({"apiVersion": "v1", "kind": "List", "items": items})
-        result = self._k("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
-                         "-f", "-", stdin=manifest, check=False)
+        result = self._read("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
+                            "-f", "-", stdin=manifest)
         if result.returncode not in (0, 1):
             raise RuntimeError("kubectl diff failed")  # cannot compare: HOLD, never a blind apply
         return result.returncode == 1
@@ -225,6 +272,17 @@ class KubectlCluster:
                                             "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"}},
                                "stringData": values})
         self._k("create", "-f", "-", stdin=manifest)  # create, never replace
+
+    def secret_identities(self, namespace, name, key):
+        """Identity names and their action targets of a SeaweedFS s3.json; key material is dropped here."""
+        import base64
+
+        obj = self._get("secret", namespace, name)
+        if obj is None or key not in obj.get("data", {}):
+            return None
+        document = json.loads(base64.b64decode(obj["data"][key]))
+        return {i["name"]: sorted({a.split(":", 1)[-1] for a in i.get("actions", [])})
+                for i in document.get("identities", [])}
 
     def condition(self, kind, namespace, name, condition):
         obj = self._get(kind, namespace, name)
@@ -249,13 +307,71 @@ class KubectlCluster:
         return bool(obj) and status.get("readyReplicas", 0) >= 1 and status.get("readyReplicas") == status.get("replicas")
 
     def deployments_available(self, namespace):
-        listing = json.loads(self._k("get", "deployments", "-n", namespace, "-o", "json").stdout)["items"]
+        result = self._read("get", "deployments", "-n", namespace, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get deployments failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)["items"]
         return bool(listing) and all(any(c.get("type") == "Available" and c.get("status") == "True"
                                           for c in d.get("status", {}).get("conditions", [])) for d in listing)
 
     def labelled_secret_exists(self, namespace, selector):
-        listing = json.loads(self._k("get", "secrets", "-n", namespace, "-l", selector, "-o", "json").stdout)
+        result = self._read("get", "secrets", "-n", namespace, "-l", selector, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get secrets failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)
         return bool(listing["items"])
+
+    # --- destination as a migration target (target-onprem-migration) ----------------------------
+
+    def get_object(self, item):
+        api = item["apiVersion"]
+        resource = item["kind"].lower() + ("." + api.split("/")[0] if "/" in api else "")
+        return self._get(resource, item["metadata"].get("namespace"), item["metadata"]["name"])
+
+    def create(self, items):
+        """kubectl create: fails on an existing object instead of replacing it."""
+        self._k("create", "-f", "-", stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}))
+
+    def secret_keys(self, namespace, name):
+        """The data keys of a Secret (never its values); None when it does not exist."""
+        obj = self._get("secret", namespace, name)
+        return None if obj is None else sorted((obj.get("data") or {}).keys())
+
+    def audit_level_events(self, level):
+        """apiserver_audit_level_total for one level since the API server started; None when absent."""
+        if level not in ("None", "Metadata", "Request", "RequestResponse"):
+            raise StackError("unknown_audit_level")
+        for line in self._k("get", "--raw", "/metrics").stdout.splitlines():
+            if line.startswith("apiserver_audit_level_total{") and f'level="{level}"' in line:
+                return float(line.rsplit(" ", 1)[1])
+        return None
+
+    def primary_query(self, namespace, cluster, database, query):
+        """One fixed query in a read-only transaction on the primary. None: no single primary right now
+        (a switchover). A failed read raises, so the step holds instead of passing."""
+        if not SQL_NAME.fullmatch(database):
+            raise StackError("invalid_identifier")
+        pods = json.loads(self._k("get", "pods", "-n", namespace, "-l",
+                                  f"cnpg.io/cluster={cluster},cnpg.io/instanceRole=primary", "-o", "json").stdout)["items"]
+        if len(pods) != 1:
+            return None
+        result = self._k("exec", "-n", namespace, pods[0]["metadata"]["name"], "-c", "postgres", "--",
+                         "psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", database,
+                         "-c", "BEGIN READ ONLY", "-c", query, "-c", "ROLLBACK", check=False)
+        if result.returncode != 0:
+            raise RuntimeError("primary_read_failed")
+        return [line.split("|") for line in result.stdout.strip().splitlines() if line]
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        """T44's read-only GitOps intake (infra/iac/customer_status.py, #635) on this cluster: the same judge,
+        not a copy. It checks the cluster UID, the Application target, the operation and every resource."""
+        result = _run([sys.executable, str(Path(repo_root) / "infra/iac/customer_status.py"),
+                       "--kubeconfig", self.kubeconfig, *(["--context", self.context] if self.context else []),
+                       "--expected-cluster-uid", cluster_uid, "--environment", environment, "--revision", revision],
+                      env=self._env(), check=False)
+        if result.returncode not in (0, 3):
+            raise RuntimeError("argo_intake_failed")
+        return json.loads(result.stdout)
 
 
 class T10Approvals:
@@ -286,6 +402,48 @@ class T10Approvals:
                           {"run_id": run_id, "plan_digest": plan_digest})
 
 
+class AuditLedger:
+    """T24 hash chain per infra run (source `infra`): `./store` or `s3://bucket/audit` (Object Lock).
+
+    The T24 chain is per (plan, run): the migration plan the approval belongs to and the infra run.
+    A restarted process resumes the stored chain; a replayed identical event is absorbed. Events hold
+    step ids, statuses, reasons, digests and times only, and T24 refuses secret-looking payloads.
+    """
+
+    def __init__(self, target, store, *, retention_days=1, client=None):
+        from bravo_audit.sink import FileSink, ObjectLockSink
+        from bravo_audit.storage import split_s3
+
+        self.target, self.store, self.client = target, store, client
+        if target.startswith("s3://"):
+            import boto3
+
+            self.client = client or boto3.client("s3")
+            bucket, prefix = split_s3(target)
+            self.sink = ObjectLockSink(self.client, bucket, retention_days=retention_days, prefix=prefix)
+        else:
+            self.sink = FileSink(Path(target))
+        self.ledgers, self.lock = {}, __import__("threading").Lock()
+
+    def __call__(self, event):
+        from bravo_audit.ledger import RunLedger
+        from bravo_audit.storage import load_plan_runs
+
+        from .stack import canonical, sha256_text
+
+        with self.lock:
+            plan_id = self.store.load(event["run_id"])["migration_plan_id"]
+            key = (plan_id, event["run_id"])
+            if key not in self.ledgers:
+                stored = load_plan_runs(self.target, plan_id, client=self.client).get(event["run_id"], [])
+                self.ledgers[key] = RunLedger.resume(plan_id, event["run_id"], stored)
+            payload = {k: v for k, v in event.items() if v is not None}
+            origin = f"t45:{event['run_id']}:{sha256_text(canonical(payload))[:32]}"
+            record, created = self.ledgers[key].append("infra", event["event"], payload, origin)
+            if created:
+                self.sink.put(record)
+
+
 class AwsIdentity:
     """The AWS account a terraform stack runs against (STS), from the operator's own session."""
 
@@ -299,6 +457,16 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
+def _argo_synced(cluster, repo_root, run):
+    """T44's intake says SYNC_VERIFIED at the approved revision. Not installed or not converged yet: wait.
+    Something it refuses (another target, prune, a changed read): HOLD with its reason."""
+    result = cluster.argo_intake(repo_root, "target-dev", run["plan"]["target"]["cluster_uid"],
+                                 run["plan"]["request"]["params"]["iac_revision"])
+    if result["status"] == "BLOCKED":
+        raise StepOutcome(HOLD, "argo_" + (result.get("reasons") or ["blocked"])[0].lower())
+    return result["status"] == "SYNC_VERIFIED"
+
+
 class ClusterChecks:
     """Named checks used by `probe` and `operator_action` steps.
 
@@ -306,25 +474,50 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster):
-        self.cluster = cluster
+    def __init__(self, cluster, repo_root=None):
+        self.cluster, self.repo_root = cluster, repo_root
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
         c = self.cluster
+        node = params.get("node_name")
+        # A step that declares `expect` is observable: what it names must be on the node.
+        expect = next((s.get("expect") for s in run["stack"]["steps"] if s.get("confirm") == name), None)
         checks = {
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
-            "host-paths": lambda: None,
-            "openbao-image": lambda: None,
+            "host-paths": lambda: None if not expect else (
+                c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
+            "openbao-image": lambda: None if not expect else set(expected_images(expect, params)) <= c.node_image_names(node),
+            "app-image": lambda: set(expected_images(expect, params)) <= c.node_image_names(node),
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
-            "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),
+            "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
+            "app-metrics-client": lambda: c.secret_exists("target-dev", "bravo-app-metrics-client"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
                                       and c.deployments_available("target-dev")),
+            # target-onprem-migration: the destination as a migration target
+            "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
+            "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),
+            "replication-credentials": lambda: replication.credentials(c),
+            "replication-external-cluster": lambda: replication.external_cluster(c),
+            "replication-target-ready": lambda: replication.target_ready(c),
+            "initial-copy-complete": lambda: replication.initial_copy(c),
         }
         if name not in checks:
             raise StackError("unknown_check")
         return checks[name]()
+
+    def _seaweedfs_matches_desired(self, run):
+        """The Secret exists and its shape is T44's desired state: anonymous read iff open-demo."""
+        step = next(s for s in run["stack"]["steps"] if s.get("confirm") == "seaweedfs-auth")
+        desired = next(e for e in run["plan"]["steps"] if e["id"] == step["id"]).get("desired", {})
+        identities = self.cluster.secret_identities("target-dev", "target-seaweedfs-auth", "s3.json")
+        if identities is None:
+            return False
+        bucket, state = desired.get("bucket"), desired.get("state")
+        if not {"bootstrap", "client"} <= set(identities) or identities["client"] != [bucket]:
+            return False
+        return ("anonymous" in identities) == (state == "open-demo")

@@ -48,6 +48,12 @@
               "type": "string"
             },
             "minItems": 1
+          },
+          "default": {
+            "description": "Value used when a request omits the parameter. Must be one of `enum` when that is set.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
           }
         }
       }
@@ -212,6 +218,42 @@
               "$ref": "#/$defs/select"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "namespace"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "namespace": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "labels"
+              ],
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/id"
+                },
+                "labels": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[a-z0-9./-]{1,253}$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{0,63}$"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -253,6 +295,29 @@
             "$ref": "#/$defs/id"
           },
           "uniqueItems": true
+        },
+        "when": {
+          "description": "Plan the step only when a request parameter has one of these values; otherwise the plan records it as omitted.",
+          "type": "object",
+          "required": [
+            "param",
+            "in"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "param": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -276,7 +341,8 @@
               "needs": true,
               "check": {
                 "$ref": "#/$defs/id"
-              }
+              },
+              "when": true
             },
             "additionalProperties": false
           }
@@ -306,6 +372,108 @@
               },
               "confirm": {
                 "$ref": "#/$defs/id"
+              },
+              "desired": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "module",
+                  "params"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]*(\\{environment_id\\})?[A-Za-z0-9._/-]*\\.json$"
+                  },
+                  "module": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "params": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                    }
+                  }
+                }
+              },
+              "when": true,
+              "expect": {
+                "description": "What the confirm check observes. Present: the step is observable and a human confirmation alone does not pass it.",
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": false,
+                "properties": {
+                  "host_paths": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "uid",
+                        "gid",
+                        "mode"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "pattern": "^/var/lib/[a-z0-9][a-z0-9/._-]{0,200}$"
+                        },
+                        "uid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "gid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "mode": {
+                          "type": "string",
+                          "pattern": "^0[0-7]{3}$"
+                        }
+                      }
+                    }
+                  },
+                  "images": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    }
+                  },
+                  "images_by_arch": {
+                    "description": "Like images, per node architecture (the request's arch parameter picks one).",
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": false,
+                    "properties": {
+                      "arm64": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      },
+                      "amd64": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      }
+                    }
+                  }
+                }
               }
             },
             "additionalProperties": false
@@ -339,7 +507,8 @@
                 "items": {
                   "$ref": "#/$defs/render"
                 }
-              }
+              },
+              "when": true
             },
             "additionalProperties": false
           }
@@ -370,6 +539,19 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1800
+              },
+              "when": true,
+              "health": {
+                "description": "Argo CD health states that pass this sync (default Healthy only). A workload that cannot be Ready before a later step (OpenBao before init and unseal) lists Progressing, and that later step confirms readiness.",
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "Healthy",
+                    "Progressing"
+                  ]
+                }
               }
             },
             "additionalProperties": false
@@ -399,7 +581,11 @@
                 "items": {
                   "$ref": "#/$defs/render"
                 }
-              }
+              },
+              "create_only": {
+                "type": "boolean"
+              },
+              "when": true
             },
             "additionalProperties": false
           }
@@ -499,7 +685,8 @@
                     }
                   }
                 }
-              }
+              },
+              "when": true
             },
             "additionalProperties": false
           }
@@ -559,7 +746,8 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 300
-              }
+              },
+              "when": true
             },
             "additionalProperties": false
           }
@@ -658,7 +846,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "when": true
             },
             "additionalProperties": false
           }

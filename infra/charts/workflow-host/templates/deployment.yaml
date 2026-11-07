@@ -77,8 +77,20 @@ spec:
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
             {{- end }}
             - {name: state, mountPath: /workflow-state}
+            {{- if .Values.initialProposalAuto.enabled }}
+            # Only for creating and reading initial-proposal Jobs in bravo-initial (Role there allows nothing else).
+            - {name: kube-api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+            {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        {{- if .Values.initialProposalAuto.enabled }}
+        - name: kube-api-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+        {{- end }}
         - name: credential
           secret:
             secretName: {{ .Values.secrets.database }}

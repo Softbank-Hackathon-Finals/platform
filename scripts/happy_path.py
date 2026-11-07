@@ -65,13 +65,15 @@ STEPS = (
          ("python3", f"{WORKLOADS}/open_after_apply.py", "--application-id", "{application_id}",
           "--receipts", "{receipts}", "--kubeconfig", "{kubeconfig}")),
     Step("s2-gate-pass", "S2", "observe", "T19", "게이트 재대조 PASS", reach="AWAIT_APPROVAL"),
-    Step("s3-shift-approval", "S3", "human", "승인자",
-         "SHIFT 승인: POST /v1/plans/{plan}/approvals {approval_kind: shift, expected_version, expires_at}"),
-    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 컷오버 승인(SHIFT 상태에서)"),
-    # Owner-run live tools with per-run inputs (docs/operations/t28-demo-runbook.md); confirmed here.
+    # Measurements and attachment copying must exist before either approval can
+    # release a real transition. The driver still delegates the owner tools.
     Step("s3-load", "S3", "human", "T18", "부하 예열 50 rps · 30초 → 본 측정 시작 (services/loadgen)"),
     Step("s3-attachment-copy", "S3", "human", "T8",
          "업로드 중지 → 첨부 복사 Job(attachment_job.py job) → 판정 SUCCEEDED"),
+    Step("s3-shift-approval", "S3", "human", "승인자",
+         "현재 T13 캡처·서명 확인 후 SHIFT 승인(approval_kind: shift)"),
+    Step("s3-cutover-approval", "S3", "human", "승인자",
+         "최신 GATE·T13 확인 후 콘솔에서 컷오버 승인·실행 요청(SHIFT 상태)"),
     Step("s3-shifted", "S3", "observe", "T17", "가중치 10 → 50 → 100%", reach="CUTOVER"),
     Step("s3-cutover-done", "S3", "observe", "T13", "컷오버 영수증, 무결성 일치", reach="WATCH"),
     Step("s3-reverse-replication", "S3", "human", "T8", "역방향 복제 도착 확인(resume_replication.py --direction reverse)"),
@@ -86,6 +88,15 @@ STEPS = (
     Step("s4-rolled-back", "S4", "observe", "T20", "출발지 복귀, 데이터째 되돌리기", reach="DONE_ROLLED_BACK"),
     Step("wrap-map", "S5", "human", "T27", "잔존 의존성 지도(bravo_exit_drill render/verdict)"),
 )
+
+
+def selected_steps(scenario):
+    if scenario == "recovery":
+        return STEPS
+    if scenario != "migration":
+        raise ValueError("unknown rehearsal scenario")
+    end = next(i for i, step in enumerate(STEPS) if step.id == "s3-reverse-replication")
+    return STEPS[:end + 1]
 
 
 def now():
@@ -110,7 +121,7 @@ def append(path, value):
 
 def pins():
     out = {}
-    for name in ("registration", "product-reader"):
+    for name in ("registration", "product-reader", "rehearsal-host"):
         image = json.loads((ROOT / f"infra/gitops/environments/development/{name}-image.json").read_text())
         out[name] = image["image"]["digest"]
     return out
@@ -118,7 +129,7 @@ def pins():
 
 def header(args, git=subprocess.run):
     sha = git(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    return {"kind": "header", "plan_id": args.plan_id, "profile": args.profile, "develop_sha": sha,
+    return {"kind": "header", "plan_id": args.plan_id, "profile": args.profile, "scenario": getattr(args, "scenario", "recovery"), "develop_sha": sha,
             "gitops_pins": pins(), "started_at": now()}
 
 
@@ -136,6 +147,8 @@ def plan_state_from(command):
 
 
 def reached(state, goal):
+    if state == "DONE":
+        return goal in ORDER[:ORDER.index("WATCH") + 1]
     return state in ORDER and ORDER.index(state) >= ORDER.index(goal)
 
 
@@ -190,11 +203,15 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
     elif head["plan_id"] != args.plan_id:
         print(json.dumps({"result": "input_error", "reason": "record belongs to another plan"}))
         return 2
+    if head.get("profile") != args.profile or head.get("scenario", "recovery") != getattr(args, "scenario", "recovery"):
+        print(json.dumps({"result": "input_error", "reason": "record profile or scenario differs"}))
+        return 2
     command = args.plan_state_command or (
         [part.format(context=args.platform_context) for part in PLAN_STATE] if getattr(args, "platform_context", None)
         else None)
     read_state = read_state or plan_state_from(command)
-    for step in STEPS:
+    selected = selected_steps(getattr(args, "scenario", "recovery"))
+    for step in selected:
         seen = outcomes.get(step.id, {})
         if seen.get("status") in ("done", "human_confirmed"):
             continue
@@ -210,14 +227,26 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
                          ensure_ascii=False))
         if code != DONE:
             return code
-    print(json.dumps({"result": "complete", "record": str(path)}))
+    try:
+        state = read_state(args.plan_id)
+    except Exception:
+        print(json.dumps({"result": "unknown", "reason": "final_plan_read_unconfirmed"}))
+        return UNKNOWN
+    if getattr(args, "scenario", "recovery") == "migration":
+        if state not in {"WATCH", "DONE"}:
+            print(json.dumps({"result": "failed", "reason": "forward_migration_not_current", "state": state}))
+            return FAILED
+    elif state != "DONE_ROLLED_BACK":
+        print(json.dumps({"result": "failed", "reason": "failback_not_current", "state": state}))
+        return FAILED
+    print(json.dumps({"result": "complete", "record": str(path), "scenario": getattr(args, "scenario", "recovery"), "final_state": state}))
     return DONE
 
 
 def cmd_mark(args, status):
     path = Path(args.record)
     head, outcomes = read_record(path)
-    ids = [step.id for step in STEPS]
+    ids = [step.id for step in selected_steps(head.get("scenario", "recovery"))] if head else []
     if head is None or args.step not in ids:
         print(json.dumps({"result": "input_error"}))
         return 2
@@ -241,6 +270,8 @@ def main(argv=None):
     r.add_argument("--plan-id", required=True)
     r.add_argument("--record", required=True, help="append-only JSONL run record")
     r.add_argument("--profile", choices=["real", "local", "mock"], required=True)
+    r.add_argument("--scenario", choices=["migration", "recovery"], default="recovery",
+                   help="migration stops after verified forward movement; recovery also exercises faults/failback")
     r.add_argument("--plan-state-command", nargs="+", help="read-only command printing {\"state\": ...}")
     r.add_argument("--kubeconfig")
     r.add_argument("--platform-context", help="kubectl context of the platform cluster (default plan reader)")

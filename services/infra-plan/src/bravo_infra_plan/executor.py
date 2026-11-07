@@ -25,14 +25,15 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 
-from .applications import application, application_name, project
+from .applications import application, application_name, default_namespace, project
 from .plan import Planner
 from .stack import StackError, canonical, sha256_text
 from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
-DONE = frozenset({SKIPPED, APPLIED})
+OMITTED = "OMITTED"  # the approved plan left this step out (`when`); it never runs
+DONE = frozenset({SKIPPED, APPLIED, OMITTED})
 
 
 class StepOutcome(Exception):
@@ -85,7 +86,8 @@ class Executor:
                    plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
                    files=plan.files, head=head, commits={}, confirmations={}, started_by=started_by,
                    created_at=self.clock(), status=PENDING,
-                   steps={s["id"]: {"status": PENDING} for s in plan.document["steps"]})
+                   steps={s["id"]: {"status": OMITTED if s.get("omitted") else PENDING}
+                          for s in plan.document["steps"]})
         approval = self.approvals.read(migration_plan_id, approval_id)
         if approval.get("binding", {}).get("plan_digest") != plan.plan_digest:
             return self._refuse(run, "plan_digest_mismatch")
@@ -169,18 +171,24 @@ class Executor:
                 finished, _ = wait(futures, return_when=FIRST_COMPLETED)
                 for future in finished:
                     step_id = futures.pop(future)
+                    error = None
                     try:
                         status, reason = future.result(), None
                     except StepOutcome as outcome:
                         status, reason = outcome.status, outcome.reason
-                    except StackError as error:
-                        status, reason = FAILED, str(error)
-                    except Exception:  # an adapter error is not a verdict: hold for a human
+                    except StackError as error_:
+                        status, reason = FAILED, str(error_)
+                    except Exception as error_:  # an adapter error is not a verdict: hold for a human
                         status, reason = HOLD, "adapter_error"
+                        # Which adapter call failed, so nobody reads process logs to find out. Adapters raise
+                        # RuntimeError with fixed messages; other types are named only (their text may carry argv).
+                        error = type(error_).__name__ + (f": {error_}"[:160] if type(error_) is RuntimeError else "")
                     with self._lock:
                         states[step_id].update(status=status, ended_at=self.clock())
                         if reason:
                             states[step_id]["reason"] = reason
+                        if error:
+                            states[step_id]["error"] = error
                         self.ledger({"event": "infra.step", "run_id": run["run_id"], "step": step_id,
                                      "status": status, "reason": reason, "at": states[step_id]["ended_at"]})
         with self._lock:
@@ -238,8 +246,10 @@ class Executor:
                     run["head"], status = commit, APPLIED
             run["commits"][step["path"]] = commit
             self.store.save(run)  # the new head is durable before anything else can fail
-        manifests = [project(stack, repo_url=self.repo_url),
-                     application(stack, step["path"], repo_url=self.repo_url, revision=commit)]
+        published = {k: v for k, v in run["files"].items() if _steps(run)[k]["kind"] == "gitops_publish"}
+        manifests = [project(stack, repo_url=self.repo_url, files=published),
+                     application(stack, step["path"], repo_url=self.repo_url, revision=commit,
+                                 namespace=default_namespace(files))]
         if self.cluster.diff(manifests):
             self.cluster.apply(manifests)
             status = APPLIED
@@ -253,10 +263,11 @@ class Executor:
         if expected is None:
             raise StepOutcome(HOLD, "publish_commit_unknown")
         deadline = self.monotonic() + step["timeout_seconds"]
+        accepted = set(step.get("health", ["Healthy"]))
         while True:
             status = self.cluster.application_status(name)
             if status and status.get("revision") == expected and status.get("sync") == "Synced" \
-                    and status.get("health") == "Healthy":
+                    and status.get("health") in accepted:
                 return APPLIED
             if self.monotonic() >= deadline:
                 raise StepOutcome(HOLD, "sync_timeout")
@@ -289,9 +300,26 @@ class Executor:
 
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]
+        if step.get("create_only"):
+            return self._create_only(items)
         if not self.cluster.diff(items):
             return SKIPPED
         self.cluster.apply(items)
+        return APPLIED
+
+    def _create_only(self, items):
+        """Make what is missing; never take over a live object (no server-side apply, no field
+        ownership). Equal to the plan: SKIPPED. Different (someone tuned it, T12 runs it): HOLD."""
+        missing = []
+        for item in items:
+            live = self.cluster.get_object(item)
+            if live is None:
+                missing.append(item)
+            elif not _contained(item.get("spec", {}), live.get("spec", {})):
+                raise StepOutcome(HOLD, "live_object_differs")
+        if not missing:
+            return SKIPPED
+        self.cluster.create(missing)
         return APPLIED
 
     def _secret_generate(self, run, step):
@@ -328,6 +356,13 @@ class Executor:
             if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
+
+
+def _contained(want, have):
+    """Every field the plan renders has the same value live (fields the plan does not render may differ)."""
+    if isinstance(want, dict):
+        return isinstance(have, dict) and all(k in have and _contained(v, have[k]) for k, v in want.items())
+    return want == have
 
 
 def _planned(run, step):

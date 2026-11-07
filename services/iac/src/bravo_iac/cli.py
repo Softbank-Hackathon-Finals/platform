@@ -9,10 +9,11 @@
     bravo-iac tailnet-check --policy <tailnet policy JSON> [--tailnet workload] infra/iac/environments/*.json
     bravo-iac tailnet-verify [--tailnet workload] infra/iac/environments/*.json   # live, through this device's Tailscale
     bravo-iac tailnet-merge --policy <tailnet policy JSON> [--out merged.json] infra/iac/environments/*.json
-    bravo-iac tailnet-sync --tailnet-name <tailnet> --client-id <federated identity> [--apply] infra/iac/environments/*.json
+    bravo-iac tailnet-sync --tailnet-name <tailnet> --client-id <federated identity> [--apply] [--previous-dir <dir>] infra/iac/environments/*.json
     bravo-iac chart infra/iac/environments/target-dev.json --out infra/iac/charts/target-dev
     bravo-iac held infra/iac/environments/platform.json | kubectl apply --server-side --field-manager bravo-iac -f -
     bravo-iac network infra/iac/environments/*.json             # every route, as GET /v1/iac/network
+    bravo-iac node infra/iac/environments/platform.json --out infra/iac/nodes/platform   # node files
 
 stage writes the proposed state into the target file only if the file still has the plan's
 base_digest and the proposal its proposed_digest, and the plan was accepted. Opening the PR,
@@ -28,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import catalog, chart, network, tailnet, tailnet_sync
+from . import catalog, chart, network, node, tailnet, tailnet_sync
 from .modules import IacError
 from .plan import canonical, digest, plan
 
@@ -57,6 +58,14 @@ def run(args) -> dict:
         return {"apiVersion": "v1", "kind": "List", "items": chart.held_objects(_load(args.state))}
     if args.command == "network":
         return network.view([_load(s) for s in args.states])
+    if args.command == "node":
+        written = []
+        for name, content in node.files(_load(args.state)).items():
+            path = Path(args.out) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            written.append(name)
+        return {"nodes": args.out, "files": written}
     if args.command == "tailnet-policy":
         return tailnet.fragment([_load(s) for s in args.states], args.tailnet)
     if args.command == "tailnet-check":
@@ -76,7 +85,8 @@ def run(args) -> dict:
     if args.command == "tailnet-sync":
         token = tailnet_sync.github_token(args.client_id)
         client = tailnet_sync.Client(args.tailnet_name, token)
-        result = tailnet_sync.sync(client, [_load(s) for s in args.states], args.tailnet, args.apply)
+        previous = [_load(s) for s in sorted(Path(args.previous_dir).glob("*.json"))] if args.previous_dir else None
+        result = tailnet_sync.sync(client, [_load(s) for s in args.states], args.tailnet, args.apply, previous)
         return tailnet_sync.masked({**result, "ok": result["status"] in ("PLANNED", "NO_CHANGE", "APPLIED")})
     planned, proposed = _load(args.plan), catalog.check_state(_load(args.proposed))
     current = catalog.check_state(_load(args.target))
@@ -108,6 +118,9 @@ def main(argv=None) -> int:
     hd.add_argument("state")
     nw = sub.add_parser("network")
     nw.add_argument("states", nargs="+")
+    nd = sub.add_parser("node")
+    nd.add_argument("state")
+    nd.add_argument("--out", required=True)
     tp = sub.add_parser("tailnet-policy")
     tp.add_argument("--tailnet", default="default", help="tailnet key: default, or a group's `tailnet`")
     tp.add_argument("states", nargs="+")
@@ -129,6 +142,7 @@ def main(argv=None) -> int:
     ts.add_argument("--tailnet-name", required=True, help="the tailnet's organization name, never '-'")
     ts.add_argument("--client-id", required=True, help="the federated identity this job's OIDC token matches")
     ts.add_argument("--apply", action="store_true", help="write the merged policy (develop only)")
+    ts.add_argument("--previous-dir", help="the environments directory at the previous commit: prune what it drops")
     ts.add_argument("states", nargs="+")
     st = sub.add_parser("stage")
     st.add_argument("--plan", required=True)

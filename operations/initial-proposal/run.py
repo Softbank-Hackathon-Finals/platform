@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 
 from bravo_agent.product_execution_contracts import ExecutionPending, ExecutionUnknown
+
+from bravo_platform_events import initial_proposal_auto as auto
 from bravo_platform_events import initial_proposal_job as job
 from bravo_platform_events.initial_proposal import InitialIntent
 
@@ -44,11 +46,6 @@ def relay_with(argv):
     return call
 
 
-def intent_path(state_dir, plan_id, version):
-    """The one intent this operator started for a plan version (the claim forbids recomputing it)."""
-    return Path(state_dir) / "intents" / f"{plan_id}-{version}.json"
-
-
 def run(args, *, relay, client):
     ref = json.loads(Path(args.ref).read_text()) if Path(args.ref).exists() else {}
     base = {"plan_id": args.plan_id, "version": args.version, "ref": ref,
@@ -64,24 +61,11 @@ def run(args, *, relay, client):
                             "expires_at": args.expires_at})["ref"]
         Path(args.ref).write_text(json.dumps(ref))
         return {"ref": ref}
-    path = intent_path(args.state_dir, args.plan_id, args.version)
+    # The same steps the workflow host runs without an operator (bravo_platform_events.initial_proposal_auto).
     if args.command == "start":
-        if path.exists():  # already claimed by this operator: never recompute, only read
-            intent = InitialIntent.model_validate_json(path.read_text())
-        else:
-            fields = relay(base | {"op": "fields"})["fields"]
-            intent = InitialIntent(**fields, recipient_public_key=client.recipient(fields["request_id"]))
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            path.write_text(intent.model_dump_json())
-        relay(base | {"op": "claim", "recipient_public_key": intent.recipient_public_key})
-        client.submit(intent)  # idempotent per request id; raises ExecutionPending while the Job runs
+        intent = auto.start(base, relay=relay, client=client, state_dir=args.state_dir)
         return {"request_id": intent.request_id}
-    intent = InitialIntent.model_validate_json(path.read_text())
-    receipt = client.read(intent)
-    stored = relay(base | {"op": "store", "envelope": receipt})["result"]
-    return {"request_id": intent.request_id, "runtime_source_sha": stored["runtime_source_sha"],
-            "proposal_digest": stored["proposal_digest"]}
-
+    return auto.collect(base, relay=relay, client=client, state_dir=args.state_dir)
 
 def expand(argv):
     """`--from FILE` (used by scripts/happy_path.py): the same options as one private JSON file."""

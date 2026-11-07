@@ -10,7 +10,7 @@
 | `stack.py` | 스택 검사(스키마, 중복 · 없는 의존 · 순환, publish 없는 sync, 선언하지 않은 파라미터), 병렬 단계(level) 계산, 계획 요청 JSON Schema 생성 |
 | `plan.py` | 저장소 렌더러를 고정 인자로 실행하고, chart는 아카이브 해시를 확인한 뒤 `helm template` → 후처리(`finalize-bao` 등)를 거친다. 렌더 결과를 자원 종류로 골라 나눌 수 있다. 단계 digest, 설정 저장소 트리 digest, `plan_digest` |
 | `executor.py` | 승인 대조 → 1회 소비 → 단계 그래프 병렬 실행. 단계 종류별 처리, 멱등 `SKIPPED`, 사람 단계 `WAITING_OPERATOR`, 결과 불명 `HOLD`, 재개 |
-| `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject(설정 저장소 URL로 제한) |
+| `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject. AppProject는 설정 저장소 하나, 승인된 매니페스트가 만들거나 쓰는 namespace만, 그 매니페스트에 실제로 있는 클러스터 범위 종류만 허용한다(`*` 없음, T44 자원 없음) |
 | `adapters.py` | `FileRunStore` · `FilePlanStore`, `GitConfigRepo`(fast-forward push만, 강제 push 없음), `KubectlCluster`(server-side diff/apply, Secret은 stdin으로 create만, helm 이력의 digest), `T10Approvals`, `ClusterChecks` |
 | `api.py` | `POST /v1/infra/plans` · `GET .../plans/{id}` · `GET /v1/infra/request-schema` · `POST .../plans/{id}/runs` · `GET /v1/infra/runs/{id}` · `POST .../runs/{id}/steps/{step}/confirm`. 실행 · 확인은 사람만(에이전트 신원 403) |
 | `terraform.py` | `terraform` 단계: 코드 · 모듈 digest, 저장소 밖 입력 digest, 출력 경로 연결, terraform CLI(단계별 데이터 폴더, 읽기 전용 lock), 계획의 변경 요약과 삭제 · 교체 판별 |
@@ -32,6 +32,7 @@
 
 ```sh
 uv run bravo-infra-plan check ../../infra/stacks/target-onprem/stack.json
+uv run bravo-infra-plan check ../../infra/stacks/target-onprem-migration/stack.json   # 목적지 이전 단계
 uv run bravo-infra-plan request-schema ../../infra/stacks/target-onprem/stack.json
 uv run bravo-infra-plan plan ../../infra/stacks/target-onprem/stack.json \
   --request request.json --repo-root ../.. --charts-dir <chart 아카이브 폴더> \
@@ -46,9 +47,11 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - 실행 시작 때 대상 클러스터 UID와 설정 저장소 head를 다시 읽어 계획을 다시 렌더한다. T10 승인의 `plan_digest`와 다르면 `REFUSED`이고 아무것도 바꾸지 않는다. 같으면 T10에서 승인을 이 실행 하나로 소비한다(T10이 digest · 만료 · 회수 · `apply_infra` · 원 승인자 권한을 다시 확인).
 - 의존이 끝난 단계는 동시에 시작한다(기본 4개). 실패 · `HOLD` · 사람 대기는 그 단계에 의존하는 단계만 멈춘다.
 - `gitops_publish`는 설정 저장소가 실행이 아는 head에서 움직이지 않았을 때만, 그 경로만 담은 커밋 하나를 fast-forward로 push하고(작업 폴더 파일 잠금, 사용자 git 설정 무시), 그 커밋 SHA를 Application에 고정한다. Argo CD가 이미 같은 내용을 따르고 있으면 커밋 · Application 변경 없이 `SKIPPED`.
-- `gitops_sync`는 Application이 그 SHA로 `Synced` · `Healthy`일 때만 통과한다. 시간 상한을 넘기면 `HOLD`.
+- `gitops_sync`는 Application이 그 SHA로 `Synced` · `Healthy`일 때만 통과한다. 시간 상한을 넘기면 `HOLD`. 뒤 단계 전에는 Ready일 수 없는 워크로드만 `health`로 받을 상태를 적는다(`openbao-sync`: init · unseal 전 `Progressing`, Ready는 `openbao-init`이 확인).
 - `secret_generate`는 Secret이 없을 때만 만든다. 값은 메모리 → `kubectl create` stdin뿐이고, 실행 기록 · 원장에는 남지 않는다(시험으로 확인).
-- 사람 단계는 확인 조건을 먼저 관찰한다. 관찰되면 `SKIPPED`, 코드가 관찰할 수 없는 것(호스트 디렉터리, 오프라인 이미지 반입)은 사람 확인 기록이 있어야 진행한다.
+- 사람 단계는 확인 조건을 먼저 관찰한다. 관찰되면 `SKIPPED`. `expect`를 적은 단계는 코드가 관찰한다: 오프라인 이미지는 노드가 보고하는 이미지 이름(`images` · `images_by_arch`), 호스트 디렉터리는 준비한 쪽(첫 부팅 또는 플랫폼의 사이트 호스트)이 노드에 남긴 `bravo.io/host-paths` 주석이 선언한 디렉터리의 digest와 같은지. 이런 단계는 사람 확인만으로 넘어가지 않는다(`confirm_check_failed`). `expect`가 없는 단계만 사람 확인 기록으로 진행한다.
+- 파라미터는 `default`를 둘 수 있고, 기본값은 계획 요청에 적혀 digest에 들어간다. 단계는 `when`(닫힌 값 파라미터와 그 값)으로 대상에 따라 빠질 수 있다. 빠진 단계는 계획에 `omitted`로 남고(승인이 그 생략을 덮는다) 렌더하지 않으며, 실행에서는 `OMITTED`(의존 단계에는 끝난 것). 예: `tailnet=none`(같은 클러스터 안 격리 시험)은 Tailscale 줄기를, amd64 노드는 `app-image`를 뺀다.
+- 어댑터 오류(`HOLD` `adapter_error`)는 실행 기록의 `error`에 예외 종류와(어댑터의 고정 메시지인 경우) 원인을 남긴다. kubectl 읽기 조회는 API에 닿지 못한 전송 오류(`Unable to connect to the server`, broken pipe 등)일 때만 세 번까지 다시 묻는다. 쓰기는 다시 보내지 않는다.
 - 실행은 시작 때 저장한 스택만 실행한다(그 digest가 `plan_digest` 안에 있다). 승인 뒤 저장소의 stack.json을 고쳐도 진행 중인 실행에는 영향이 없다.
 - 모든 단계는 대상 클러스터 UID · 노드 UID를 다시 읽고 시작한다. kube context는 시작 때 고정한다. 다르면 `HOLD`(`target_identity_changed`).
 - 재개(`confirm` 포함)마다 T10에서 승인 회수 여부를 읽고, 호출자의 토큰으로 같은 실행의 소비를 다시 요청해 그 사람의 `apply_infra`를 확인받는다.
@@ -73,8 +76,38 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
 - **검증**: 실제 terraform 바이너리로 로컬 backend 시험 스택 두 개(출력 연결, 재실행 `SKIPPED`, 교체 `HOLD`, 승인 뒤 입력 변경 거부). 실제 AWS 계정에는 실행하지 않았다.
 
+## 목적지가 이전 대상으로서 하는 단계 (`target-onprem-migration`)
+
+`target-onprem`으로 목적지를 세운 뒤, 목적지가 이전 대상이 되기까지의 순서다. 같은 실행기·계획 digest·T10
+`approval_kind=infra` 승인으로 돌고, 단계마다 대상 신원을 다시 읽는다. 클러스터에 쓰는 것은 정방향 구독을 **만드는**
+`render_apply` 하나뿐이다. 지우기·끄기·덮어쓰기는 없다. 관찰할 수 없는 것은 사람 확인으로 남기고, 시간이 걸리는 것은
+`operator_action`의 확인 검사로 기다린다(관찰되면 resume 때 SKIPPED, 아직이면 WAITING).
+
+| 단계 | 종류 | 담당 | 끝나는 조건(코드가 관찰) |
+|---|---|---|---|
+| `identity` | probe | T30 | 승인된 노드·클러스터 UID, 노드 Ready |
+| `node-files` | operator_action | T44 | API 서버가 Metadata 감사 이벤트를 낸다(`apiserver_audit_level_total{level="Metadata"}` > 0). 노드 묶음은 `infra/iac/nodes/<환경>`, 적용기는 `infra/iac/nodes/apply.py` |
+| `iac-network` | operator_action | T44 | T44 판정기 `infra/iac/customer_status.py`(#635)가 `bravo-iac-target-dev`를 승인 커밋으로 `SYNC_VERIFIED`. 설치 전·수렴 전이면 기다리고, 판정기가 막으면 HOLD |
+| `replication-external-cluster` | probe | T8 | `target-db`가 `t8-source`를 선언했다(kube DNS `source-db-for-replication.target-dev.svc`, verify-full, 자격 Secret 이름). 선언은 `target-onprem`의 database 렌더가 소유하고, 여기서는 확인만 한다 |
+| `replication-credentials` | operator_action | T8 | `target-dev/t8-source-replication`(password), `t8-source-ca`(ca.crt)가 있고 CNPG가 읽었다(`status.secretsResourceVersion.externalClusterSecretVersion`). 둘 다 라벨 `cnpg.io/reload=true`가 필요하다. 값은 Git·계획·기록에 없음 |
+| `replication-target-ready` | probe | T8 | 구독이 이미 있거나, 게시된 표가 목적지에 있고 비어 있다. 행이 있으면 HOLD |
+| `forward-subscription` | render_apply(`create_only`) | T8 | `replication.py subscription --side target`: `t8-source-to-target`이 없으면 만든다. 같으면 SKIPPED, 다르면 HOLD |
+| `initial-copy` | operator_action | T8 | 구독 적용 + 표마다 초기 복사 끝(`pg_subscription_rel` 전부 `r`, 주 인스턴스에서 고정 읽기 쿼리). 인증서 이름 불일치·CA 미적재는 HOLD |
+
+복제 판정(볼 대상, 고정 읽기 쿼리, 판정)은 `bravo_infra_plan/replication.py`에 있다. `KubectlCluster`는 객체 읽기와
+주 인스턴스의 읽기 전용 쿼리만 한다. 출발지의 역방향 준비와 T10 넘김은 이 스택 밖이다(목적지 UID 승인에 묶이지 않는다).
+
+그다음은 플랫폼 워크플로다: REHEARSE(T31 반영) → GATE(T19 재대조) → AWAIT_APPROVAL(요청자가 아닌 사람) → SHIFT(T17
+가중치) → CUTOVER(T12 실행기: 비교·커밋, 정방향 끔·역방향 켬, epoch) → WATCH(T36 SLI + T19 재시험). 문제가 있으면
+FAILBACK(T20)이 역방향 복제와 Edge 복원으로 돌린다. 이 스택은 그 판단을 하지 않고, 그 앞까지를 순서와 조건으로 고정한다.
+
+새 RKE2 시험 VM(2026-11-07 20:30–20:42 KST, CNPG 1.30.1, 클러스터 UID 대조)에서 실제 렌더 출력을 이름만 바꾼
+namespace에 올려 확인했다. 외부 클러스터를 선언한 `target-db`는 Secret 없이도 healthy였다. 늦게 만든 Secret은
+`cnpg.io/reload` 라벨이 있어야 적재됐고, 그 뒤 kube DNS + verify-full로 초기 복사가 끝났다(행 수 일치, TLSv1.3). 판정
+함수(`external_cluster`·`credentials`·`target_ready`·`initial_copy`)는 실제 `KubectlCluster`로 모두 True였다. 손으로
+`hostaddr`를 패치한 기존 목적지는 `external_cluster`가 False다. 새 렌더로 세운 목적지에서만 통과한다.
+
 ## 다음 PR에서 할 것
 
-- 원장(`ledger`)을 T24 감사 로그 싱크에 연결한다. 지금은 JSONL 파일이다.
 - 에이전트 워크로드 신원(T38)을 API에 연결(ADR-0033의 "에이전트는 계획 생성 · 조회"), T43 경로의 플랫폼 배포.
 - 목적지 Argo CD AppProject의 클러스터 범위 자원 허용을 좁히기(ADR-0032 3.5 후속).

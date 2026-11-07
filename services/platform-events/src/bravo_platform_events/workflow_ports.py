@@ -10,12 +10,17 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                  "selections_dir": "/workflow/selections", "demo_chat_clone": "/workflow-state/demo-chat",
                  "github_app": {"app_id": 1, "key_file": "/github-app/private-key.pem",
                                 "workflow_sha": "<demo-chat main after #25>", "workflow_id": 408240730,
-                                "state_file": "/workflow-state/dispatches.json"}},
+                                "state_file": "/workflow-state/dispatches.json"},
+                 "auto": {"state_dir": "/workflow-state/initial-operator", "relay_config": "/workflow/relay.json",
+                          "catalog_root": "/catalog",
+                          "gitops_image": "/workflow/product-reader-image.json", "plans": ["<plan id>"]}},
      "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory"},
      "application": "module:factory"}
 
 `executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
-`github_app`, `watch` and `application` are optional; an absent section leaves its states holding
+`github_app`, `auto` (T49: admit the one registered task and run the AI Job without an operator),
+`watch`, `application` and `delegation` (true: record pre-delegated approvals, T49) are optional;
+an absent section leaves its states holding
 as workflow_reader_unwired. The Executor client is read-only (no command token): the host only
 reconciles; SHIFT approval and cutover submission stay with the operator API.
 """
@@ -29,7 +34,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -75,8 +80,9 @@ def _propose(store, config):
     from .product_read_server import configured_initial_reader
     from .workflow_propose import pinned_selections, propose_preparer
 
-    allowed = {"reader_config", "principal", "runtime_source_sha", "selections_dir", "demo_chat_clone", "github_app"}
-    if set(config) - allowed or allowed - {"github_app"} - set(config) or not HEX40.fullmatch(config["runtime_source_sha"]):
+    allowed = {"reader_config", "principal", "runtime_source_sha", "selections_dir", "demo_chat_clone", "github_app", "auto"}
+    optional = {"github_app", "auto"}
+    if set(config) - allowed or allowed - optional - set(config) or not HEX40.fullmatch(config["runtime_source_sha"]):
         raise ValueError("workflow_propose_configuration_invalid")
     reader = configured_initial_reader(store, str(_path(config["reader_config"])))
     # The host only reads stored results and publications: the stored-only client never submits.
@@ -98,8 +104,27 @@ def _propose(store, config):
         writer = CandidateWriter(GitHubApp(app["app_id"], key, repository, WRITER_PERMISSIONS), clone,
                                  workflow_sha=app["workflow_sha"], workflow_id=app["workflow_id"],
                                  state_file=app["state_file"])
+    auto = None
+    if "auto" in config:
+        # T49: the host admits the plan's one registered task and runs the AI Job itself (no operator relay).
+        from . import initial_proposal_job as job
+        from .initial_proposal_auto import AutoInitialProposal
+
+        spec = config["auto"]
+        required = {"state_dir", "relay_config", "catalog_root", "gitops_image"}
+        if (not required <= set(spec) <= required | {"plans"}
+                or ("plans" in spec and (type(spec["plans"]) is not list or not spec["plans"]))):
+            raise ValueError("workflow_propose_auto_configuration_invalid")
+        image, revision = job.gitops_image(_path(spec["gitops_image"]))
+        if revision != config["runtime_source_sha"]:
+            raise ValueError("workflow_propose_auto_runtime_mismatch")  # the Job must run the claimed runtime
+        auto = AutoInitialProposal(reader.records, relay_config=json.loads(_path(spec["relay_config"]).read_text()),
+                                   state_dir=_path(spec["state_dir"], directory=True), image=image,
+                                   source_revision=revision, principal=config["principal"],
+                                   catalog_root=_path(spec["catalog_root"], directory=True),
+                                   plans=spec.get("plans"))  # absent: every plan on this host
     return propose_preparer(execution, select=pinned_selections(config["selections_dir"]),
-                            repository=clone, github=github, writer=writer)
+                            repository=clone, github=github, writer=writer, auto=auto)
 
 
 def create_ports(store, config_file="/workflow/ports.json"):
@@ -113,17 +138,35 @@ def create_ports(store, config_file="/workflow/ports.json"):
     cutover = CutoverService(store, client, bindings=bindings)
     readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
+    delegations = None
+    if config.get("delegation") is True:
+        # T49: approvals the approver delegated in advance are recorded by this host at the gate.
+        from .approval_delegation import ApprovalDelegations
+        from .operator_access import OperatorAccess
+        from .workflow_stages import ShiftApprovalService, delegated_shift_preparer
+
+        access = OperatorAccess(store)
+        delegations = ApprovalDelegations(store, access)
+        shift = ShiftApprovalService(store, check_approve=access.requires("approve_shift"))
+        readers.pop("AWAIT_APPROVAL")
+        preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, delegations)
     if "watch" in config:
         watch = config["watch"]
         if set(watch) != {"profile_file", "retest"}:
             raise ValueError("workflow_watch_configuration_invalid")
         profile = json.loads(_path(watch["profile_file"]).read_text())
-        readers["WATCH"] = watch_reader(observe=sli_observer(profile), retest=_factory(watch["retest"])(store))
+        observe = sli_observer(profile)
+        readers["WATCH"] = watch_reader(observe=observe, retest=_factory(watch["retest"])(store))
+        if delegations is not None:
+            from .workflow_stages import watch_fail_preparer
+
+            preparers["WATCH"] = watch_fail_preparer(store, observe, readers.pop("WATCH"))
     if "application" in config:
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
         # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's
         # single ApplicationHost; that subject needs its own apply_change grant.
-        stages = _factory(config["application"])(store)
+        factory = _factory(config["application"])
+        stages = factory(store, delegations=delegations) if delegations else factory(store)
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
         preparers |= stages

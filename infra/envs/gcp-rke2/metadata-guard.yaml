@@ -1,0 +1,52 @@
+# GCE counterpart of AWS IMDSv2 hop limit 1: pods cannot reach the instance metadata server, so they
+# cannot take the node service account token. Host-network components (kubelet credential provider,
+# RKE2 itself) are not selected and keep access. Port 53 stays open: on GCE the same address is the
+# VPC DNS resolver that CoreDNS forwards to. Admin tier: a namespace NetworkPolicy cannot allow it
+# back. Traffic that does not match falls through to normal NetworkPolicy evaluation.
+# RKE2 Canal does not run Calico's client initialization, which normally creates these three tiers
+# (libcalico-go clientv3 EnsureInitialized, v3.32.2: default Deny 1e6, kube-admin Pass 1e3,
+# kube-baseline Pass 1e7). Without kube-admin, Felix drops all traffic of pods selected by an Admin
+# ClusterNetworkPolicy instead of passing unmatched traffic on (measured on the GCP node).
+apiVersion: crd.projectcalico.org/v1
+kind: Tier
+metadata:
+  name: kube-admin
+spec:
+  order: 1000
+  defaultAction: Pass
+---
+apiVersion: crd.projectcalico.org/v1
+kind: Tier
+metadata:
+  name: default
+spec:
+  order: 1000000
+  defaultAction: Deny
+---
+apiVersion: crd.projectcalico.org/v1
+kind: Tier
+metadata:
+  name: kube-baseline
+spec:
+  order: 10000000
+  defaultAction: Pass
+---
+apiVersion: policy.networking.k8s.io/v1alpha2
+kind: ClusterNetworkPolicy
+metadata:
+  name: bravo-deny-instance-metadata
+spec:
+  tier: Admin
+  priority: 10
+  subject:
+    namespaces: {}
+  egress:
+    - name: instance-metadata-except-dns
+      action: Deny
+      to:
+        - networks: ["169.254.169.254/32"]
+      protocols:
+        - tcp: {destinationPort: {range: {start: 1, end: 52}}}
+        - tcp: {destinationPort: {range: {start: 54, end: 65535}}}
+        - udp: {destinationPort: {range: {start: 1, end: 52}}}
+        - udp: {destinationPort: {range: {start: 54, end: 65535}}}

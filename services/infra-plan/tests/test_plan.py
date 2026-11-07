@@ -12,7 +12,7 @@ from bravo_infra_plan.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
 STACK = REPO / "infra/stacks/target-onprem/stack.json"
-REQUEST = {"stack": "target-onprem", "environment_id": "env-onprem",
+REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
                       "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9"}}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
@@ -142,6 +142,10 @@ def _doc():
     (lambda d: d["steps"][5].update(publish="identity"), "sync_without_publish"),
     (lambda d: d["steps"][4]["renders"][0].update(run="/etc/passwd"), "invalid_stack"),
     (lambda d: d["steps"][4]["renders"][0].update(run="../outside.py"), "invalid_stack"),
+    # A condition must name a closed parameter and only its values; a default must be one of them.
+    (lambda d: d["steps"][1].update(when={"param": "node_name", "in": ["x"]}), "invalid_step_condition"),
+    (lambda d: d["steps"][1].update(when={"param": "tailnet", "in": ["maybe"]}), "invalid_step_condition"),
+    (lambda d: d["params"]["tailnet"].update(default="maybe"), "invalid_parameter_default"),
 ])
 def test_malformed_stacks_are_refused_before_rendering(edit, code):
     document = _doc()
@@ -169,3 +173,55 @@ def test_cli_check_and_request_schema(capsys):
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
     assert schema["properties"]["params"]["required"] == sorted(REQUEST["params"])
+
+
+def _desired_world(tmp_path, environments):
+    """A minimal repository with only T44 desired-state files and one operator step that reads them."""
+    for name, state in environments.items():
+        path = tmp_path / "infra/iac/environments" / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "environment": name, "modules": [
+            {"id": "target-object-exposure", "version": 1, "params": state}]}))
+    stack = parse_stack({"schema_version": 1, "stack": "desired-test", "charts": {},
+                         "params": {"node_name": {"description": "n"}}, "steps": [
+        {"id": "object-secrets", "kind": "operator_action", "owner": "T9", "description": "d",
+         "instruction": "i", "confirm": "seaweedfs-auth",
+         "desired": {"file": "infra/iac/environments/{environment_id}.json", "module": "target-object-exposure",
+                     "params": ["state", "bucket", "demo_run_id"]}}]})
+    return lambda env: Planner(stack, tmp_path).plan(
+        {"stack": "desired-test", "environment_id": env, "params": {"node_name": "n"}},
+        stack_revision=REV, target=TARGET, base_commit=BASE)
+
+
+def test_each_environment_gets_its_own_desired_state_and_a_missing_one_refuses(tmp_path):
+    plan_for = _desired_world(tmp_path, {
+        "target-dev": {"state": "open-demo", "bucket": "demo-chat-attachments", "demo_run_id": "demo-2026-11-08"},
+        "target-e2e": {"state": "closed", "bucket": "demo-chat-attachments"}})
+    assert plan_for("target-dev").document["steps"][0]["desired"]["state"] == "open-demo"
+    assert plan_for("target-e2e").document["steps"][0]["desired"] == {"state": "closed",
+                                                                       "bucket": "demo-chat-attachments"}
+    with pytest.raises(StackError, match="desired_state_unavailable"):  # never borrow target-dev's open-demo
+        plan_for("target-new")
+
+
+def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_binds_it():
+    joined = plan()
+    assert joined.document["request"]["params"]["tailnet"] == "join"  # the default is written into the plan
+    assert not any(s.get("omitted") for s in joined.document["steps"])
+    isolated_request = copy.deepcopy(REQUEST)
+    isolated_request["params"]["tailnet"] = "none"
+    charts = FakeCharts()
+    isolated = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        isolated_request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    omitted = {s["id"] for s in isolated.document["steps"] if s.get("omitted")}
+    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync"}
+    assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
+    assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
+    assert isolated.plan_digest != joined.plan_digest
+
+
+def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
+    stack = load_stack(STACK)
+    assert stack.applies("app-image", {"arch": "arm64"})
+    assert not stack.applies("app-image", {"arch": "amd64"})  # amd64 pulls the pinned registry image
+    assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}

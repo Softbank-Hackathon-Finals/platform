@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "environment": "target-gce",
+  "modules": [
+    {
+      "id": "tailnet-operator",
+      "version": "1",
+      "params": {
+        "tag": "tag:bravo-target-gce-operator"
+      }
+    }
+  ]
+}

@@ -31,6 +31,7 @@
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
 | 8.8·8.11 목적지를 처음 세우는 정형 단계 스택 · 실행기 · T10 승인 결속(T45) | [0033 목적지 처음 구축 실행기](0033-destination-bootstrap-executor.md) |
+| 7.5·8.3 tailnet 합류 · 정책 · 분리의 코드화와 Tailscale 워크로드 신원 연합(T48) | [0035 tailnet 신원 코드화](0035-tailnet-identity-as-code.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
 | 7.2 목적지 개발 앱의 Secrets Manager 호환 (측정용, 출구 증거 아님) | [0017 호환 컨테이너](0017-target-app-secrets-manager-compat.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |

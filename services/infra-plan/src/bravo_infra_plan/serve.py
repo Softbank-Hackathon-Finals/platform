@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 from .adapters import (
+    AuditLedger,
     ClusterChecks,
     FilePlanStore,
     FileRunStore,
@@ -29,7 +30,8 @@ from .plan import HelmChartRenderer, Planner
 from .stack import load_stack
 
 FIELDS = frozenset({"version", "operator_verifier", "t10_url", "stack", "repo_root", "charts_dir", "kubeconfig",
-                    "config_repo", "config_branch", "config_workdir", "argo_repo_url", "runs_dir", "plans_dir"})
+                    "config_repo", "config_branch", "config_workdir", "argo_repo_url", "runs_dir", "plans_dir",
+                    "audit_sink"})
 
 
 def operator_verifier(operator):
@@ -71,15 +73,18 @@ def build(config):
     cluster = KubectlCluster(config["kubeconfig"])
     repo = GitConfigRepo(config["config_repo"], config["config_branch"], config["config_workdir"])
     runs = FileRunStore(config["runs_dir"])
-    ledger = Path(config["runs_dir"]) / "ledger.jsonl"
+    if config["audit_sink"]:  # T24 hash chain, the production record
+        append = AuditLedger(config["audit_sink"], runs)
+    else:
+        ledger = Path(config["runs_dir"]) / "ledger.jsonl"
 
-    def append(event):
-        with open(ledger, "a") as handle:
-            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        def append(event):
+            with open(ledger, "a") as handle:
+                handle.write(json.dumps(event, sort_keys=True) + "\n")
 
     def executor_for(token):
         return Executor(planner, stack_revision=revision, cluster=cluster, repo=repo,
-                        approvals=T10Approvals(config["t10_url"], token), checks=ClusterChecks(cluster),
+                        approvals=T10Approvals(config["t10_url"], token), checks=ClusterChecks(cluster, repo_root),
                         store=runs, repo_url=config["argo_repo_url"], ledger=append)
 
     return create_app(stack=stack, plans=FilePlanStore(config["plans_dir"]), executor_for=executor_for,

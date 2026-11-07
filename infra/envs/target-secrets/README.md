@@ -168,6 +168,8 @@ namespace**, not a run id, and the only reader policy is one operator-owned temp
 | `rehearsal-writer-policy` | HCL for policy `rehearsal-openbao-writer` (T15 prep Job) | See "Rehearsal writer" below |
 | `rehearsal-writer-auth-role` | Body for `auth/kubernetes/role/rehearsal-openbao-writer` | SA `rehearsal-openbao-writer` in exactly `bravo-rehearsal-control`; audience `openbao`; writer policy only; TTL 300/900 s; no default policy |
 | `rehearsal-writer-identity` (optional) | Namespace `bravo-rehearsal-control` (PSS restricted) + ServiceAccount `rehearsal-openbao-writer` (no automount) | Apply only if T15/T30 agree T9 owns them; see below |
+| `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side stays `target-app-reader` |
+| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side for the in-cluster T14 Job) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
 
 The earlier `rehearsal-policy --run-id <run>` stage (one writer-written policy per run) and the
 `--run-id` flag are removed; the renderer refuses them.
@@ -338,8 +340,10 @@ The official 2.7.2 image contained fixable HIGH
 [CVE-2026-116587](https://github.com/advisories/GHSA-mgcc-cww5-fp2q).
 The local image uses exact upstream commit
 `9e0a0d3c3504a0a00b45e61355afac5e35c78379`, the small
-[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, and
-Go 1.27.3. This is a downstream development build, not an official release.
+[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, the
+[x/net patch](image/x-net.patch) upgrading golang.org/x/net 0.61.0 to 0.62.0
+(`bravo.4`, CVE-2026-78661), and Go 1.27.3. This is a downstream development
+build, not an official release.
 Upstream MPL-2.0 licensing remains applicable; the base image retains its license.
 
 [Build receipt](image/build-receipt.json) records the exact build flags, binary
@@ -353,6 +357,7 @@ Reproduce in a new source directory:
 git clone https://github.com/openbao/openbao.git openbao-source
 git -C openbao-source checkout 9e0a0d3c3504a0a00b45e61355afac5e35c78379
 git -C openbao-source apply /path/to/image/go-jose.patch
+git -C openbao-source apply /path/to/image/x-net.patch
 ```
 
 Use the receipt's `build_flags` with `GOTOOLCHAIN=go1.27.3`, `CGO_ENABLED=0`,
@@ -368,3 +373,20 @@ bounded scan claim.
 
 The current chart/image metadata and the public reproduction material contain
 no operator tokens, recovery keys, source credentials or private kubeconfig.
+
+### Architectures
+
+`render.py --arch {arm64,amd64}` (default `arm64`) selects the image for
+`bao-values`, `finalize-bao` and `rehearsal-init-container`. Both are `bravo.4`.
+On 2026-11-07 `bravo.3` failed the gate on CVE-2026-78661 (`golang.org/x/net`
+0.61.0, fixed 0.62.0). [x-net.patch](image/x-net.patch) is
+`go get golang.org/x/net@v0.62.0` in each module that requires it.
+
+| Arch | Dockerfile | Receipt |
+|---|---|---|
+| arm64 | [Dockerfile](image/Dockerfile) | [build-receipt.json](image/build-receipt.json) |
+| amd64 | [Dockerfile.amd64](image/Dockerfile.amd64) (amd64 base manifest) | [build-receipt-amd64.json](image/build-receipt-amd64.json) |
+
+For each arch, the scan covered the alpine packages and `usr/bin/bao` with 0
+findings, and the offline `bao version` probe matched. Two independent builds
+of arm64 produced the same binary and image digest.
