@@ -47,5 +47,6 @@ argo-cd:
     enabled: false
   notifications:
     enabled: false
+  # argo-helm 10.14.0 has no applicationSet.enabled; no replica is the switch.
   applicationSet:
-    enabled: false
+    replicas: 0

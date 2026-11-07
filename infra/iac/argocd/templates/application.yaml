@@ -1,3 +1,5 @@
+{{- /* Argo CD CRDs come with this release: the first install creates them, the next upgrade adds this. */}}
+{{- if .Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" }}
 {{- $environment := required "environment is required" .Values.environment }}
 {{- $tailnet := required "tailnet (<name>.ts.net) is required" .Values.tailnet }}
 apiVersion: argoproj.io/v1alpha1
@@ -33,3 +35,4 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+{{- end }}

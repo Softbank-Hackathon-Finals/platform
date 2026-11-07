@@ -27,7 +27,7 @@ def test_charts_keep_the_tailnet_and_credentials_out_of_git():
         assert "secretKey" not in template and "Secret" not in json.dumps(manifests(state)[0])
     objects, unmanaged = manifests(ENVIRONMENTS["target-dev"])
     assert unmanaged == ["target-object-exposure:Secret/target-dev/target-seaweedfs-auth"]
-    assert {o["kind"] for o in objects} == {"ProxyGroup", "Service", "NetworkPolicy"}
+    assert {o["kind"] for o in objects} == {"Namespace", "ProxyGroup", "Service", "NetworkPolicy"}
 
 
 def test_objects_are_complete_kubernetes_manifests():
@@ -41,6 +41,13 @@ def test_objects_are_complete_kubernetes_manifests():
     policy = by_key[("NetworkPolicy", "tailscale-system", "bravo-cutover-control-ingress")]
     assert policy["apiVersion"] == "networking.k8s.io/v1" and policy["spec"]["policyTypes"] == ["Ingress"]
     assert all(o["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "bravo-iac" for o in objects)
+    # Every namespace the chart writes into is declared first, and Argo may never delete one.
+    namespaces = [o for o in objects if o["kind"] == "Namespace"]
+    assert objects[:len(namespaces)] == namespaces
+    assert {n["metadata"]["name"] for n in namespaces} == {
+        o["metadata"]["namespace"] for o in objects if "namespace" in o["metadata"]}
+    assert all(n["metadata"]["annotations"]["argocd.argoproj.io/sync-options"] == "Prune=false,Delete=false"
+               for n in namespaces)
 
 
 def test_the_argo_chart_accepts_exactly_the_committed_environments():

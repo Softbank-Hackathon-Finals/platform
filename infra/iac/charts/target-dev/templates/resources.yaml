@@ -1,6 +1,36 @@
 {{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}
 ---
 {
+  "apiVersion": "v1",
+  "kind": "Namespace",
+  "metadata": {
+    "annotations": {
+      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
+      "argocd.argoproj.io/sync-wave": "-1"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac"
+    },
+    "name": "bravo-observability"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Namespace",
+  "metadata": {
+    "annotations": {
+      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
+      "argocd.argoproj.io/sync-wave": "-1"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac"
+    },
+    "name": "tailscale-system"
+  }
+}
+---
+{
   "apiVersion": "tailscale.com/v1alpha1",
   "kind": "ProxyGroup",
   "metadata": {

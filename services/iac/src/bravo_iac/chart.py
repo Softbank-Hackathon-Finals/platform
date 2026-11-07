@@ -12,6 +12,11 @@ from .catalog import check_state, module
 from .plan import digest
 
 API = {"ProxyGroup": "tailscale.com/v1alpha1", "Service": "v1", "NetworkPolicy": "networking.k8s.io/v1"}
+# Namespaces the chart uses are declared so a fresh cluster gets them; Argo never deletes one (it may
+# already hold other workloads) and creates them before anything else.
+NAMESPACE_ANNOTATIONS = {"argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
+                         "argocd.argoproj.io/sync-wave": "-1"}
+SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
 TAILNET_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$"
 
 
@@ -34,7 +39,11 @@ def manifests(state) -> tuple[list[dict], list[str]]:
                 metadata["annotations"] = spec.pop("annotations")
             objects.append({"apiVersion": API[resource["kind"]], "kind": resource["kind"],
                             "metadata": metadata, "spec": spec})
-    return objects, sorted(unmanaged)
+    namespaces = sorted({o["metadata"]["namespace"] for o in objects if "namespace" in o["metadata"]} - SYSTEM_NAMESPACES)
+    declared = [{"apiVersion": "v1", "kind": "Namespace",
+                 "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "bravo-iac"},
+                              "annotations": dict(NAMESPACE_ANNOTATIONS)}} for name in namespaces]
+    return declared + objects, sorted(unmanaged)
 
 
 def files(state) -> dict[str, str]:

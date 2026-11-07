@@ -1,3 +1,5 @@
+{{- /* Argo CD CRDs come with this release: the first install creates them, the next upgrade adds this. */}}
+{{- if .Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" }}
 {{- /*
 Phase 1 (ADR-0032): generous on purpose, so the happy path is simple. One repository, this cluster
 only, any namespace and kind. Narrow it once the path is stable: see infra/iac/README.md.
@@ -20,3 +22,4 @@ spec:
   namespaceResourceWhitelist:
     - group: "*"
       kind: "*"
+{{- end }}
