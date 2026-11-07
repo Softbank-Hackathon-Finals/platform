@@ -72,11 +72,11 @@
       "id": "argocd",
       "kind": "operator_action",
       "owner": "T44",
-      "description": "T44 목적지 Argo CD(infra/iac/argocd)가 설치돼 있는지 확인한다. T45는 Argo CD를 설치하지 않는다",
+      "description": "T44 목적지 Argo CD 컨트롤러(infra/iac/argocd)가 준비됐는지 확인한다. T45는 Argo CD를 설치하지 않는다",
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 설치한다(release bravo-iac-gitops, namespace bravo-iac-gitops, 설치 명령 2회). 플랫폼 클러스터에는 설치하지 않는다.",
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops). chart 0.2.0은 기본이 컨트롤러만이고(application.enabled · autoSync · prune 모두 false), T45에는 그것으로 충분하다. T44 Application의 등록 · 활성화는 T44 절차를 따르며 T45 진행 조건이 아니다. 0.1.0 chart라면 README대로 설치 명령을 2회 실행한다. 플랫폼 클러스터에는 설치하지 않는다.",
       "confirm": "iac-argocd"
     },
     {
