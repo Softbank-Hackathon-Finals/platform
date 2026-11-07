@@ -22,6 +22,9 @@ spec:
       serviceAccountName: sova-mcp
       automountServiceAccountToken: false
       imagePullSecrets: [{name: {{ .Values.runtime.secrets.registry }}}]
+      {{- with .Values.runtime.hostAliases }}
+      hostAliases: {{ toJson . }}
+      {{- end }}
       securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: sova-mcp

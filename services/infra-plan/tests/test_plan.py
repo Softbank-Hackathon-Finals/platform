@@ -214,10 +214,37 @@ def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_bind
     isolated = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
         isolated_request, stack_revision=REV, target=TARGET, base_commit=BASE)
     omitted = {s["id"] for s in isolated.document["steps"] if s.get("omitted")}
-    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync"}
+    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync", "tailscale-joined"}
     assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
     assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
     assert isolated.plan_digest != joined.plan_digest
+
+
+def test_a_wif_target_renders_federated_operator_values_and_needs_no_oauth_secret():
+    """T48 (ADR-0035): the operator authenticates with a projected ServiceAccount token; no Secret is handed over."""
+    request = copy.deepcopy(REQUEST)
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+    charts = FakeCharts()
+    wif = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    assert {s["id"] for s in wif.document["steps"] if s.get("omitted")} == {"tailscale-oauth"}
+    values = next(call[3] for call in charts.calls if call[0].startswith("tailscale-operator"))
+    assert values["oauth"] == {"clientId": "kFedTest123", "audience": "api.tailscale.com/kFedTest123"}
+    assert values["operatorConfig"]["defaultTags"] == ["tag:bravo-target-gke-operator"]
+    assert values["proxyConfig"]["defaultTags"] == "tag:bravo-target-gke-db"
+    assert wif.plan_digest != plan().plan_digest
+    legacy = FakeCharts()
+    Planner(load_stack(STACK), REPO, chart_renderer=legacy).plan(
+        copy.deepcopy(REQUEST), stack_revision=REV, target=TARGET, base_commit=BASE)
+    joined = next(call[3] for call in legacy.calls if call[0].startswith("tailscale-operator"))
+    assert joined["oauth"] == {"clientId": "", "clientSecret": ""}  # existing environments keep the Secret
+    assert joined["operatorConfig"]["defaultTags"] == ["tag:bravo-target-operator"]
+    unset = copy.deepcopy(REQUEST)
+    unset["params"]["tailnet"] = "wif"  # client ID and audience left at "-"
+    with pytest.raises(StackError, match="renderer_failed"):
+        Planner(load_stack(STACK), REPO, chart_renderer=FakeCharts()).plan(
+            unset, stack_revision=REV, target=TARGET, base_commit=BASE)
 
 
 def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
