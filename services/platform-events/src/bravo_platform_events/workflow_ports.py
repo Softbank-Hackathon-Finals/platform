@@ -10,12 +10,16 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                  "selections_dir": "/workflow/selections", "demo_chat_clone": "/workflow-state/demo-chat",
                  "github_app": {"app_id": 1, "key_file": "/github-app/private-key.pem",
                                 "workflow_sha": "<demo-chat main after #25>", "workflow_id": 408240730,
-                                "state_file": "/workflow-state/dispatches.json"}},
+                                "state_file": "/workflow-state/dispatches.json"},
+                 "auto": {"state_dir": "/workflow-state/initial-operator", "relay_config": "/workflow/relay.json",
+                          "catalog_root": "/catalog",
+                          "gitops_image": "/workflow/product-reader-image.json"}},
      "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory"},
      "application": "module:factory"}
 
 `executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
-`github_app`, `watch` and `application` are optional; an absent section leaves its states holding
+`github_app`, `auto` (T49: admit the one registered task and run the AI Job without an operator),
+`watch` and `application` are optional; an absent section leaves its states holding
 as workflow_reader_unwired. The Executor client is read-only (no command token): the host only
 reconciles; SHIFT approval and cutover submission stay with the operator API.
 """
@@ -75,8 +79,9 @@ def _propose(store, config):
     from .product_read_server import configured_initial_reader
     from .workflow_propose import pinned_selections, propose_preparer
 
-    allowed = {"reader_config", "principal", "runtime_source_sha", "selections_dir", "demo_chat_clone", "github_app"}
-    if set(config) - allowed or allowed - {"github_app"} - set(config) or not HEX40.fullmatch(config["runtime_source_sha"]):
+    allowed = {"reader_config", "principal", "runtime_source_sha", "selections_dir", "demo_chat_clone", "github_app", "auto"}
+    optional = {"github_app", "auto"}
+    if set(config) - allowed or allowed - optional - set(config) or not HEX40.fullmatch(config["runtime_source_sha"]):
         raise ValueError("workflow_propose_configuration_invalid")
     reader = configured_initial_reader(store, str(_path(config["reader_config"])))
     # The host only reads stored results and publications: the stored-only client never submits.
@@ -98,8 +103,24 @@ def _propose(store, config):
         writer = CandidateWriter(GitHubApp(app["app_id"], key, repository, WRITER_PERMISSIONS), clone,
                                  workflow_sha=app["workflow_sha"], workflow_id=app["workflow_id"],
                                  state_file=app["state_file"])
+    auto = None
+    if "auto" in config:
+        # T49: the host admits the plan's one registered task and runs the AI Job itself (no operator relay).
+        from . import initial_proposal_job as job
+        from .initial_proposal_auto import AutoInitialProposal
+
+        spec = config["auto"]
+        if set(spec) != {"state_dir", "relay_config", "catalog_root", "gitops_image"}:
+            raise ValueError("workflow_propose_auto_configuration_invalid")
+        image, revision = job.gitops_image(_path(spec["gitops_image"]))
+        if revision != config["runtime_source_sha"]:
+            raise ValueError("workflow_propose_auto_runtime_mismatch")  # the Job must run the claimed runtime
+        auto = AutoInitialProposal(reader.records, relay_config=json.loads(_path(spec["relay_config"]).read_text()),
+                                   state_dir=_path(spec["state_dir"], directory=True), image=image,
+                                   source_revision=revision, principal=config["principal"],
+                                   catalog_root=_path(spec["catalog_root"], directory=True))
     return propose_preparer(execution, select=pinned_selections(config["selections_dir"]),
-                            repository=clone, github=github, writer=writer)
+                            repository=clone, github=github, writer=writer, auto=auto)
 
 
 def create_ports(store, config_file="/workflow/ports.json"):
