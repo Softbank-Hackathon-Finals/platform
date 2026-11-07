@@ -30,14 +30,14 @@
       "app": {
         "namespace": "target-dev",
         "service_account": "demo-chat",
-        "uid": "00000000-0000-0000-0000-000000000001",
+        "uid": "aaaaaaaa-bbbb-4ccc-8ddd-exampleuid01",
         "role": "demo-chat",
         "jwt_file": "/private/demo-chat.jwt"
       },
       "other": {
         "namespace": "target-dev",
         "service_account": "t14-other",
-        "uid": "00000000-0000-0000-0000-000000000002",
+        "uid": "aaaaaaaa-bbbb-4ccc-8ddd-exampleuid02",
         "role": "t14-other",
         "jwt_file": "/private/t14-other.jwt"
       }
