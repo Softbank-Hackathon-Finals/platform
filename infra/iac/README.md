@@ -99,8 +99,13 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
   `kubectl diff --server-side --field-manager bravo-iac -f held.json`으로 보고 `kubectl apply --server-side --field-manager bravo-iac -f held.json`으로 적용한다.
 - **역할을 바꾸면 새 바인딩이다.** `roleRef`는 바꿀 수 없으므로 이름은 `<그룹>-<역할>`(`bravo:operators` + `cluster-admin` →
   `bravo-operators-cluster-admin`)로 정해진다. 새 바인딩을 적용한 뒤 옛 바인딩은 사람이 지운다(prune 없음).
-- `tailnet-check`는 선언된 프록시 태그로 가는 **선언되지 않은** capability grant도 `UNDECLARED_GRANT`로 보고한다. 정책 편집만으로
-  클러스터 권한이 생기지 않게 하기 위해서다(프록시는 어떤 그룹이든 impersonate할 수 있다).
+- `tailnet-check`는 선언된 API 프록시로 가는 **선언되지 않은** 접근도 보고한다. 정책 편집만으로 클러스터 권한이 생기지 않게
+  하기 위해서다(프록시는 어떤 그룹이든 impersonate할 수 있다).
+  - `UNDECLARED_GRANT`: 선언 밖 capability grant. 옛 키(`https://tailscale.com/cap/kubernetes`)도 capability로 본다.
+  - `UNDECLARED_REACH`: 선언 밖 출발지가 프록시 443에 닿음(전송 프록시는 호출자의 자격을 그대로 넘긴다).
+  - `SYSTEM_IMPERSONATION`: `system:` 그룹 impersonate. 대상과 상관없이 실패다.
+  - dst의 `*`, tailnet 주소(`100.64.0.0/10`, `fd7a:115c:a1e0::/48`)와 그 주소의 host 별칭은 모든 선언 프록시로 본다. 태그·그룹·사용자·
+    subnet route는 프록시가 아니다. 선언된 grant를 더 넓은 포트(`*`)로 적은 것은 같은 grant로 본다.
 - `bravo-iac tailnet-verify`가 프록시 장치의 존재·태그·온라인을 `api-proxy` 행으로 판정한다. `GET /v1/iac/network`의
   `access`가 환경별 접근 경로(프록시, 출발지, 쿠버네티스 그룹, 역할)를 돌려준다.
 

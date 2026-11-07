@@ -67,7 +67,8 @@ def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_
         if "app" in g:
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
     undeclared = sorted(f"UNDECLARED_GRANT:{s}->{tag}+app" for tag, sources in PER_PROXY.items() for s in sources)
-    assert check_policy(masters, STATES) == MISSING + undeclared
+    system = [f"SYSTEM_IMPERSONATION:{s}" for sources in PER_PROXY.values() for s in sources]
+    assert sorted(check_policy(masters, STATES)) == sorted(MISSING + undeclared + system)
 
 
 @pytest.mark.parametrize("proxy", ["tag:bravo-platform-operator", "tag:bravo-target-operator"])
@@ -76,7 +77,8 @@ def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check(proxy):
     policy = fragment(STATES)
     policy["grants"].append({"src": ["autogroup:member"], "dst": [proxy], "ip": ["tcp:443"],
                              "app": {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}})
-    assert check_policy(policy, STATES) == [f"UNDECLARED_GRANT:autogroup:member->{proxy}+app"]
+    assert check_policy(policy, STATES) == ["SYSTEM_IMPERSONATION:autogroup:member",
+                                            f"UNDECLARED_GRANT:autogroup:member->{proxy}+app"]
 
 
 def test_a_role_change_is_a_new_binding_name():
@@ -165,3 +167,57 @@ def test_the_destination_people_use_its_operator_proxy_as_the_same_group():
     for src in SOURCES:
         assert {"src": [src], "dst": ["tag:bravo-target-operator"], "ip": ["tcp:443"], "app": CAP} in fragment(STATES)["grants"]
     assert "@" not in json.dumps(target)
+
+
+PROXIES = ("tag:bravo-platform-operator", "tag:bravo-source-operator", "tag:bravo-target-operator")
+BRAVO = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["bravo:operators"]}}]}
+
+
+@pytest.mark.parametrize("dst", ["*", "100.101.0.1", "100.64.0.0/10", "fd7a:115c:a1e0::5/128", "operator-alias"])
+def test_a_capability_grant_to_a_wildcard_or_tailnet_address_counts_for_every_proxy(dst):
+    policy = fragment(STATES)
+    policy["hosts"] = {"operator-alias": "100.101.0.1"}
+    policy["grants"].append({"src": ["autogroup:member"], "dst": [dst], "ip": ["tcp:443"], "app": BRAVO})
+    assert check_policy(policy, STATES) == [f"UNDECLARED_GRANT:autogroup:member->{p}+app" for p in PROXIES]
+
+
+def test_the_old_capability_key_is_still_a_capability():
+    policy = fragment(STATES)
+    policy["grants"].append({"src": ["autogroup:admin"], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"],
+                             "app": {"https://tailscale.com/cap/kubernetes": BRAVO["tailscale.com/cap/kubernetes"]}})
+    assert check_policy(policy, STATES) == ["UNDECLARED_GRANT:autogroup:admin->tag:bravo-platform-operator+app"]
+
+
+def test_system_impersonation_fails_whatever_it_reaches():
+    policy = fragment(STATES)
+    policy["grants"].append({"src": ["group:anyone"], "dst": ["tag:bravo-loadgen"], "ip": ["tcp:443"],
+                             "app": {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}})
+    assert check_policy(policy, STATES) == ["SYSTEM_IMPERSONATION:group:anyone"]
+
+
+def test_a_declared_grant_on_wider_ports_is_not_undeclared():
+    policy = fragment(STATES)
+    for g in policy["grants"]:
+        if "app" in g:
+            g["ip"] = ["*"]
+    assert check_policy(policy, STATES) == []
+
+
+@pytest.mark.parametrize("ip", [["tcp:443"], ["443"], ["*"], ["tcp:400-500"]])
+def test_another_source_reaching_a_proxy_on_443_is_reported(ip):
+    policy = fragment(STATES)
+    policy["grants"].append({"src": ["autogroup:member"], "dst": ["tag:bravo-source-operator"], "ip": ip})
+    assert check_policy(policy, STATES) == ["UNDECLARED_REACH:autogroup:member->tag:bravo-source-operator:443"]
+
+
+@pytest.mark.parametrize(("dst", "ip"), [
+    ("10.81.0.0/16", ["*"]),            # a subnet route, not a tailnet device
+    ("tag:bravo-source-operator", ["tcp:22"]),
+    ("tag:bravo-source-operator", ["udp:443"]),
+    ("tag:bravo-loadgen", ["*"]),
+])
+def test_what_cannot_reach_a_proxy_api_is_not_reported(dst, ip):
+    policy = fragment(STATES)
+    policy["grants"].append({"src": ["autogroup:member"], "dst": [dst], "ip": ip})
+    assert check_policy(policy, STATES) == []
+

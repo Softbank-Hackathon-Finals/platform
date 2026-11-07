@@ -95,4 +95,6 @@ def test_transport_only_proxy_cannot_silently_acquire_impersonation_grants():
     policy["grants"][0]["app"] = {
         "tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
     assert check_policy(policy, [state()]) == [
+        "SYSTEM_IMPERSONATION:group:bravo-operators",
         "UNDECLARED_GRANT:group:bravo-operators->tag:bravo-source-operator+app"]
+
