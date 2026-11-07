@@ -1,0 +1,14 @@
+# Tailnet entry (fixed name), like t10-window-intake. WireGuard carries client traffic to the proxy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sova-mcp
+  labels: {app.kubernetes.io/name: sova-mcp, component: platform}
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: {{ .Values.tailnet.hostname | quote }}
+    tailscale.com/tags: {{ .Values.tailnet.tags | quote }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: sova-mcp}
+  ports: [{name: http, port: 443, targetPort: http}]
