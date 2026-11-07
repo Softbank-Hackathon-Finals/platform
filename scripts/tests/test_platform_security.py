@@ -51,10 +51,15 @@ class FindingsBundle(unittest.TestCase):
         # Secret volume links are refused by the loader; the init copy makes a 0400 file owned by the service UID.
         self.assertIn("BRAVO_FINDINGS_AUTH_FILE, value: /run/bravo-findings-auth/registry.json", self.resources)
         self.assertIn("os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400", self.resources)
+        self.assertIn('os.replace(tmp, "/run/bravo-findings-auth/registry.json")', self.resources)  # survives a sandbox restart
         self.assertIn("emptyDir: {medium: Memory", self.resources)
 
     def test_runs_locked_down_with_one_writer(self):
         self.assertIn("strategy: {type: Recreate}", self.resources)
+        # Every Pod mounting the local PV skips the per-mount chown/chmod, or findings.db becomes 0660 and Store refuses it.
+        self.assertEqual(self.resources.count("fsGroupChangePolicy: OnRootMismatch"), self.resources.count("fsGroup: 10001"))
+        readme = (ROOT / "infra/envs/platform-security/README.md").read_text()
+        self.assertIn("install -d -o 10001 -g 10001 -m 2770", readme)
         # init, api and the GuardDuty pull container
         self.assertEqual(self.resources.count("readOnlyRootFilesystem: true"), 3)
         self.assertEqual(self.resources.count("drop: [ALL]"), 3)

@@ -78,7 +78,7 @@ argo-cd:
           kinds: [Deployment, ReplicaSet]
           clusters: ['*']
         - apiGroups: ['']
-          kinds: [Pod, Service, ServiceAccount, ConfigMap]
+          kinds: [Pod, Service, ServiceAccount, ConfigMap, PersistentVolumeClaim]
           clusters: ['*']
         - apiGroups: [networking.k8s.io]
           kinds: [NetworkPolicy]

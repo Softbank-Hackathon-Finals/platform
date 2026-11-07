@@ -1,4 +1,8 @@
 {{- if .Values.securityFindings.enabled }}
+{{- $managed := splitList "," (index .Values "argo-cd" "configs" "clusterCredentials" "platform" "namespaces") }}
+{{- if not (has "bravo-security" $managed) }}
+{{- fail "securityFindings.enabled needs bravo-security in argo-cd.configs.clusterCredentials.platform.namespaces" }}
+{{- end }}
 # T33 findings API. The namespace, its static volume and default-deny come from the cluster builder
 # (infra/envs/platform-security); Secrets stay outside Git. prune is off: the stored findings must not go with a sync.
 apiVersion: argoproj.io/v1alpha1
