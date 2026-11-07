@@ -54,6 +54,29 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 253
+          },
+          "required_when": {
+            "description": "Required only when another (enum) parameter has one of these values; otherwise optional. Only steps planned under the same condition may use it.",
+            "type": "object",
+            "required": [
+              "param",
+              "in"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "param": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "in": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -342,7 +365,13 @@
               "check": {
                 "$ref": "#/$defs/id"
               },
-              "when": true
+              "when": true,
+              "timeout_seconds": {
+                "description": "Keep checking until it holds, at most this long (a state that appears after a sync, e.g. a login). Without it the check is read once.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1800
+              }
             },
             "additionalProperties": false
           }

@@ -219,3 +219,28 @@ def test_pure_source_check_rejects_without_staging(registration, fault):
         raw["manifest"]["files"]["src/config.py"] = hashlib.sha256(text.encode()).hexdigest()
     with pytest.raises(ValueError):
         validate_product_input(raw)
+
+
+def test_the_infra_plans_the_model_asked_for_reach_the_response_unchanged(context, registration):
+    bundle, snapshot, proposal, _ = context
+    value = ProductInput.model_validate(registration["product_input"])
+
+    class Provider:
+        async def propose(self, bundle, tools):
+            tools.dispatch("mcp__bravo__plan_propose", proposal)
+
+    raw = asyncio.run(Coordinator(bundle, snapshot).propose(Provider()))
+    expected = {"product_input_digest": digest(value), "admission_digest": value.admission_digest,
+                "runtime_source_sha": RUNTIME}
+    assert "infra_plans" not in proposal_result(raw, value, snapshot, expected)  # none asked: field absent
+    plan = {"kind": "iac-plan.v1", "plan_digest": "sha256:" + "a" * 64, "accepted": True, "refusals": []}
+    raw["attempts"][-1]["infra_plans"] = [{"module": "target-object-exposure", "params": {"state": "closed"},
+                                           "plan": plan}]
+    result = proposal_result(raw, value, snapshot, expected)
+    assert result["infra_plans"] == [plan]
+    from bravo_agent.proposal_contracts import validate_bound_product_response
+
+    assert validate_bound_product_response(result, digest(value), RUNTIME) == result
+    raw["attempts"][-1]["infra_plans"] = [{"plan": plan}]  # not the tool's shape
+    with pytest.raises(ValueError):
+        proposal_result(raw, value, snapshot, expected)

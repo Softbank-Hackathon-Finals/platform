@@ -202,7 +202,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                                change_authority=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
                                change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15,
-                               delegated_shift=None):
+                               list_tasks=None, delegated_shift=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -248,7 +248,8 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     if delegations is not None:
         shift = delegated_shift(store, delegations) if delegated_shift is not None else None
         _run_delegated_gates(app, DelegatedGates(store, delegations, cutover=service, failback=failback_service,
-                                                 shift=shift), sweep_seconds)
+                                                 rehearsal=rehearsals, list_tasks=list_tasks, shift=shift),
+                             sweep_seconds)
     return app
 
 

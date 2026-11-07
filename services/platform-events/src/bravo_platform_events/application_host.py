@@ -56,6 +56,7 @@ class ApplyInput:
     deployment: str
     container: str
     repository: str
+    pull_secret: str | None = None  # T49: registry Secret the candidate is pulled with (None: node image)
 
 
 class ApplicationHost:
@@ -131,7 +132,8 @@ class ApplicationHost:
             return apply(claim["application_id"], claim, proposal, kube=self.kube,
                 receipts_dir=self.root, target_environment_id=supplied.target_environment_id,
                 namespace=supplied.namespace, deployment=supplied.deployment,
-                container=supplied.container, repository=supplied.repository, diff=supplied.diff)
+                container=supplied.container, repository=supplied.repository, diff=supplied.diff,
+                pull_secret=supplied.pull_secret)
 
 
 class GateRecheck:

@@ -128,3 +128,12 @@ def test_a_shared_host_runs_the_ai_only_for_the_plans_it_names(backend, tmp_path
     assert not auto.covers(SPEC.plan_id) and auto.covers("another-plan")
     assert AutoInitialProposal(f.records, relay_config=CONFIG, state_dir=tmp_path / "h2", image=IMAGE,
                                source_revision=RUNTIME, principal=ACTOR, kubectl=Kubectl()).covers(SPEC.plan_id)
+
+
+def test_the_ai_job_state_dir_may_be_missing_on_first_start_but_must_be_on_a_mount(tmp_path):
+    from bravo_platform_events.workflow_ports import _state_dir
+
+    assert _state_dir(str(tmp_path / "initial-operator")) == tmp_path / "initial-operator"  # created by the ledger
+    for bad in ("relative/dir", str(tmp_path / "no-mount" / "initial-operator")):
+        with pytest.raises(ValueError, match="workflow_mount_required"):
+            _state_dir(bad)
