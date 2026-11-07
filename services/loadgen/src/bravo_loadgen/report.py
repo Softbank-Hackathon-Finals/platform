@@ -33,6 +33,7 @@ def build_report(
     generator: str | None = None,
     preflight: dict | None = None,
     connections: str = "keepalive",
+    sign_in: dict | None = None,
 ) -> dict:
     start = next(r for r in records if r["type"] == "run_start")
     attempts = [r for r in records if r["type"] == "attempt"]
@@ -71,6 +72,9 @@ def build_report(
     lag = load["scheduler_lag_ms"]
     if lag and (lag["p95"] > GENERATOR_LAG_P95_WARN_MS or lag["max"] > GENERATOR_LAG_MAX_WARN_MS):
         warnings.append("GENERATOR_LAGGING")
+    if sign_in and sign_in["refresh_failures"]:
+        # 토큰이 만료되면 쓰기가 401로 끝나 대상의 실패처럼 보인다. 부하 생성기 쪽 원인을 드러낸다.
+        warnings.append("SIGN_IN_REFRESH_FAILED")
     if not windows:
         warnings.append("NO_WINDOWS")
     elif len(windows) + invalid_windows < start["duration_s"] // start["window_seconds"]:
@@ -99,6 +103,7 @@ def build_report(
             "generator": generator,
             "connections": connections,
             "preflight": preflight,
+            "sign_in": sign_in,
         },
         "journal_sha256": journal_sha256,
         "verdict": verdict,

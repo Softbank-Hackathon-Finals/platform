@@ -36,9 +36,12 @@ def row(n, *, id=None, idempotency_key=None, author=None, body=None):
     }
 
 
-def journal(*attempts, scheduled=None, ended=True):
+def journal(*attempts, scheduled=None, ended=True, author=None):
     logical = {a["logical_id"] for a in attempts if a["kind"] == "write"}
-    records = [{"type": "run_start", "run_id": RUN}, *attempts]
+    start = {"type": "run_start", "run_id": RUN}
+    if author:
+        start["author"] = author
+    records = [start, *attempts]
     if ended:
         records.append({
             "type": "run_end", "ended_at_s": 100.0,
@@ -131,6 +134,14 @@ def test_changed_body_is_content_mismatch():
     result = reconcile(journal(attempt(1)), [row(1, body="tampered")])
     assert result["verdict"] == "FAIL" and "CONTENT_MISMATCH" in result["reasons"]
     assert result["counts"]["content_mismatch"] == 1
+
+
+def test_signed_in_run_expects_the_token_name_as_author():
+    """로그인을 켠 실행(T47)은 작성자가 계정 이름이다. 그 이름이어야 내용이 같다."""
+    signed = journal(attempt(1), attempt(2), author="loadgen")
+    result = reconcile(signed, [row(1, author="loadgen"), row(2)])
+    assert counts(result) == {"logical_writes": 2, "attempts": 2, "confirmed": 1, "content_mismatch": 1}
+    assert result["samples"]["content_mismatch"] == [key(2)]  # 실행별 이름으로 들어간 쪽이 불일치다
 
 
 def test_changed_author_is_content_mismatch():

@@ -121,7 +121,7 @@ def test_laptop_is_labelled_and_never_usable_for_judgement():
     assert r["warnings"] == ["GENERATOR_NOT_EC2"]
     assert r["measurement"] == {
         "path": "edge", "edge_measured": True, "generator": "laptop", "connections": "keepalive",
-        "preflight": PREFLIGHT,
+        "preflight": PREFLIGHT, "sign_in": None,
     }
     assert r["sli_usable_for_judgement"] is False
     text = render_markdown(r)
@@ -262,3 +262,17 @@ def test_the_report_says_how_requests_reached_the_edge():
     fresh = report(rows=[ROW], **EDGE, windows=[WINDOW], connections="fresh")
     assert fresh["measurement"]["connections"] == "fresh"
     assert "- 연결: `fresh`" in render_markdown(fresh)
+
+
+def test_failed_token_refresh_is_a_generator_side_warning():
+    """토큰이 만료되면 쓰기가 401로 끝나 대상의 실패처럼 보인다. 그 원인이 부하 생성기 쪽임을 남긴다."""
+    healthy = report(rows=[ROW], windows=[WINDOW], sign_in={"kind": "oidc", "refreshes": 2, "refresh_failures": 0}, **EDGE)
+    assert healthy["measurement"]["sign_in"]["kind"] == "oidc"
+    assert healthy["warnings"] == [] and healthy["sli_usable_for_judgement"] is True
+    failing = report(rows=[ROW], windows=[WINDOW], sign_in={"kind": "oidc", "refreshes": 0, "refresh_failures": 3}, **EDGE)
+    assert "SIGN_IN_REFRESH_FAILED" in failing["warnings"]
+    assert failing["sli_usable_for_judgement"] is False
+
+
+def test_sign_in_is_absent_by_default():
+    assert report(rows=None)["measurement"]["sign_in"] is None

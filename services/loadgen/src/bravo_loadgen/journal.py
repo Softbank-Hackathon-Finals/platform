@@ -9,6 +9,11 @@ def message_author(run_id: str) -> str:
     return f"loadgen-{run_id}"
 
 
+def run_author(start: dict) -> str:
+    """그 실행이 쓴 작성자. 로그인을 켠 실행(T47)은 토큰 이름이고, 예전 기록에는 칸이 없다."""
+    return start.get("author") or message_author(start["run_id"])
+
+
 def message_body(run_id: str, logical_id: str) -> str:
     """본문에도 논리 요청 ID를 넣는다. DB의 UNIQUE를 우회한 다른 키의 복사본까지 찾기 위해서다."""
     return f"t18 run={run_id} req={logical_id}"

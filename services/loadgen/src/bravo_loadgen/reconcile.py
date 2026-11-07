@@ -16,7 +16,7 @@
 import re
 from collections import defaultdict
 
-from bravo_loadgen.journal import message_author, message_body
+from bravo_loadgen.journal import message_body, run_author
 
 SAMPLE_LIMIT = 20
 _BODY_MARKER = re.compile(r"^t18 run=[a-z0-9-]+ req=([0-9a-f-]{36})$")
@@ -32,7 +32,9 @@ STATES = (
 
 
 def reconcile(records: list[dict], rows: list[dict]) -> dict:
-    run_id = next((r["run_id"] for r in records if r["type"] == "run_start"), None)
+    start = next((r for r in records if r["type"] == "run_start"), None)
+    run_id = start["run_id"] if start else None
+    author = run_author(start) if start else None
     end = next((r for r in records if r["type"] == "run_end"), None)
     attempts = defaultdict(list)
     for record in records:
@@ -41,7 +43,7 @@ def reconcile(records: list[dict], rows: list[dict]) -> dict:
 
     rows_by_logical, phantoms = _assign_rows(rows, attempts.keys())
     states = {
-        logical: _state(run_id, logical, tries, rows_by_logical[logical])
+        logical: _state(run_id, author, logical, tries, rows_by_logical[logical])
         for logical, tries in attempts.items()
     }
 
@@ -110,7 +112,9 @@ def _assign_rows(rows, logical_ids):
     return by_logical, phantoms
 
 
-def _state(run_id: str | None, logical: str, tries: list[dict], rows: list[dict]) -> str:
+def _state(
+    run_id: str | None, author: str | None, logical: str, tries: list[dict], rows: list[dict]
+) -> str:
     ack = next((t for t in tries if t["acked"]), None)
     if len(rows) > 1:
         return "duplicated"
@@ -120,7 +124,7 @@ def _state(run_id: str | None, logical: str, tries: list[dict], rows: list[dict]
         row = rows[0]
         same_content = (
             str(row["idempotency_key"]) == logical
-            and row["author"] == message_author(run_id or "")
+            and row["author"] == author
             and row["body"] == message_body(run_id or "", logical)
         )
         if not same_content or (ack is not None and ack["message_id"] != row["id"]):

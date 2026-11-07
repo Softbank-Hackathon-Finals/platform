@@ -7,7 +7,7 @@
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -22,6 +22,8 @@ MESSAGES_PATH = "/api/messages"
 ENV_HEADER = "X-Bravo-Env"
 
 WindowSink = Callable[[dict], Awaitable[None]]
+# 로그인을 켠 앱(T47): 쓰기 시도마다 그때의 토큰 헤더를 받는다. 재시도도 새로 받은 토큰을 싣는다.
+WriteHeaders = Callable[[], Mapping[str, str]]
 
 
 @dataclass(frozen=True)
@@ -37,11 +39,15 @@ class LoadConfig:
     # 재시도 한도는 브라우저 클라이언트(demo-chat transport.js)와 같다.
     retry_budget_s: float = 60
     max_attempts: int = 32
+    # 로그인을 켠 앱은 작성자가 토큰 이름이어야 한다(T47). 없으면 실행마다 다른 loadgen-<run_id>.
+    author: str | None = None
 
     def __post_init__(self):
         # author는 40자 제한이고 "loadgen-" 8자를 쓴다.
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", self.run_id):
             raise ValueError("run_id must match [a-z0-9-] and be at most 32 characters")
+        if self.author is not None and not 1 <= len(self.author) <= 40:
+            raise ValueError("author must be 1 to 40 characters")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", self.plan_id):
             raise ValueError("plan_id does not match the SliWindow Identifier pattern")
         if sorted(self.env_pools.values()) != ["source", "target"]:
@@ -83,11 +89,14 @@ class LoadRunner:
         client: httpx.AsyncClient,
         journal: Journal,
         window_sink: WindowSink | None = None,
+        write_headers: WriteHeaders | None = None,
     ):
         self.config = config
         self.client = client
         self.journal = journal
         self.window_sink = window_sink
+        self.write_headers = write_headers
+        self.author = config.author or message_author(config.run_id)
         self._last_acked_id: int | None = None
         self._builder: WindowBuilder
         self._t0 = 0.0
@@ -110,6 +119,7 @@ class LoadRunner:
                 "type": "run_start",
                 "run_id": config.run_id,
                 "plan_id": config.plan_id,
+                "author": self.author,
                 "start_wall": start_wall.isoformat(),
                 "duration_s": config.duration_s,
                 "write_rps": config.write_rps,
@@ -174,7 +184,7 @@ class LoadRunner:
         logical_id = str(uuid.uuid4())
         payload = {
             "idempotency_key": logical_id,
-            "author": message_author(config.run_id),
+            "author": self.author,
             "body": message_body(config.run_id, logical_id),
         }
         deadline = self._now() + config.retry_budget_s
@@ -189,6 +199,7 @@ class LoadRunner:
                 min(config.attempt_timeout_s, max(deadline - self._now(), 0.001)),
                 "POST",
                 json=payload,
+                headers=self.write_headers() if self.write_headers else None,
             )
             if record["acked"]:
                 self._last_acked_id = record["message_id"]

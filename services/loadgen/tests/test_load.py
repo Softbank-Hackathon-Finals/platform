@@ -32,13 +32,15 @@ def created(request, message_id=1, env="aws", status=201):
     return httpx.Response(status, json={"id": message_id}, headers={"X-Bravo-Env": env})
 
 
-async def run(tmp_path, handler, sink=None, **overrides):
+async def run(tmp_path, handler, sink=None, write_headers=None, **overrides):
     path = tmp_path / "journal.jsonl"
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="http://edge", timeout=None
     ) as client:
         with Journal(path) as journal:
-            result = await LoadRunner(config(**overrides), client, journal, window_sink=sink).run()
+            result = await LoadRunner(
+                config(**overrides), client, journal, window_sink=sink, write_headers=write_headers
+            ).run()
     records = read_journal(path)
     return result, [r for r in records if r["type"] == "attempt"], records
 
@@ -90,6 +92,50 @@ def test_retry_keeps_the_idempotency_key_and_body_with_a_new_attempt_id(tmp_path
     assert [a["final"] for a in attempts] == [False, True]
     assert seen[0]["author"] == "loadgen-t18-test"
     assert seen[0]["body"] == f"t18 run=t18-test req={key}"
+
+
+def test_without_sign_in_writes_carry_no_token_and_the_run_author(tmp_path):
+    seen = []
+
+    async def handler(request):
+        seen.append(request.headers.get("Authorization"))
+        return created(request) if request.method == "POST" else httpx.Response(200, json=[])
+
+    _, _, records = go(run(tmp_path, handler, read_rps=10))
+    assert seen == [None, None]
+    assert records[0]["author"] == "loadgen-t18-test"
+
+
+def test_signed_in_writes_carry_the_current_token_and_the_token_name(tmp_path):
+    """로그인을 켠 앱은 작성자가 토큰 이름이 아니면 403이다. 재시도는 그때의 토큰을 싣는다."""
+    seen = []
+    issued = iter(["Bearer first", "Bearer refreshed"])
+
+    async def handler(request):
+        if request.method == "GET":
+            seen.append(("GET", request.headers.get("Authorization"), None))
+            return httpx.Response(200, json=[])
+        seen.append(("POST", request.headers["Authorization"], json.loads(request.content)["author"]))
+        if len([s for s in seen if s[0] == "POST"]) == 1:
+            return httpx.Response(503, headers={"Retry-After": "0", "X-Bravo-Env": "aws"})
+        return created(request)
+
+    _, attempts, records = go(run(
+        tmp_path, handler, write_headers=lambda: {"Authorization": next(issued)},
+        author="loadgen", read_rps=10,
+    ))
+    assert [s for s in seen if s[0] == "POST"] == [
+        ("POST", "Bearer first", "loadgen"), ("POST", "Bearer refreshed", "loadgen"),
+    ]
+    assert [s for s in seen if s[0] == "GET"] == [("GET", None, None)]  # 읽기는 로그인 없이 본다
+    assert records[0]["author"] == "loadgen"
+    assert "Bearer" not in (tmp_path / "journal.jsonl").read_text()
+
+
+@pytest.mark.parametrize("author", ["", "x" * 41])
+def test_author_fits_the_message_column(author):
+    with pytest.raises(ValueError):
+        config(author=author)
 
 
 def test_retry_after_is_honored(tmp_path):

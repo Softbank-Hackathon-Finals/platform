@@ -108,6 +108,33 @@ uv run bravo-loadgen measure \
 - 토큰이 틀려 거부되면 다른 전달 실패와 같다. 부하는 끝까지 가고 `WINDOW_DELIVERY_FAILED`가 뜨며, 받는 쪽에는 창이 없으니 판정은 UNKNOWN으로 멈춘다.
 - 평문 `http://`는 막지 않는다. Tailscale 안의 경로는 Tailscale이 암호화한다. 그 밖의 경로로 보낼 때는 `https://`를 쓴다.
 
+## 로그인을 켠 앱에 쓰기 (T47)
+
+로그인을 켠 demo-chat은 쓰기에 ID 토큰을 요구하고, 작성자가 토큰 이름이 아니면 403을 준다. **기본은 지금처럼 꺼져 있다.** `--auth-issuer` · `--auth-client-id` · `--auth-username`을 모두 주면 켜고, 하나라도 빠지면 요청 없이 종료 코드 2다.
+
+```bash
+read -rs BRAVO_LOADGEN_PASSWORD && export BRAVO_LOADGEN_PASSWORD            # 부하 생성기 계정의 비밀번호
+read -rs BRAVO_LOADGEN_CLIENT_SECRET && export BRAVO_LOADGEN_CLIENT_SECRET  # Keycloak일 때만
+uv run bravo-loadgen measure <위와 같은 인자> \
+  --auth-issuer <앱의 AUTH_ISSUER> --auth-client-id <부하 생성기 클라이언트 ID> --auth-username loadgen
+```
+
+받는 방법은 발급자 주소로 정한다. 둘 다 **부하 생성기 전용 클라이언트**를 쓴다. 브라우저 클라이언트(`demo-chat`)는 비밀번호를 받지 않게 만들어 두었다.
+
+| 발급자 | 받는 방법 | 필요한 것 |
+|---|---|---|
+| Cognito `https://cognito-idp.<리전>.amazonaws.com/<풀 ID>` | AdminInitiateAuth(`ADMIN_USER_PASSWORD_AUTH`). AWS 서명이 필요해 클라이언트 ID와 비밀번호만으로는 못 받는다 | `uv sync --extra cognito`, 그 풀에 `cognito-idp:AdminInitiateAuth`가 있는 AWS 자격 증명([loadgen-aws](../../infra/envs/loadgen-aws/README.md) `source_user_pool_arn`), [source-identity](../../infra/envs/source-identity/README.md#부하-생성기-클라이언트) 출력 `loadgen_client_id` |
+| 그 밖(목적지 Keycloak) | 발급자 문서의 토큰 주소에 password grant(`scope=openid`) | `demo-chat-loadgen`의 클라이언트 비밀([target-workloads](../../infra/envs/target-workloads/README.md#부하-생성기-클라이언트)) |
+
+- **쓰기에만** `Authorization: Bearer <ID 토큰>`을 싣는다. 읽기는 로그인 없이 본다(앱과 같다). 창 전송 토큰과는 따로다.
+- **작성자는 토큰 이름이다.** 앱과 같은 순서(`preferred_username` → `cognito:username` → `email` → `name` → `sub`, 40자)로 고른다. 기록의 `run_start.author`에 남고, 대조는 그 이름과 맞춰 본다. 이 이름은 실행마다 같으므로 DB에서 작성자로는 찾지 않고 멱등 키와 본문 표시로만 찾는다. 작성자로 찾으면 다른 실행의 행이 유령 행으로 세진다.
+- **첫 토큰은 부하 전에 받는다**(`preflight`도 받는다). 못 받으면 요청 0건에 종료 코드 2다. 계정이 첫 비밀번호 변경 같은 단계를 기다리면 그 단계 이름만 띄우고 멈춘다. 사람 대신 그 단계를 넘기지 않는다.
+- **수명의 절반이 지나면 미리 다시 받는다.** 쓰기는 토큰을 기다리지 않는다(기다리면 그 시간이 대상의 지연으로 세어진다). 재시도는 그때의 토큰을 싣는다. 다시 받기에 실패하면 지금 토큰을 계속 쓰고 5초마다 다시 시도한다. 이름이 바뀐 토큰은 받지 않는다. 실패가 한 번이라도 있으면 리포트에 `SIGN_IN_REFRESH_FAILED`가 뜨고 판정 입력으로 쓰지 않는다. 토큰이 만료되면 쓰기가 401로 끝나 대상의 실패처럼 보이기 때문이다.
+- **비밀번호 · 클라이언트 비밀 · 토큰은 환경변수와 메모리에만 있다.** 명령줄 · 기록 · 리포트 · 실행 상태 · 오류 메시지에 남기지 않는다. 오류에는 OAuth 오류 코드나 AWS 오류 코드만 적는다. 리포트에는 `measurement.sign_in`(발급자 종류, 다시 받은 횟수 · 실패 횟수)만 남는다.
+- 토큰 요청은 리다이렉트를 따라가지 않고, 발급자와 다른 곳의 토큰 주소로는 비밀번호를 보내지 않는다. 발급자는 https만 받는다(이 컴퓨터의 시험 발급자만 http).
+
+**앱 쪽 조건이 아직 없다.** 부하 생성기 토큰의 `aud`는 부하 생성기 클라이언트 ID다. 앱이 받으려면 같은 발급자의 두 번째 클라이언트를 믿어야 하는데, demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시돼 부하 토큰이 401이고, `AUTH_ALSO_TRUST`에 같은 발급자를 두 번 넣으면 마지막 것만 남는다. 목적지 앱에 Cognito 브라우저 · 부하 클라이언트를 둘 다 넣으면 **출발지에서 로그인한 방문자의 쓰기가 401이 된다**(11/8 그 코드로 확인). demo-app이 발급자마다 여러 클라이언트를 받도록 바뀌기 전에는 로그인을 켠 앱에 이 옵션으로 쓰기 부하를 넣지 않는다.
+
 ## 검사
 
 ```sh

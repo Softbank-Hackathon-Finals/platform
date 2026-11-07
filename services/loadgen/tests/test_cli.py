@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from test_signin import jwt
 
 from bravo_loadgen.cli import DEFAULT_WINDOW_SECONDS, main, open_files_needed
 
@@ -14,6 +15,9 @@ PROFILE = json.loads(
     (Path(__file__).resolve().parents[3] / "docs/observability/threshold-profiles.json").read_text()
 )["profiles"][0]
 WINDOW_TOKEN = "t18-test-window-token"
+PASSWORD = "do-not-print-this-password"
+CLIENT_SECRET = "do-not-print-this-secret"
+ID_TOKEN = jwt(preferred_username="loadgen")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -34,7 +38,11 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        if self.path == "/realms/bravo/.well-known/openid-configuration":
+            issuer = f"{self.server.url}/realms/bravo"
+            return self._send(200, {"issuer": issuer, "token_endpoint": f"{issuer}/token"})
         self.server.load_auth.append(self.headers.get("Authorization"))
+        self.server.read_auth.append(self.headers.get("Authorization"))
         self._send(200, [])
 
     def do_POST(self):
@@ -51,12 +59,17 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return None
+        if self.path == "/realms/bravo/token":
+            self.server.grants.append(body.decode())
+            return self._send(200, {"id_token": ID_TOKEN})
         if self.path == "/followed":
             self.server.followed.append(self.headers.get("Authorization"))
             return self._send(202, {})
         if self.path != "/api/messages":
             return self._send(404, {})
         self.server.load_auth.append(self.headers.get("Authorization"))
+        self.server.write_auth.append(self.headers.get("Authorization"))
+        self.server.authors.append(json.loads(body)["author"])
         self.server.count += 1
         self._send(201, {"id": self.server.count})
 
@@ -68,6 +81,10 @@ def server():
     httpd.windows = []
     httpd.window_auth = []
     httpd.load_auth = []
+    httpd.read_auth = []
+    httpd.write_auth = []
+    httpd.authors = []
+    httpd.grants = []
     httpd.followed = []
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -90,6 +107,70 @@ def args(server, out, *extra):
         "--measurement-path", "local-direct", "--out", str(out), "--run-id", "t18-cli",
         "--attempt-timeout", "2", *extra,
     ]
+
+
+def sign_in_args(server):
+    return ["--auth-issuer", f"{server.url}/realms/bravo", "--auth-client-id", "demo-chat-loadgen",
+            "--auth-username", "loadgen"]
+
+
+@pytest.fixture
+def sign_in_secrets(monkeypatch):
+    monkeypatch.setenv("BRAVO_LOADGEN_PASSWORD", PASSWORD)
+    monkeypatch.setenv("BRAVO_LOADGEN_CLIENT_SECRET", CLIENT_SECRET)
+
+
+def test_signed_in_run_sends_the_token_on_writes_only(server, tmp_path, capsys, sign_in_secrets):
+    """로그인을 켠 앱(T47): 쓰기에 ID 토큰, 작성자는 토큰 이름. 읽기는 로그인 없이 본다."""
+    assert main(args(server, tmp_path, *sign_in_args(server))) == 2  # DB가 없어 NOT_RECONCILED
+    assert server.write_auth and set(server.write_auth) == {f"Bearer {ID_TOKEN}"}
+    assert server.read_auth and set(server.read_auth) == {None}
+    assert set(server.authors) == {"loadgen"}
+    assert len(server.grants) == 1  # 첫 토큰은 부하 전에 한 번
+    journal = [json.loads(line) for line in (tmp_path / "journal.jsonl").read_text().splitlines()]
+    assert journal[0]["author"] == "loadgen"
+    sign_in = {"kind": "oidc", "refreshes": 0, "refresh_failures": 0}
+    assert json.loads((tmp_path / "run-state.json").read_text())["sign_in"] == sign_in
+    assert json.loads((tmp_path / "report.json").read_text())["measurement"]["sign_in"] == sign_in
+
+    # 비밀번호 · 클라이언트 비밀 · 토큰은 산출물과 화면 어디에도 없다.
+    captured = capsys.readouterr()
+    written = "".join(path.read_text() for path in tmp_path.iterdir()) + captured.out + captured.err
+    for secret in (PASSWORD, CLIENT_SECRET, ID_TOKEN):
+        assert secret not in written
+
+
+def test_sign_in_is_off_by_default(server, tmp_path):
+    assert main(args(server, tmp_path)) == 2
+    assert server.grants == [] and set(server.write_auth) == {None}
+    assert json.loads((tmp_path / "run-state.json").read_text())["sign_in"] is None
+
+
+@pytest.mark.parametrize("drop", ["--auth-client-id", "--auth-username"])
+def test_partial_sign_in_settings_stop_before_any_request(server, tmp_path, capsys, sign_in_secrets, drop):
+    extra = sign_in_args(server)
+    index = extra.index(drop)
+    del extra[index:index + 2]
+    assert main(args(server, tmp_path, *extra)) == 2
+    assert "--auth-" in capsys.readouterr().err
+    assert server.grants == [] and server.count == 0
+
+
+def test_missing_password_stops_before_any_request(server, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("BRAVO_LOADGEN_CLIENT_SECRET", CLIENT_SECRET)
+    monkeypatch.delenv("BRAVO_LOADGEN_PASSWORD", raising=False)
+    assert main(args(server, tmp_path, *sign_in_args(server))) == 2
+    assert "BRAVO_LOADGEN_PASSWORD" in capsys.readouterr().err
+    assert server.grants == [] and server.count == 0
+    assert not (tmp_path / "journal.jsonl").exists()
+
+
+def test_refused_sign_in_stops_before_load(server, tmp_path, capsys, sign_in_secrets):
+    extra = sign_in_args(server)
+    extra[1] = f"{server.url}/realms/missing"  # 발급자 문서 대신 메시지 목록이 온다
+    assert main(args(server, tmp_path, *extra)) == 2
+    assert "발급자 문서" in capsys.readouterr().err
+    assert server.count == 0 and not (tmp_path / "journal.jsonl").exists()
 
 
 def test_window_seconds_default_matches_threshold_profile():
