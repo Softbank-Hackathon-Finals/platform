@@ -84,6 +84,11 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(spec["serviceAccountName"], "target-probe")
         self.assertIs(spec["containers"][0]["securityContext"]["readOnlyRootFilesystem"], True)
 
+    def test_anonymous_read_is_observed_not_required(self):
+        # The demo starts open (open-demo) so that IAM-01.1 BLOCKs first; the canary must not fail on it.
+        self.assertIn('result["pass"] = result["client_read"]', CANARY)
+        self.assertIn('"anonymous_read"', CANARY)
+
     def test_script_prints_no_secret(self):
         self.assertNotIn("print(os.environ", CANARY)
         self.assertNotIn("import traceback", CANARY)

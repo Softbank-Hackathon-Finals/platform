@@ -1,8 +1,9 @@
 """T14 IAM-01.1 canary: write one fixed object, then check what the collector checks. Runs in a Job.
 
-Writes with the bootstrap identity (the client identity cannot create objects outside the app's flow),
-reads it back with the client identity, and expects an unsigned read to be refused. Prints only the
-bucket, key, size, SHA-256 and the three outcomes; never a key or a secret.
+Writes with the bootstrap identity (the client identity cannot create objects outside the app's flow) and
+reads it back with the client identity. The unsigned read is only observed, not required: the demo starts
+with the bucket in `open-demo` (README "데모용 노출 상태"), where IAM-01.1 is meant to BLOCK until T31 closes
+it. Prints only the bucket, key, size, SHA-256 and the outcomes; never a key or a secret.
 """
 import hashlib
 import json
@@ -42,11 +43,12 @@ def main():
         result["stage"] = "anonymous_get"
         try:
             client().get_object(Bucket=BUCKET, Key=KEY)
-            result["anonymous_denied"] = False
+            result["anonymous_read"] = "allowed"
         except ClientError as error:
-            result["anonymous_denied"] = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403
+            status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            result["anonymous_read"] = "denied" if status == 403 else f"unknown:{status}"
         result["stage"] = "done"
-        result["pass"] = result["client_read"] and result["anonymous_denied"]
+        result["pass"] = result["client_read"]
     except ClientError as error:
         result.update({"pass": False, "error": error.response.get("Error", {}).get("Code", "ClientError")})
     except Exception as error:  # noqa: BLE001 - one line of evidence, no traceback with values
