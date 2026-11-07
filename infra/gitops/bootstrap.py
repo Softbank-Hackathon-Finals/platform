@@ -271,9 +271,17 @@ def main():
             raise ValueError("published_image_required")
         for name in set(runtime["secrets"].values()):
             get("secret", name, "platform-state")
-        get(
+        config = get(
             "configmap", runtime["configuration"]["existingConfigMap"], "platform-state"
         )
+        # The private catalog keeps its environment references; the profile allowlist is declared here.
+        declared = json.loads(
+            (ROOT / "infra/gitops/environments/development/registration-profiles.json").read_text()
+        )["evaluation_profiles"]
+        catalog = json.loads(config.get("data", {}).get("catalog.json", "{}"))
+        key = lambda p: (p["tenant_id"], p["profile_id"], p["profile_version"])
+        if sorted(map(key, catalog.get("evaluation_profiles", []))) != sorted(map(key, declared)):
+            raise ValueError("registration_profiles_drift")
         runtime_hash = hashlib.sha256(a.runtime_values.read_bytes()).hexdigest()
         if "productReader" in value:
             reader = value["productReader"]

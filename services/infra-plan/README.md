@@ -32,6 +32,7 @@
 
 ```sh
 uv run bravo-infra-plan check ../../infra/stacks/target-onprem/stack.json
+uv run bravo-infra-plan check ../../infra/stacks/target-onprem-migration/stack.json   # 목적지 이전 단계
 uv run bravo-infra-plan request-schema ../../infra/stacks/target-onprem/stack.json
 uv run bravo-infra-plan plan ../../infra/stacks/target-onprem/stack.json \
   --request request.json --repo-root ../.. --charts-dir <chart 아카이브 폴더> \
@@ -74,6 +75,37 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - backend 설정 값은 프로세스 인자로 넘기지 않는다(개인 backend 파일과 0600 임시 파일).
 - **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
 - **검증**: 실제 terraform 바이너리로 로컬 backend 시험 스택 두 개(출력 연결, 재실행 `SKIPPED`, 교체 `HOLD`, 승인 뒤 입력 변경 거부). 실제 AWS 계정에는 실행하지 않았다.
+
+## 목적지가 이전 대상으로서 하는 단계 (`target-onprem-migration`)
+
+`target-onprem`으로 목적지를 세운 뒤, 목적지가 이전 대상이 되기까지의 순서다. 같은 실행기·계획 digest·T10
+`approval_kind=infra` 승인으로 돌고, 단계마다 대상 신원을 다시 읽는다. 클러스터에 쓰는 것은 정방향 구독을 **만드는**
+`render_apply` 하나뿐이다. 지우기·끄기·덮어쓰기는 없다. 관찰할 수 없는 것은 사람 확인으로 남기고, 시간이 걸리는 것은
+`operator_action`의 확인 검사로 기다린다(관찰되면 resume 때 SKIPPED, 아직이면 WAITING).
+
+| 단계 | 종류 | 담당 | 끝나는 조건(코드가 관찰) |
+|---|---|---|---|
+| `identity` | probe | T30 | 승인된 노드·클러스터 UID, 노드 Ready |
+| `node-files` | operator_action | T44 | API 서버가 Metadata 감사 이벤트를 낸다(`apiserver_audit_level_total{level="Metadata"}` > 0). 노드 묶음은 `infra/iac/nodes/<환경>`, 적용기는 `infra/iac/nodes/apply.py` |
+| `iac-network` | operator_action | T44 | T44 판정기 `infra/iac/customer_status.py`(#635)가 `bravo-iac-target-dev`를 승인 커밋으로 `SYNC_VERIFIED`. 설치 전·수렴 전이면 기다리고, 판정기가 막으면 HOLD |
+| `replication-external-cluster` | probe | T8 | `target-db`가 `t8-source`를 선언했다(kube DNS `source-db-for-replication.target-dev.svc`, verify-full, 자격 Secret 이름). 선언은 `target-onprem`의 database 렌더가 소유하고, 여기서는 확인만 한다 |
+| `replication-credentials` | operator_action | T8 | `target-dev/t8-source-replication`(password), `t8-source-ca`(ca.crt)가 있고 CNPG가 읽었다(`status.secretsResourceVersion.externalClusterSecretVersion`). 둘 다 라벨 `cnpg.io/reload=true`가 필요하다. 값은 Git·계획·기록에 없음 |
+| `replication-target-ready` | probe | T8 | 구독이 이미 있거나, 게시된 표가 목적지에 있고 비어 있다. 행이 있으면 HOLD |
+| `forward-subscription` | render_apply(`create_only`) | T8 | `replication.py subscription --side target`: `t8-source-to-target`이 없으면 만든다. 같으면 SKIPPED, 다르면 HOLD |
+| `initial-copy` | operator_action | T8 | 구독 적용 + 표마다 초기 복사 끝(`pg_subscription_rel` 전부 `r`, 주 인스턴스에서 고정 읽기 쿼리). 인증서 이름 불일치·CA 미적재는 HOLD |
+
+복제 판정(볼 대상, 고정 읽기 쿼리, 판정)은 `bravo_infra_plan/replication.py`에 있다. `KubectlCluster`는 객체 읽기와
+주 인스턴스의 읽기 전용 쿼리만 한다. 출발지의 역방향 준비와 T10 넘김은 이 스택 밖이다(목적지 UID 승인에 묶이지 않는다).
+
+그다음은 플랫폼 워크플로다: REHEARSE(T31 반영) → GATE(T19 재대조) → AWAIT_APPROVAL(요청자가 아닌 사람) → SHIFT(T17
+가중치) → CUTOVER(T12 실행기: 비교·커밋, 정방향 끔·역방향 켬, epoch) → WATCH(T36 SLI + T19 재시험). 문제가 있으면
+FAILBACK(T20)이 역방향 복제와 Edge 복원으로 돌린다. 이 스택은 그 판단을 하지 않고, 그 앞까지를 순서와 조건으로 고정한다.
+
+새 RKE2 시험 VM(2026-11-07 20:30–20:42 KST, CNPG 1.30.1, 클러스터 UID 대조)에서 실제 렌더 출력을 이름만 바꾼
+namespace에 올려 확인했다. 외부 클러스터를 선언한 `target-db`는 Secret 없이도 healthy였다. 늦게 만든 Secret은
+`cnpg.io/reload` 라벨이 있어야 적재됐고, 그 뒤 kube DNS + verify-full로 초기 복사가 끝났다(행 수 일치, TLSv1.3). 판정
+함수(`external_cluster`·`credentials`·`target_ready`·`initial_copy`)는 실제 `KubectlCluster`로 모두 True였다. 손으로
+`hostaddr`를 패치한 기존 목적지는 `external_cluster`가 False다. 새 렌더로 세운 목적지에서만 통과한다.
 
 ## 다음 PR에서 할 것
 
