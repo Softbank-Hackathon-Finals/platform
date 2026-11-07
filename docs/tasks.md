@@ -959,7 +959,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
 - [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
 - [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
-- [ ] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
+- [x] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
 
 **완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용(비밀 값 주입은 T45) → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 
