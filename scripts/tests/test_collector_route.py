@@ -262,7 +262,8 @@ class Fragment(unittest.TestCase):
         known = set()
         for path in ROOT.glob("**/*"):
             if path.suffix in {".json", ".py"} and path.is_file() and ".git" not in path.parts:
-                known |= set(re.findall(r"tag:bravo-[a-z0-9-]+", path.read_text(errors="ignore")))
+                # A tag name never ends with "-"; invalid examples in tests are not tags.
+                known |= set(re.findall(r"tag:bravo-[a-z0-9]+(?:-[a-z0-9]+)*", path.read_text(errors="ignore")))
         known -= {"tag:bravo-metrics", "tag:bravo-source-collector", "tag:bravo-target-collector"}
         self.assertTrue(known)
         self.assertLessEqual(known, denies)
