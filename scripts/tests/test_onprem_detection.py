@@ -37,6 +37,9 @@ class OnpremDetectionBundle(unittest.TestCase):
         self.assertIn("kind: modern_ebpf", values)
         self.assertIn("existingSecret: falcosidekick-bravo", values)
         self.assertNotRegex(values, r"(?i)bearer|address:|customheaders|token:")
+        # The platform's private CA comes from a ConfigMap (a public certificate), never a key.
+        self.assertIn("cacertfile: /etc/bravo-findings-ca/ca.crt", values)
+        self.assertIn("configMap: {name: bravo-findings-ca}", values)
 
     def test_agent_reads_reports_only_and_runs_locked_down(self):
         items = {(o["kind"], o["metadata"]["name"]): o for o in json.loads((BUNDLE / "agent.json").read_text())["items"]}
@@ -54,6 +57,22 @@ class OnpremDetectionBundle(unittest.TestCase):
                                                         "capabilities": {"drop": ["ALL"]}})
         self.assertFalse([e for e in container["env"] if "TOKEN" in e["name"] and e["name"] != "BRAVO_FINDINGS_TOKEN_FILE"])
         self.assertEqual(pod["volumes"][0]["secret"]["defaultMode"], 0o400)
+
+    def test_agent_reaches_only_dns_the_kube_api_and_the_declared_platform_name(self):
+        items = {(o["kind"], o["metadata"]["name"]): o for o in json.loads((BUNDLE / "agent.json").read_text())["items"]}
+        pod = items[("CronJob", "bravo-findings-agent")]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+        # The T44 target egress Service, named like the platform Service so one server certificate SAN fits both.
+        self.assertEqual(env["BRAVO_FINDINGS_URL"], "https://bravo-findings.bravo-security.svc:8443")
+        self.assertEqual(env["BRAVO_FINDINGS_CA_FILE"], "/run/bravo/ca/ca.crt")
+        self.assertIn({"name": "ca", "configMap": {"name": "bravo-findings-ca"}}, pod["volumes"])
+        policy = items[("NetworkPolicy", "bravo-findings-agent")]["spec"]
+        self.assertEqual(policy["podSelector"], {"matchLabels": {"app.kubernetes.io/name": "bravo-findings-agent"}})
+        self.assertEqual(policy["ingress"], [])
+        # DNS and the API server endpoint after Service DNAT; the tailnet proxy range is the T44 client policy's.
+        dns, api = policy["egress"]
+        self.assertEqual({p["port"] for p in dns["ports"]}, {53})
+        self.assertEqual(api, {"ports": [{"protocol": "TCP", "port": 6443}]})
 
 
 if __name__ == "__main__":

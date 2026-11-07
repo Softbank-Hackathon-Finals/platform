@@ -9,19 +9,30 @@
 | Falco | chart `falcosecurity/falco` 9.2.2(app 0.45.2), sha256 `b8a1aa98…687d` | modern eBPF(커널 6.8, arm64, 커널 모듈 없음). falcosidekick이 경보를 `POST /v1/security/webhooks/falco/env-onprem`으로 보낸다 |
 | 수집 에이전트 | `agent.json`(CronJob 5분) | PolicyReport를 읽고(get · list만) Falco DaemonSet 준비 상태를 확인해 `POST /v1/security/ingest/{kyverno\|falco}`로 보낸다. 읽지 못하거나 Falco가 준비되지 않으면 `agent_error`로 보내 화면이 "확인 불가"가 된다 |
 
-토큰 · 주소는 Git에 없다. 설치할 때 stdin으로 Secret과 ConfigMap을 만든다.
+토큰은 Git에 없다. 설치할 때 stdin으로 Secret을 만든다.
+
+## 목적지 → 플랫폼 경로
+
+| 무엇 | 값 |
+|---|---|
+| 주소 | `https://bravo-findings.bravo-security.svc:8443`. T44 `target-dev.json`의 egress 그룹 `bravo-target-findings`가 만드는 목적지 Service다. 플랫폼 Service와 이름 · namespace가 같아서 서버 인증서 SAN 하나로 맞는다 |
+| tailnet | `tag:bravo-target-findings` → `tag:bravo-findings:8443`만(T44 정책 조각). 플랫폼 장치 `bravo-findings`는 `platform.json` tailnet-ingress |
+| 송신 제한 | T44 클라이언트 정책(에이전트 · falcosidekick: DNS · proxy 포트만)에 에이전트 정책 `bravo-findings-agent`(DNS · API 서버 6443)를 더한다. 6443은 `kubernetes.default` 443이 Service DNAT 뒤 닿는 API 서버 끝점이다 |
+| CA | 플랫폼 사설 CA 인증서(비밀 아님)를 ConfigMap `bravo-findings-ca`(키 `ca.crt`)로 `bravo-security` · `falco`에 둔다 |
 
 ## 아직 정해지지 않은 것 (설치 전에 필요)
 
-- **플랫폼 수집 API 주소와 수집 자격:** 플랫폼 배포 PR에서 정한다. 자격은 `env-onprem` 범위, `ingest`, 출처 `kyverno` · `falco`, 24시간 이하이다(`docs/security/detection-hardening.md`).
-- **목적지 → 플랫폼 경로:** T44 tailnet-egress(목적지) · tailnet-ingress(플랫폼)로 선언한다. 에이전트 · falcosidekick의 egress NetworkPolicy도 그때 같이 둔다.
+- **수집 자격:** 자격은 `env-onprem` 범위, `ingest`, 출처 `kyverno` · `falco`, 24시간 이하이다(`docs/security/detection-hardening.md`). 플랫폼 레지스트리에 sha256을 넣고 원문은 아래 Secret으로만 옮긴다.
 - **에이전트 이미지:** `agent.json`의 digest는 자리표시다. 플랫폼 이미지 게시 뒤 그 digest로 바꾼다. 목적지의 비공개 이미지 pull 경로를 쓴다.
 
 ## 설치 순서 (해피패스가 끝난 뒤)
 
 노드 하나(CPU 4 · 메모리 8GB)에 이미 업무 · DB · 프록시가 올라가 있다. 그래서 자원 상한을 낮게 두고, 하나씩 설치하며 노드 여유를 확인한다.
 
-0. 클러스터를 세우는 쪽이 namespace `kyverno` · `falco` · `bravo-security`를 만든다(이 묶음은 namespace를 만들지 않는다).
+0. 클러스터를 세우는 쪽이 namespace `kyverno` · `falco` · `bravo-security`를 만든다(이 묶음은 namespace를 만들지 않는다). T44 경로가 든 SHA를 목적지 Argo로 승격하기 전에 있어야 한다. CA ConfigMap도 둔다:
+   ```sh
+   for ns in bravo-security falco; do kubectl -n "$ns" create configmap bravo-findings-ca --from-file=ca.crt="$PLATFORM_CA_CERT"; done
+   ```
 1. Kyverno:
    ```sh
    helm upgrade --install kyverno kyverno/kyverno --version 3.9.2 -n kyverno -f kyverno-values.yaml
@@ -33,13 +44,12 @@
 2. Falco(주소 · 토큰은 stdin):
    ```sh
    printf 'WEBHOOK_ADDRESS=%s\nWEBHOOK_CUSTOMHEADERS=Authorization:Bearer %s\nWEBHOOK_CHECKCERT=true\nWEBHOOK_MINIMUMPRIORITY=notice\n' \
-     "$FINDINGS_URL/v1/security/webhooks/falco/env-onprem" "$(cat "$INGEST_TOKEN_FILE")" \
+     "https://bravo-findings.bravo-security.svc:8443/v1/security/webhooks/falco/env-onprem" "$(cat "$INGEST_TOKEN_FILE")" \
      | kubectl -n falco create secret generic falcosidekick-bravo --from-env-file=/dev/stdin
    helm upgrade --install falco falcosecurity/falco --version 9.2.2 -n falco -f falco-values.yaml
    ```
 3. 에이전트:
    ```sh
-   kubectl -n bravo-security create configmap bravo-findings-agent --from-literal=url="$FINDINGS_URL"
    kubectl -n bravo-security create secret generic bravo-findings-agent-token --from-file=token=/dev/stdin < "$INGEST_TOKEN_FILE"
    kubectl apply -f agent.json      # digest를 바꾼 사본
    ```
@@ -55,6 +65,7 @@
 
 운영자 Mac에서 먼저 확인하려면 에이전트를 밖에서 돌린다(같은 판정 경로):
 `python -m bravo_findings.agent_run --kubectl-context <목적지 context>`
+Mac은 tailnet 경로(목적지 태그 전용)를 쓰지 않는다. 플랫폼 `svc/bravo-findings`를 port-forward하고 인증서 이름 `bravo-findings.bravo-security.svc`를 hosts에서 127.0.0.1로 둔 채 같은 주소와 `BRAVO_FINDINGS_CA_FILE`로 보낸다.
 
 ## 되돌리기
 

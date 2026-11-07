@@ -19,6 +19,14 @@ falcosidekick:
     enabled: false
   config:
     existingSecret: falcosidekick-bravo
+    # 플랫폼 사설 CA(비밀 아님). 서버 이름은 bravo-findings.bravo-security.svc(T44 목적지 egress Service)
+    tlsclient:
+      cacertfile: /etc/bravo-findings-ca/ca.crt
+  extraVolumes:
+    - name: bravo-findings-ca
+      configMap: {name: bravo-findings-ca}
+  extraVolumeMounts:
+    - {name: bravo-findings-ca, mountPath: /etc/bravo-findings-ca, readOnly: true}
   resources:
     requests: {cpu: 10m, memory: 32Mi}
     limits: {memory: 128Mi}
