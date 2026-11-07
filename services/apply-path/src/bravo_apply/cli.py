@@ -133,6 +133,7 @@ def cmd_desired_exposure(args) -> int:
                               probe_key=args.probe_key, bucket=args.bucket, secret=args.auth_secret,
                               workload=args.object_workload, container=args.object_container)
         record = apply_desired_exposure(args.environment, args.revision, reviewed_ref=args.reviewed_ref,
+                                        iac_plan=_load(args.iac_plan),
                                         repo_root=Path(args.repo_root), kube=KubectlKube(args.kubeconfig),
                                         receipts_dir=Path(args.receipts), target=target,
                                         plan_id=args.plan_id or None, timeout_seconds=args.timeout)
@@ -182,6 +183,7 @@ def main(argv=None) -> int:
     x.add_argument("--environment", required=True, help="T44 environment id, e.g. target-dev")
     x.add_argument("--revision", required=True, help="full commit SHA holding the desired state (the promoted one)")
     x.add_argument("--reviewed-ref", required=True, help="protected ref the revision must be reachable from")
+    x.add_argument("--iac-plan", required=True, help="the T44 plan JSON (bravo-iac plan) that staged this change")
     x.add_argument("--repo-root", required=True, help="a clone of this repository with --reviewed-ref fetched")
     x.add_argument("--kubeconfig", required=True, help="namespace-scoped bucket-policy identity")
     x.add_argument("--namespace", required=True)

@@ -1,6 +1,7 @@
 """T44 desired state → T31 bucket-policy branch: only a reviewed ``closed`` is applied, once."""
 
 import base64
+import copy
 import json
 import stat
 import subprocess
@@ -12,6 +13,7 @@ from bravo_apply.desired import (
     DesiredRefused,
     application_id_for,
     apply_desired_exposure,
+    load_t44,
     read_desired,
 )
 from bravo_apply.policy import PolicyTarget
@@ -21,11 +23,24 @@ TARGET = PolicyTarget(namespace="target-dev", endpoint="http://seaweedfs.target-
                       probe_key="t31/probe.txt", bucket=BUCKET)
 
 
+# T44's real desired state, so the states and plans below are ones T44 itself accepts.
+BASE = json.loads((REPO_ROOT / "infra/iac/environments/target-dev.json").read_text())
+
+
 def environment(state, *, bucket=BUCKET, name="target-dev"):
     params = {"state": state, "bucket": bucket} | ({"demo_run_id": "demo-2026-11-08"} if state == "open-demo" else {})
-    return {"schema_version": "1", "environment": name,
-            "modules": [{"id": "target-object-exposure", "version": "1", "params": params},
-                        {"id": "tailnet-egress", "version": "1", "params": {}}]}
+    doc = copy.deepcopy(BASE) | {"environment": name}
+    next(m for m in doc["modules"] if m["id"] == "target-object-exposure")["params"] = params
+    return doc
+
+
+def iac_plan(current, proposed, origin="agent"):
+    return load_t44().plan(environment(current), environment(proposed), origin=origin)
+
+
+def resealed(plan, **changes):
+    body = {k: v for k, v in plan.items() if k != "plan_digest"} | changes
+    return body | {"plan_digest": load_t44().digest(body)}
 
 
 class Repo:
@@ -53,12 +68,14 @@ def repo(tmp_path):
     repo = Repo(tmp_path / "repo")
     repo.opened = repo.commit(environment("open-demo"))
     repo.closed = repo.commit(environment("closed"))
+    repo.plan = iac_plan("open-demo", "closed")  # what the operator ran before staging the change
     return repo
 
 
-def run(repo, revision, tmp_path, kube=None, probes=None, ref="main", target=TARGET):
+def run(repo, revision, tmp_path, kube=None, probes=None, ref="main", target=TARGET, plan=None):
     kube = kube or fake_kube("open-demo")
-    record = apply_desired_exposure("target-dev", revision, reviewed_ref=ref, repo_root=repo.root, kube=kube,
+    record = apply_desired_exposure("target-dev", revision, reviewed_ref=ref, iac_plan=plan or repo.plan,
+                                    repo_root=repo.root, kube=kube,
                                     receipts_dir=tmp_path / "receipts", target=target, plan_id="plan-demo",
                                     policy_hooks=(probes or Probes()).hooks())
     return record, kube
@@ -75,7 +92,9 @@ def test_a_reviewed_closed_state_removes_anonymous_and_requests_the_recheck(repo
     assert "anonymous" not in identities(kube) and {"bootstrap", "client"} <= set(identities(kube))
     assert record["gate_recheck"] == {"application_id": application_id_for("target-dev", repo.closed),
                                       "environment_id": "target-dev", "revision": repo.closed,
-                                      "tests": ["IAM-01.1"], "plan_id": "plan-demo"}
+                                      "iac_plan_digest": repo.plan["plan_digest"], "tests": ["IAM-01.1"],
+                                      "plan_id": "plan-demo"}
+    assert record["desired"]["state_digest"] == repo.plan["proposed_digest"]
     assert record["desired"]["revision"] == repo.closed and record["policy"]["anonymous_get"] == "DENIED"
     assert kube.restarts[0]["bravo.dev/applied-by"] == record["application_id"]
     receipt = tmp_path / "receipts" / f"{record['application_id']}.json"
@@ -132,6 +151,28 @@ def test_git_decides_before_anything_is_recorded_or_touched(repo, tmp_path, case
     assert not (tmp_path / "receipts").exists() and kube.secret_writes == []
 
 
+@pytest.mark.parametrize("case, code", [
+    ("tampered", "IAC_PLAN_DIGEST_MISMATCH"),
+    ("refused", "IAC_PLAN_NOT_ACCEPTED"),
+    ("other_state", "IAC_PLAN_NOT_THIS_REVISION"),
+    ("no_closing", "IAC_PLAN_DOES_NOT_CLOSE"),
+    ("other_environment", "IAC_PLAN_INVALID"),
+])
+def test_the_t44_plan_must_be_the_one_that_closed_this_revision(repo, tmp_path, case, code):
+    plan = {
+        "tampered": lambda: repo.plan | {"effects": []},
+        "refused": lambda: iac_plan("closed", "open-demo"),  # an agent may not widen: T44 refuses it
+        "other_state": lambda: resealed(repo.plan, proposed_digest="0" * 64),
+        "no_closing": lambda: iac_plan("closed", "closed"),
+        "other_environment": lambda: resealed(repo.plan, environment="source-dev"),
+    }[case]()
+    kube = fake_kube("open-demo")
+    with pytest.raises(DesiredRefused) as refused:
+        run(repo, repo.closed, tmp_path, kube=kube, plan=plan)
+    assert refused.value.code == code
+    assert not (tmp_path / "receipts").exists() and kube.secret_writes == []
+
+
 def test_anonymous_still_readable_after_the_change_is_a_safe_hold(repo, tmp_path):
     record, kube = run(repo, repo.closed, tmp_path, probes=Probes(anonymous=("ALLOWED",)))
     assert (record["status"], record["reason"]) == ("SAFE_HOLD", "ANONYMOUS_READ_STILL_ALLOWED")
@@ -150,13 +191,16 @@ def test_the_repository_desired_state_has_the_shape_this_reads():
     head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
                           check=True).stdout.strip()
     try:
-        assert read_desired(REPO_ROOT, "target-dev", head, "HEAD", BUCKET)["state"] == "closed"
+        plan = load_t44().plan(BASE, environment("closed"), origin="agent")
+        assert read_desired(REPO_ROOT, "target-dev", head, "HEAD", BUCKET, plan)["state"] == "closed"
     except DesiredRefused as refused:
         assert refused.code == "T31_NEVER_OPENS"
 
 
 def test_cli_refuses_an_opening_revision_without_a_record(repo, tmp_path, capsys):
+    (tmp_path / "plan.json").write_text(json.dumps(repo.plan))
     code = main(["desired-exposure", "--environment", "target-dev", "--revision", repo.opened, "--reviewed-ref", "main",
+                 "--iac-plan", str(tmp_path / "plan.json"),
                  "--repo-root", str(repo.root), "--kubeconfig", str(tmp_path / "unused"), "--namespace", "target-dev",
                  "--object-endpoint", TARGET.endpoint, "--probe-key", TARGET.probe_key,
                  "--receipts", str(tmp_path / "receipts")])

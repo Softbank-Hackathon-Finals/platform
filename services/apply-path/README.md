@@ -2,7 +2,7 @@
 
 설계 7.1의 6단계("사람 승인 → 반영")에서 **승인된 것과 배포되는 것이 같은 바이트인지**를 코드가 보장하는 부품이다(FR-7 승인 결속). 모델은 이 단계에 손대지 못한다. 상태 머신 · 승인 · 접수는 T10이, 리허설 검증은 T15가, 게이트 재대조는 T19가 맡고, T31은 그 사이를 digest로 묶는다. 변경 종류는 두 가지다: 앱 이미지 변경(Deployment 이미지 digest 고정)과 버킷 정책 변경(SeaweedFS `s3.json` Secret 교체, [아래](#버킷-정책-변경-분기)).
 
-**상태: 시험 115개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
+**상태: 시험 120개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -147,11 +147,13 @@ T44(ADR-0032)는 목적지 첨부 버킷의 공개 상태를 `infra/iac/environm
 | 그 커밋의 환경 파일을 `git show`로 읽는다(작업 트리는 읽지 않는다). 모듈은 `target-object-exposure` v1 하나 | `DESIRED_STATE_UNAVAILABLE` · `DESIRED_STATE_UNRECOGNIZED` · `DESIRED_STATE_ENVIRONMENT_MISMATCH` |
 | 상태가 `closed`이고 버킷이 대상 버킷과 같다. `open-demo`는 받지 않는다(T31은 열지 않는다) | `T31_NEVER_OPENS` · `DESIRED_BUCKET_MISMATCH` |
 | 검토 브랜치 끝에서도 그 모듈이 같다(옛 커밋이 새 결정을 되돌리지 않는다) | `DESIRED_STATE_SUPERSEDED` |
+| `--iac-plan`은 그 변경을 만든 T44 계획(`bravo-iac plan`)이다: `plan_digest`가 맞고, 수락됐고, `proposed_digest`가 그 커밋의 상태이며, 이 모듈의 익명 접근을 없앤다. digest는 T44 패키지(`check_state` · `digest`)를 저장소에서 읽어 같은 함수로 계산한다 | `IAC_PLAN_INVALID` · `IAC_PLAN_DIGEST_MISMATCH` · `IAC_PLAN_NOT_ACCEPTED` · `IAC_PLAN_NOT_THIS_REVISION` · `IAC_PLAN_DOES_NOT_CLOSE` · `T44_PACKAGE_UNAVAILABLE` |
 
-통과하면 `application_id = iac-<환경>-<revision 앞 16자>`로 STARTED 기록을 먼저 만든다. 같은 요청을 다시 보내면 그 기록을 돌려주고 아무것도 바꾸지 않는다. 대상 `s3.json`에 `anonymous` identity가 이미 없으면 `ALREADY_CLOSED`로 끝내고 Secret을 건드리지 않는다. 나머지는 `apply_bucket_policy`와 같다: Secret 교체 → 워크로드 재시작 → 익명 GET 거부 · 앱 자격 GET 허용 관찰. 결과는 `APPLIED` · `ALREADY_CLOSED`면 `gate_recheck{tests: ["IAM-01.1"], environment_id, revision, application_id[, plan_id]}`를 담고, 변경 전 실패는 `REFUSED`, 변경 뒤 실패는 `SAFE_HOLD`다(되돌리지 않는다). 기록은 0600 파일이고 `s3.json`의 sha256만 담는다. RBAC은 위 정책 분기 identity와 같다.
+통과하면 `application_id = iac-<환경>-<revision 앞 16자>`로 STARTED 기록을 먼저 만든다. 같은 요청을 다시 보내면 그 기록을 돌려주고 아무것도 바꾸지 않는다. 대상 `s3.json`에 `anonymous` identity가 이미 없으면 `ALREADY_CLOSED`로 끝내고 Secret을 건드리지 않는다. 나머지는 `apply_bucket_policy`와 같다: Secret 교체 → 워크로드 재시작 → 익명 GET 거부 · 앱 자격 GET 허용 관찰. 결과는 `APPLIED` · `ALREADY_CLOSED`면 `gate_recheck{tests: ["IAM-01.1"], environment_id, revision, iac_plan_digest, application_id[, plan_id]}`를 담고, 변경 전 실패는 `REFUSED`, 변경 뒤 실패는 `SAFE_HOLD`다(되돌리지 않는다). 기록은 0600 파일이고 `s3.json`의 sha256만 담는다. RBAC은 위 정책 분기 identity와 같다.
 
 ```sh
 bravo-apply desired-exposure --environment target-dev --revision <승격한 커밋 SHA> --reviewed-ref origin/main \
+  --iac-plan <그 변경의 T44 plan.json> \
   --repo-root /work/platform --kubeconfig /private/object-policy.kubeconfig --namespace target-dev \
   --object-endpoint http://seaweedfs.target-dev.svc.cluster.local:8333 --probe-key <존재하는 객체 키> \
   --receipts /durable/desired-receipts [--plan-id <계획 id>]
