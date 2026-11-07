@@ -38,7 +38,10 @@ class PublicEntryChart(unittest.TestCase):
         self.assertTrue(kind(docs, "Deployment", "bravo-gitops-server"))
         cm = kind(docs, "ConfigMap", "argocd-cm")[0]["data"]
         self.assertEqual((cm["admin.enabled"], cm["exec.enabled"], cm["users.anonymous.enabled"]), ("false", "false", "true"))
-        self.assertEqual(kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]["policy.default"], "role:readonly")
+        rbac = kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]
+        # Anonymous sees Applications and projects only: no logs, no other resource kinds.
+        self.assertEqual(rbac["policy.default"], "role:platform-viewer")
+        self.assertNotIn("logs", rbac["policy.csv"])
         self.assertFalse(kind(docs, "ClusterRole") + kind(docs, "ClusterRoleBinding"))
 
         app = kind(docs, "Application", "platform-public-entry")[0]["spec"]
