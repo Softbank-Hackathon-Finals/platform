@@ -397,9 +397,10 @@ class T10Approvals:
     def read(self, plan_id, approval_id):
         return self._call("GET", f"/v1/plans/{plan_id}/infra-approvals/{approval_id}")
 
-    def claim(self, plan_id, approval_id, *, run_id, plan_digest):
+    def claim(self, plan_id, approval_id, *, run_id, binding):
+        """`binding` is the whole expected `{infra_plan_id, plan_digest, requested_by}`; T10 compares all."""
         return self._call("POST", f"/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims",
-                          {"run_id": run_id, "plan_digest": plan_digest})
+                          {"run_id": run_id, "binding": binding})
 
 
 class AuditLedger:
