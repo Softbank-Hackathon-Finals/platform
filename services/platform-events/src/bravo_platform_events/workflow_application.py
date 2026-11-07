@@ -108,7 +108,35 @@ def post_apply_prepare(records):
     return prepare
 
 
-def create(store, config_file=CONFIG, *, kube=None, delegations=None):
+def platform_signer(store, records, access, delegations, loaded):
+    """GateRecheck.sign (ADR-0038): the platform KMS keys sign the bound post-apply context under the plan's
+    live `evidence` delegation for the GATE version; without one nothing is signed and GATE holds."""
+    from datetime import UTC, datetime
+
+    from . import gate_relay, gate_signer
+    from .cutover import _get, _put
+
+    relay, keys = loaded
+
+    def call(request):
+        return gate_relay.handle(records, request, relay, access=access)
+
+    def put_record(plan_id, key, value):
+        with store._transaction(write=True, plan_id=plan_id) as c:
+            if _get(c, plan_id, key) is None:  # a retry keeps the first record
+                _put(c, plan_id, key, {"op": "platform-sign"}, value)
+
+    def sign(principal, plan_id, outcome):
+        # the version is read where the delegation use is recorded (same transaction)
+        gate_signer.sign(call, keys, plan_id, datetime.now(UTC), put_record,
+                         delegation=gate_signer.delegated(delegations, plan_id))
+
+    return sign
+
+
+def create(store, config_file=CONFIG, *, kube=None, delegations=None, signer=None):
+    """`signer`: (relay config, KMS keys) for the platform signer; by default from /workflow/gate-signer.json
+    when that file is mounted. It needs `delegations` (the evidence check)."""
     from bravo_apply.deploy import KubectlKube
 
     from . import gate_services
@@ -149,8 +177,15 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None):
 
     host = ApplicationHost(changes, kube=kube, receipts_dir=config["receipts_dir"], load_input=load_input)
     records = gate_services.gate_records(store, access)  # one instance for recheck, factory and load_gate
+    from . import gate_signer
+
+    if signer is None and Path(gate_signer.CONFIG).is_file():
+        signer = gate_signer.load()
+    if signer is not None and delegations is None:
+        raise ValueError("workflow_platform_signer_needs_delegations")  # never sign without the check
     recheck = GateRecheck(records, prepare=post_apply_prepare(records),
-                          service_factory=gate_services.service_factory(records, access))
+                          service_factory=gate_services.service_factory(records, access),
+                          sign=platform_signer(store, records, access, delegations, signer) if signer else None)
     stages = application_stages(host, recheck, receipts_dir=config["receipts_dir"], check_current=check_current,
                                 load_gate=gate_services.load_gate(records, access), host_subject="workflow-host",
                                 delegations=delegations)

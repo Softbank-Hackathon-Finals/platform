@@ -49,6 +49,15 @@ def test_configuration_names_only_and_builds_rehearse(backend, tmp_path):
         workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
 
 
+def test_the_platform_signer_is_never_wired_without_the_delegation_check(backend, tmp_path):
+    path = tmp_path / "application.json"
+    path.write_text(json.dumps({"receipts_dir": str(tmp_path), "kubeconfig": "/t31/kubeconfig", "target": TARGET}))
+    relay = {"tenant_id": "t", "admin": "a", "issuer": "i", "operator": "o"}
+    with pytest.raises(ValueError, match="workflow_platform_signer_needs_delegations"):
+        workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64),
+                                    signer=(relay, {}))
+
+
 EXPOSURE = {"environment_id": "target-dev", "namespace": "target-dev", "bucket": "demo-chat-attachments",
             "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "attachments/t14-canary.txt",
             "base_revision": "a" * 40, "repo_root": "/platform-checkout"}

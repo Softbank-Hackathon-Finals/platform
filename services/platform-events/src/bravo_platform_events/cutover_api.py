@@ -69,8 +69,10 @@ class InfraApprovalInput(BaseModel):
 
 class DelegationInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    gates: list[Literal["change", "shift", "cutover", "failback", "rehearsal"]] = Field(min_length=1, max_length=5)
-    bounds: dict[Literal["change", "shift", "cutover", "failback", "rehearsal"], dict[str, str]] = Field(
+    # evidence (ADR-0038): the platform signs a gate context's T19 provenance in this person's name
+    gates: list[Literal["change", "shift", "cutover", "failback", "rehearsal", "evidence"]] = Field(
+        min_length=1, max_length=6)
+    bounds: dict[Literal["change", "shift", "cutover", "failback", "rehearsal", "evidence"], dict[str, str]] = Field(
         default_factory=dict)
     expires_at: str = Field(min_length=1, max_length=64)
 
