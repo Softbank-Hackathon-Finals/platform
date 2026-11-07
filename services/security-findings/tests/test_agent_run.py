@@ -1,7 +1,11 @@
 """The on-prem agent entrypoint pushes what collect() reads to the real ingest API, outbound and https only."""
 
 import json
+import threading
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlsplit
 
 import pytest
@@ -9,7 +13,7 @@ from conftest import READ_AUTH, WRITER_TOKEN
 from fastapi.testclient import TestClient
 
 from bravo_findings import Rules
-from bravo_findings.agent_run import run
+from bravo_findings.agent_run import open_no_redirect, run
 from bravo_findings.api import create_app
 from bravo_findings.store import Store
 
@@ -24,11 +28,13 @@ REPORT = {
 }
 
 
-def cluster(falco_ready=True):
+def cluster(falco_ready=True, reports=(REPORT,)):
     def get(path):
         if "daemonsets" in path:
             return {"status": {"desiredNumberScheduled": 1, "numberReady": 1 if falco_ready else 0}}
-        return {"items": [REPORT] if path.endswith("/policyreports") else []}
+        if "/deployments/" in path:
+            return {"spec": {"replicas": 1}, "status": {"readyReplicas": 1}}
+        return {"items": list(reports) if path.endswith("/policyreports") else []}
 
     return get
 
@@ -95,3 +101,38 @@ def test_rejected_push_fails_the_run_and_plain_http_is_refused(api, capsys):
     with pytest.raises(ValueError):
         run(cluster(), url="http://findings.example", token=WRITER_TOKEN, environment_id="env-onprem",
             context=None, now=NOW, opener=Opener(api))
+
+
+def test_more_results_than_one_request_takes_go_in_chunks(api, capsys):
+    many = [{**REPORT, "scope": {"kind": "Pod", "name": f"demo-chat-{i}", "namespace": "target-dev"}} for i in range(1201)]
+    opener = Opener(api)
+    assert run(cluster(reports=many), url="https://findings.example", token=WRITER_TOKEN,
+               environment_id="env-onprem", context=None, now=NOW, opener=opener) == 0
+    sent = [json.loads(line)["events"] for line in capsys.readouterr().out.splitlines()]
+    assert sent == [500, 500, 201, 0]  # kyverno in three requests under the API's 1000, then falco
+    cells = api.get("/v1/security/summary", headers=READ_AUTH).json()["environments"][0]["cells"]
+    assert cells["POLICY"]["state"] == "OK" and sum(cells["POLICY"]["counts"].values()) == 1201
+
+
+def test_a_redirect_is_never_followed_with_the_credential():
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            self.send_response(307)
+            self.send_header("Location", "/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.handle_request, daemon=True).start()
+    request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/v1/security/ingest/falco", data=b"{}",
+                                     method="POST", headers={"Authorization": "Bearer x"})
+    with pytest.raises(urllib.error.HTTPError) as stopped:
+        open_no_redirect(request, timeout=5)
+    server.server_close()
+    assert stopped.value.code == 307
+    assert seen == [("/v1/security/ingest/falco", "Bearer x")]
