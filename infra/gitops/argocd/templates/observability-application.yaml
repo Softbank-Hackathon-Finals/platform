@@ -12,8 +12,10 @@ spec:
     repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
     targetRevision: develop
     path: services/observability/deploy/platform-gitops
+  # Each manifest names its namespace; the default must still be one the project allows (Argo rejects an empty one).
   destination:
     server: https://kubernetes.default.svc
+    namespace: bravo-observability
   syncPolicy:
     automated:
       enabled: true
