@@ -8,6 +8,7 @@ port) and policy tests (accept the route, deny SSH to the same destination) so T
 policy that breaks them.
 """
 
+import ipaddress
 import json
 import subprocess
 
@@ -37,11 +38,50 @@ def _devices(states, tailnet=None):
 
 
 def _api_proxies(states, tailnet=None):
-    """(hostname, tag) of every API server proxy an operator-access module names."""
+    """(hostname, tag) of every API server proxy an access module names."""
     for state in states:
         for entry in check_state(state)["modules"]:
-            if entry["id"] == "operator-access" and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
+            if entry["id"] in {"operator-access", "api-transport-access"} and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
                 yield entry["params"]["proxy_hostname"], entry["params"]["proxy_tag"]
+
+
+# The operator still reads the capability under its old URL key, so a grant under either key counts.
+CAP_KEYS = (KUBERNETES_CAP, "https://" + KUBERNETES_CAP)
+
+
+TAILNET_RANGES = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def _may_be_proxy(dst: str, hosts: dict) -> bool:
+    """``*``, a tailnet address or CIDR, or a host alias for one may be any declared proxy device, so it is
+    checked as if it named every one of them. Tags, groups, users and subnet routes are not proxies."""
+    if dst == "*":
+        return True
+    if dst.startswith(("tag:", "group:", "autogroup:")) or "@" in dst:
+        return False
+    try:
+        network = ipaddress.ip_network(hosts.get(dst, dst), strict=False)
+    except (TypeError, ValueError):
+        return True  # a name the policy does not resolve: it cannot be ruled out
+    return any(network.version == r.version and network.overlaps(r) for r in TAILNET_RANGES)
+
+
+def _reaches_443(ips) -> bool:
+    for ip in ips:
+        port = ip.split(":", 1)[1] if ip.startswith(("tcp:", "udp:")) else ip
+        if ip.startswith("udp:"):
+            continue
+        if port == "*" or port == "443":
+            return True
+        low, sep, high = port.partition("-")
+        if sep and low.isdigit() and high.isdigit() and int(low) <= 443 <= int(high):
+            return True
+    return False
+
+
+def _impersonated(app) -> list[str]:
+    return [group for key in CAP_KEYS for rule in (app or {}).get(key) or [] if isinstance(rule, dict)
+            for group in (rule.get("impersonate") or {}).get("groups") or []]
 
 
 def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
@@ -56,23 +96,31 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
             for o in found.tag_owners(entry["params"]):
                 if o["tailnet"] == tailnet and owners.setdefault(o["tag"], o["owner"]) != o["owner"]:
                     raise IacError("IAC_TAG_OWNER_CONFLICT")
-    # Policy tests cover route grants only: a grant with an app capability (API server proxy access)
-    # names a tailnet group whose members live outside this repository; check_policy matches it instead.
+    # Policy tests cover tagged route devices only. Human group/role membership lives outside
+    # this repository; check_policy matches its grants without inventing a test user.
     for src, dst, ip, app in grants:
-        if not app:
+        if not app and src.startswith("tag:"):
             accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
-    destinations = sorted({dst for _, dst, _, app in grants if not app})
+    destinations = sorted({dst for src, dst, _, app in grants if not app and src.startswith("tag:")})
+    # A new cluster's operator tag (tailnet-operator) has no grant of its own. Its devices get names at
+    # run time that a repository scan cannot see, so the policy itself tests that the tag reaches no
+    # granted destination: other environments' operators, databases, poolers and the collectors.
+    granted = sorted({f"{dst}:{ip.removeprefix('tcp:')}" for _, dst, ip, app in grants if not app})
+    operators = sorted({entry["params"]["tag"] for state in states for entry in check_state(state)["modules"]
+                        if entry["id"] == "tailnet-operator" and tailnet_of(entry["params"]) == tailnet})
     return {
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
         "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
                    for s, d, i, a in sorted(grants)],
         "tests": [{"src": src, "accept": sorted(accepts[src]),
-                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)],
+                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)]
+                 + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 
 
 def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
-    """Codes for what the policy lacks (empty: it allows every declared route and owns every group tag)."""
+    """Codes for what the policy lacks or adds beyond the desired state (empty: it allows every declared
+    route, owns every group tag, and gives no undeclared access to a declared API proxy)."""
     if type(policy) is not dict:
         raise IacError("IAC_POLICY_INVALID")
     want = fragment(states, tailnet)
@@ -86,17 +134,26 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
         if not any(src in g.get("src", []) and dst in g.get("dst", []) and (ip in g.get("ip", []) or "*" in g.get("ip", []))
                    and ("app" not in grant or g.get("app") == grant["app"]) for g in policy.get("grants") or []):
             missing.append(f"GRANT:{src}->{dst}:{ip}" + ("+app" if "app" in grant else ""))
-    # A capability grant to a declared API proxy that the desired state does not declare would let a
-    # policy edit alone hand out cluster rights (the proxy may impersonate any group): report it too.
-    declared = {json.dumps(g, sort_keys=True) for g in want["grants"] if "app" in g}
-    proxies = {d for g in want["grants"] if "app" in g for d in g["dst"]}
+    # What the desired state does not declare toward a declared API proxy would let a policy edit alone
+    # hand out cluster access: a capability grant (the proxy may impersonate any group), or plain reach
+    # to its 443 from another source (a transport proxy passes the caller's own credential through).
+    # `*`, addresses and host aliases count as every proxy; the ports of a declared grant may be wider.
+    declared = {(g["src"][0], g["dst"][0], json.dumps(g["app"], sort_keys=True)) for g in want["grants"] if "app" in g}
+    reach = {(g["src"][0], g["dst"][0]) for g in want["grants"]}
+    proxies = {tag for _, tag in _api_proxies(states, tailnet)}
+    hosts = policy.get("hosts") if isinstance(policy.get("hosts"), dict) else {}
     for g in policy.get("grants") or []:
-        if KUBERNETES_CAP in (g.get("app") or {}) and proxies & set(g.get("dst", [])):
-            for src in g.get("src", []):
-                for dst in sorted(proxies & set(g["dst"])):
-                    one = {"src": [src], "dst": [dst], "ip": g.get("ip", []), "app": g["app"]}
-                    if json.dumps(one, sort_keys=True) not in declared:
-                        missing.append(f"UNDECLARED_GRANT:{src}->{dst}+app")
+        dsts, app = set(g.get("dst", [])), g.get("app") or {}
+        if any(group.startswith("system:") for group in _impersonated(app)):
+            missing += [f"SYSTEM_IMPERSONATION:{src}" for src in g.get("src", [])]  # whatever it reaches
+        hit = proxies if any(_may_be_proxy(d, hosts) for d in dsts) else proxies & dsts
+        capability = any(key in app for key in CAP_KEYS)
+        for src in g.get("src", []):
+            for dst in sorted(hit):
+                if capability and (src, dst, json.dumps(app, sort_keys=True)) not in declared:
+                    missing.append(f"UNDECLARED_GRANT:{src}->{dst}+app")
+                elif not capability and _reaches_443(g.get("ip", [])) and (src, dst) not in reach:
+                    missing.append(f"UNDECLARED_REACH:{src}->{dst}:443")
     tests = policy.get("tests") or []
     for test in want["tests"]:
         have = {a for t in tests if t.get("src") == test["src"] for a in t.get("accept", [])}

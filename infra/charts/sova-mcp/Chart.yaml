@@ -1,0 +1,5 @@
+apiVersion: v2
+name: sova-mcp
+description: T21 SOVA MCP host on the platform RKE2 (platform-state), beside the T10 registration host
+type: application
+version: 0.1.0

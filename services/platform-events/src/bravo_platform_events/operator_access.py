@@ -201,7 +201,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                                authority=unavailable_authority,
                                change_authority=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
-                               change_intake=None, iac_repository=None):
+                               change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -233,9 +233,49 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
 
         iac_service = IacPlanService(store, repository=iac_repository, infra_service=infra_service,
                                      check_access=access.check_read, check_request=access.requires("apply_infra"))
+    delegations = None
+    if delegation:
+        from .approval_delegation import ApprovalDelegations, DelegatedGates
+
+        delegations = ApprovalDelegations(store, access, clock=clock)
     app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
                              change_service=change_service, failback_service=failback_service,
-                             shift_service=shift_service, infra_service=infra_service, iac_service=iac_service)
+                             shift_service=shift_service, infra_service=infra_service, iac_service=iac_service,
+                             delegation_service=delegations)
     if change_intake is not None:
         app.include_router(intake_router(change_intake))
+    if delegations is not None:
+        _run_delegated_gates(app, DelegatedGates(store, delegations, cutover=service, failback=failback_service),
+                             sweep_seconds)
     return app
+
+
+def _run_delegated_gates(app, gates, seconds):
+    """T49: one background sweep in this process (it holds the Executor command token)."""
+    import logging
+    import threading
+    from contextlib import asynccontextmanager
+
+    original = app.router.lifespan_context
+    stop = threading.Event()
+
+    def loop():
+        while not stop.wait(seconds):
+            try:
+                for plan_id, outcome in gates.sweep().items():
+                    logging.getLogger(__name__).info("delegated gate %s: %s", plan_id, outcome.get("held", "submitted"))
+            except Exception:  # noqa: BLE001  (a failed sweep is retried; plans hold on their own state)
+                logging.getLogger(__name__).exception("delegated gate sweep failed")
+
+    @asynccontextmanager
+    async def lifespan(application):
+        worker = threading.Thread(target=loop, name="t49-delegated-gates", daemon=True)
+        worker.start()
+        try:
+            async with original(application):
+                yield
+        finally:
+            stop.set()
+            worker.join(timeout=seconds + 5)
+
+    app.router.lifespan_context = lifespan

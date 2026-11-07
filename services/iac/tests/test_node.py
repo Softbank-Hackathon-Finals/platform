@@ -169,7 +169,7 @@ def run_applier(apply, bundle, capsys, *flags, sha=True):
 
 def test_the_applier_allows_exactly_what_the_node_modules_render():
     apply = applier()
-    rows = listing(state("platform"))["files"] + listing(state("target-dev"))["files"]
+    rows = [r for env in ("platform", "target-dev", "t49") for r in listing(state(env))["files"]]
     assert {r["path"]: {"mode": r["mode"], "restart": r["restart"]} for r in rows} == apply.ALLOWED
 
 
@@ -303,3 +303,116 @@ def test_a_rotated_audit_log_with_new_events_counts_as_growing(tmp_path, monkeyp
     monkeypatch.setattr(apply, "restart_apiserver", restart)
     code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
     assert code == 0 and report["audit_log"]["growing"] is True, report
+
+
+ISSUER = "https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/t49"
+IN_CLUSTER = "https://kubernetes.default.svc.cluster.local"
+
+
+def test_the_issuer_module_renders_a_drop_in_and_refuses_other_issuers():
+    [row] = listing(state("t49"))["files"]
+    assert row["path"] == "/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"
+    assert row["restart"] == ["Service/rke2-server"] and row["mode"] == "0600"
+    content = files(state("t49"))["etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"]
+    flags = [line.strip()[2:] for line in content.splitlines() if line.strip().startswith("- ")]
+    assert flags == [f"service-account-issuer={ISSUER}", f"service-account-issuer={IN_CLUSTER}",
+                     f"service-account-jwks-uri={ISSUER}/openid/v1/jwks"]  # the public one first: it signs
+    assert content.splitlines()[1] == "kube-apiserver-arg+:"  # appends; never replaces config.yaml's own args
+    for bad in ("http://bravo-oidc-issuer.example/t49", ISSUER + "/", ISSUER + "\n  - x=y", ISSUER + "?a=b", ""):
+        broken = json.loads(json.dumps(state("t49")))
+        broken["modules"][-1]["params"]["issuer"] = bad
+        with pytest.raises(IacError):
+            listing(broken)
+
+
+class IssuerNode:
+    """A fake RKE2 server: restarting rke2-server renders the drop-in's flags into the API server."""
+
+    def __init__(self, apply, tmp_path, monkeypatch, *, takes_effect=True):
+        self.root, self.manifest = tmp_path / "root", tmp_path / "kube-apiserver.yaml"
+        self.root.mkdir()
+        self.dropin = self.root / "etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"
+        self.served, self.restarts, self.takes_effect = IN_CLUSTER, [], takes_effect
+        self.manifest.write_text(f"--service-account-issuer={IN_CLUSTER}\n")
+        monkeypatch.setattr(apply, "ROOT", self.root)
+        monkeypatch.setattr(apply, "APISERVER_MANIFEST", self.manifest)
+        monkeypatch.setattr(apply, "kubectl", self.kubectl)
+        monkeypatch.setattr(apply, "restart_rke2_server", self.restart)
+
+    def kubectl(self, *args):
+        if args[:2] == ("get", "ns"):
+            return json.dumps({"metadata": {"uid": "uid-1"}})
+        return json.dumps({"issuer": self.served})
+
+    def restart(self):
+        self.restarts.append("rke2-server")
+        if self.dropin.exists():
+            flags = [line.strip()[2:] for line in self.dropin.read_text().splitlines() if line.strip().startswith("- ")]
+            self.manifest.write_text("".join(f"--{flag}\n" for flag in flags))
+            self.served = ISSUER if self.takes_effect else IN_CLUSTER
+        else:
+            self.manifest.write_text(f"--service-account-issuer={IN_CLUSTER}\n")
+            self.served = IN_CLUSTER
+        return f"apiserver-{len(self.restarts)}"
+
+
+def issuer_bundle(tmp_path):
+    root = tmp_path / "bundle"
+    for name, content in files(state("t49")).items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(content)
+    return root, [x for r in listing(state("t49"))["files"] for x in ("--sha256", f"{r['path']}={r['sha256']}")]
+
+
+def test_the_issuer_drop_in_restarts_rke2_server_and_must_take_effect(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = IssuerNode(apply, tmp_path, monkeypatch)
+    bundle, pairs = issuer_bundle(tmp_path)
+    assert apply.main([str(bundle), "--cluster-uid", "uid-1", "--apply", *pairs]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "PASS" and report["restarted"] == [{"target": "Service/rke2-server",
+                                                                    "container": "apiserver-1"}]
+    assert node.dropin.exists() and oct(node.dropin.stat().st_mode & 0o777) == "0o600" and node.served == ISSUER
+    assert apply.main([str(bundle), "--cluster-uid", "uid-1", "--apply", *pairs]) == 0  # same bytes: no restart
+    assert json.loads(capsys.readouterr().out)["restarted"] == [] and node.restarts == ["rke2-server"]
+
+
+def test_an_issuer_that_does_not_take_effect_is_rolled_back(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = IssuerNode(apply, tmp_path, monkeypatch, takes_effect=False)
+    bundle, pairs = issuer_bundle(tmp_path)
+    assert apply.main([str(bundle), "--cluster-uid", "uid-1", "--apply", *pairs]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["reason"] == "service_account_issuer_not_in_effect"
+    assert report["rolled_back"] and report["rollback_ready"] and not node.dropin.exists()
+    assert node.restarts == ["rke2-server", "rke2-server"] and node.served == IN_CLUSTER
+
+
+def test_a_port_clash_while_rke2_server_restarts_is_not_a_crash(monkeypatch):
+    # bravo-t49, 2026-11-07: the first new API server exited with "address already in use" while the old one
+    # still held :6443; kubelet started it again and it served. Only exits after the old one is gone count.
+    apply = applier()
+    clock = {"ns": 1000}
+    running = iter(["old", "old", None, "new", "new"])
+    containers = [{"id": "old", "state": "CONTAINER_RUNNING", "createdAt": "500"},
+                  {"id": "clash", "state": "CONTAINER_EXITED", "createdAt": "1001"}]
+    restarted = []
+
+    def fake_run(cmd, capture_output=True, text=False, check=False, timeout=None):
+        if cmd[:2] == ["systemctl", "restart"]:
+            restarted.append(cmd[2])
+            clock["ns"] = 1002
+        return __import__("types").SimpleNamespace(stdout=json.dumps({"containers": containers}), returncode=0)
+
+    monkeypatch.setattr(apply.subprocess, "run", fake_run)
+    monkeypatch.setattr(apply, "running_apiserver", lambda: next(running))
+    monkeypatch.setattr(apply, "kubectl", lambda *args: "ok")
+    monkeypatch.setattr(apply.time, "time_ns", lambda: clock["ns"])
+    monkeypatch.setattr(apply.time, "sleep", lambda seconds: clock.__setitem__("ns", clock["ns"] + 1))
+    assert apply.restart_rke2_server() == "new" and restarted == ["rke2-server"]
+    # A new config that really breaks the API server still fails fast once the old one is gone.
+    running = iter(["old", None, None])
+    containers.append({"id": "broken", "state": "CONTAINER_EXITED", "createdAt": "99999"})
+    monkeypatch.setattr(apply, "running_apiserver", lambda: next(running, None))
+    with pytest.raises(apply.Refused, match="api_server_crashed"):
+        apply.restart_rke2_server()

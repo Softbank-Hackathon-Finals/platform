@@ -25,6 +25,11 @@
     {"src": "tag:bravo-collector", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-apply", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-rehearsal", "deny": ["tag:bravo-metrics:9090"]},
-    {"src": "tag:bravo-target-api", "deny": ["tag:bravo-metrics:9090"]}
+    {"src": "tag:bravo-target-api", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-t49-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gke-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-db", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gke-db", "deny": ["tag:bravo-metrics:9090"]}
   ]
 }

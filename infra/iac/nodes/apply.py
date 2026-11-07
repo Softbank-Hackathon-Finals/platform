@@ -36,9 +36,13 @@ CRICTL = [str(RKE2 / "bin/crictl"), "--runtime-endpoint", "unix:///run/k3s/conta
 APISERVER_MANIFEST = RKE2 / "agent/pod-manifests/kube-apiserver.yaml"
 API_SERVER = "StaticPod/kube-system/kube-apiserver"
 AUDIT_POLICY = "/etc/rancher/rke2/audit-policy.yaml"
+# rke2-server renders the API server's static pod from config.yaml and config.yaml.d only when it starts.
+RKE2_SERVER = "Service/rke2-server"
+SA_ISSUER = "/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"
 # Node files this applier may write, with their only allowed mode and restart. Same set as the
 # services/iac node modules (a test pins it); infra/envs/onprem/render-user-data.sh embeds it too.
-ALLOWED = {AUDIT_POLICY: {"mode": "0600", "restart": [API_SERVER]}}
+ALLOWED = {AUDIT_POLICY: {"mode": "0600", "restart": [API_SERVER]},
+           SA_ISSUER: {"mode": "0600", "restart": [RKE2_SERVER]}}
 ROOT = Path("/")  # tests install under a temporary root
 READY_TIMEOUT = 240
 
@@ -124,6 +128,41 @@ def restart_apiserver() -> str:
     return wait_ready(before, since_ns)
 
 
+def restart_rke2_server() -> str:
+    """Restart rke2-server so it renders the API server again from its config, then wait for a new ready
+    API server exactly as restart_apiserver does (a new container that exits fails at once)."""
+    before = running_apiserver()
+    subprocess.run(["systemctl", "restart", "rke2-server"], capture_output=True, check=True, timeout=600)
+    # The old API server holds :6443 until kubelet stops it, so a new container started before that exits
+    # with "address already in use" and kubelet starts it again. Measured on bravo-t49 (2026-11-07): counting
+    # that exit as a crash rolled back a working config after the new issuer had already signed tokens.
+    # Only containers created after the old one is gone can crash.
+    until = time.monotonic() + READY_TIMEOUT
+    while time.monotonic() < until:
+        try:
+            if running_apiserver() != before:
+                break
+        except subprocess.CalledProcessError:
+            pass  # containerd restarts with rke2-server
+        time.sleep(3)
+    return wait_ready(before, time.time_ns())
+
+
+def restart(target: str) -> str:
+    return restart_apiserver() if target == API_SERVER else restart_rke2_server()
+
+
+def issuer_in_effect(data: bytes) -> None:
+    """The API server now signs with the first issuer the file names and serves it in its discovery."""
+    flags = [line.strip()[2:] for line in data.decode().splitlines() if line.strip().startswith("- ")]
+    first = next(f.split("=", 1)[1] for f in flags if f.startswith("service-account-issuer="))
+    manifest = APISERVER_MANIFEST.read_text()
+    if any(f"--{flag}" not in manifest for flag in flags):
+        raise Refused("service_account_issuer_not_rendered")
+    if json.loads(kubectl("get", "--raw", "/.well-known/openid-configuration")).get("issuer") != first:
+        raise Refused("service_account_issuer_not_in_effect")
+
+
 def install(path: Path, data: bytes, mode: int) -> None:
     """Write next to the target without following links, fsync, rename, then fsync the directory."""
     tmp = path.with_name(f".{path.name}.bravo-iac-tmp")
@@ -168,9 +207,11 @@ def _rollback(report, changed, installed) -> None:
     report["rolled_back"] = not failed
     if failed:
         report["rollback_failed"] = failed
-    if any(API_SERVER in row["restart"] for row, *_ in changed):
+    targets = sorted({r for row, *_ in changed for r in row["restart"]})
+    if targets:
         try:
-            restart_apiserver()
+            for target in targets:
+                restart(target)
             report["rollback_ready"] = True
         except (Refused, subprocess.CalledProcessError):
             report["rollback_ready"] = False  # the API server is not back: an operator must look now
@@ -222,10 +263,14 @@ def run(args) -> dict:
                 backup = path.with_name(f"{path.name}.bravo-backup-{stamp}")
                 install(backup, live, 0o600)
                 entry["backup"] = str(backup)
+            path.parent.mkdir(parents=True, exist_ok=True)  # config.yaml.d may not exist yet
             install(path, row["data"], int(row["mode"], 8))
             installed.append((path, live, live_mode))
         for target in sorted({r for row, *_ in changed for r in row["restart"]}):
-            report["restarted"].append({"target": target, "container": restart_apiserver()})
+            report["restarted"].append({"target": target, "container": restart(target)})
+        for row, *_ in changed:
+            if row["path"] == SA_ISSUER:
+                issuer_in_effect(row["data"])
         if any(row["path"] == AUDIT_POLICY for row, *_ in changed):
             kubectl("get", "ns", "kube-system", "-o", "name")
             time.sleep(5)

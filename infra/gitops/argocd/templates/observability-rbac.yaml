@@ -1,0 +1,63 @@
+{{- if .Values.observability.enabled }}
+{{- range $ns := list "bravo-observability" "platform-telemetry" }}
+# Dedicated observability namespace: the controller manages the bundle's kinds here (names carry content hashes).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-observability
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-observability
+  namespace: {{ $ns }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-observability}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ $.Release.Namespace }}}
+---
+{{- end }}
+# platform-state: only the platform Collector's Pod discovery Role/RoleBinding and its DB metrics NetworkPolicy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-observability
+  namespace: platform-state
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    resourceNames: [bravo-collector-db-discovery]
+    verbs: [update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [bravo-collector-db-metrics]
+    verbs: [update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-observability
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-observability}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}
