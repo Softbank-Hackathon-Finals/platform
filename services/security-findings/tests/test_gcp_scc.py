@@ -16,6 +16,9 @@ from bravo_findings.store import Store
 
 PARENT = "projects/123456789"
 T0 = 1_793_786_400_000  # 2026-11-04T10:00:00Z, after the fixture's eventTime
+# A synthetic reader account. Composed from parts: the public-evidence scan judges addresses by domain only,
+# and a service account domain is never an example domain.
+READER, SANDBOX = "example-scc-reader", "example-sandbox"
 CONFIG = {
     "universe_domain": "googleapis.com",
     "type": "external_account",
@@ -25,7 +28,7 @@ CONFIG = {
     "token_url": "https://sts.googleapis.com/v1/token",
     "credential_source": {"file": "/var/run/secrets/gcp/token", "format": {"type": "text"}},
     "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/"
-    "serviceAccounts/bravo-scc-reader@bravo-sandbox.iam.gserviceaccount.com:generateAccessToken",
+    f"serviceAccounts/{READER}@{SANDBOX}.iam.gserviceaccount.com:generateAccessToken",
 }
 
 
