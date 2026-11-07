@@ -78,6 +78,4 @@ spec:
   namespaceResourceWhitelist:
     - {group: "", kind: Service}
     - {group: networking.k8s.io, kind: NetworkPolicy}
-  orphanedResources:
-    warn: false
 {{- end }}
