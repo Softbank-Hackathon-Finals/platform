@@ -84,7 +84,7 @@ spec:
             - {name: BRAVO_FINDINGS_DB, value: /data/findings.db}
             - {name: BRAVO_FINDINGS_AUTH_FILE, value: /run/bravo-findings-auth/registry.json}
             - name: BRAVO_FINDINGS_SOURCES
-              value: '[{"source":"aws_guardduty","environment_id":"env-aws"},{"source":"falco","environment_id":"env-onprem"},{"source":"kyverno","environment_id":"env-onprem"}]'
+              value: '[{"source":"aws_guardduty","environment_id":"env-aws"},{"source":"falco","environment_id":"env-onprem"},{"source":"kyverno","environment_id":"env-onprem"},{"source":"gcp_scc","environment_id":"env-gcp"}]'
           ports:
             - {name: https, containerPort: 8443}
           readinessProbe:
@@ -264,6 +264,105 @@ spec:
         - {port: 53, protocol: TCP}
     # STS와 GuardDuty API(GuardDuty 제어 API에는 인터페이스 엔드포인트가 없다). 이 Pod는 GuardDuty 읽기 자격만 가진다.
     # 클러스터 안(RKE2 Pod 10.42/16 · Service 10.43/16, 11-08 플랫폼 실측)과 링크 로컬(IMDS)은 뺀다. VPC(STS 엔드포인트)는 남긴다
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}
+      ports:
+        - {port: 443, protocol: TCP}
+---
+# Google Cloud SCC 주기 수집(읽기 전용). 플랫폼 웹 신원 → GCP workload identity pool → reader 가장
+# (infra/envs/gcp-scc-reader). 범위 파일과 자격 설정(키 아님)은 Git 밖 ConfigMap bravo-findings-scc(scope.json,
+# credentials.json)에 둔다. 프로젝트 번호가 들어 있어서다. API와 같은 SQLite를 쓴다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels: {app: bravo-findings-scc-pull, component: platform}
+        spec:
+          serviceAccountName: bravo-findings-scc-pull
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          imagePullSecrets: [{name: platform-ghcr-reader}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: pull
+              image: bravo-findings
+              command: [python, -m, bravo_findings.gcp_pull]
+              args: [--database, /data/findings.db, --environment-id, env-gcp]
+              env:
+                - {name: BRAVO_SCC_SCOPE_FILE, value: /etc/bravo-scc/scope.json}
+                - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/bravo-scc/credentials.json}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 20m, memory: 96Mi}
+                limits: {memory: 192Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: scc, mountPath: /etc/bravo-scc, readOnly: true}
+                - {name: gcp-token, mountPath: /var/run/secrets/gcp, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: bravo-findings-data}
+            - name: scc
+              configMap: {name: bravo-findings-scc, items: [{key: scope.json, path: scope.json}, {key: credentials.json, path: credentials.json}]}
+            # 고정 audience: provider가 이것 하나만 받는다(gcp-scc-reader token_audience)
+            - name: gcp-token
+              projected:
+                sources:
+                  - serviceAccountToken: {audience: bravo-findings-scc, expirationSeconds: 3600, path: token}
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings-scc-pull}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Google STS · IAM credentials · SCC API(googleapis.com). 클러스터 안과 링크 로컬(IMDS)은 뺀다
     - to:
         - ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}
       ports:

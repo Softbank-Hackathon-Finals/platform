@@ -24,7 +24,7 @@ rules:
     verbs: [get, list, watch, create]
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
-    resourceNames: [bravo-findings, bravo-findings-pull]
+    resourceNames: [bravo-findings, bravo-findings-pull, bravo-findings-scc-pull]
     verbs: [update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

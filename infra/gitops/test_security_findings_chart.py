@@ -52,7 +52,7 @@ class SecurityFindingsChart(unittest.TestCase):
         self.assertEqual(role["metadata"]["namespace"], "bravo-security")
         # The cluster builder's default-deny is not the bundle's: policies change or go only by name.
         changing = [r for r in role["rules"] if r["resources"] == ["networkpolicies"] and "delete" in r["verbs"]]
-        self.assertEqual([r.get("resourceNames") for r in changing], [["bravo-findings", "bravo-findings-pull"]])
+        self.assertEqual([r.get("resourceNames") for r in changing], [["bravo-findings", "bravo-findings-pull", "bravo-findings-scc-pull"]])
         self.assertFalse([r for r in role["rules"] if "secrets" in r["resources"]])
 
     def test_enabling_without_the_argo_cluster_namespace_is_refused(self):

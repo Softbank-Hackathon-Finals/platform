@@ -40,3 +40,20 @@ kubectl -n bravo-security create configmap bravo-findings-aws \
 GuardDuty 제어 API에는 인터페이스 엔드포인트가 없어서 수집 Pod만 443 바깥 방향을 연다(GuardDuty 읽기 자격만 가진다). 클러스터 안(Pod 10.42/16 · Service 10.43/16)과 링크 로컬(IMDS)은 뺀다. 수집 Job과 API가 같은 SQLite에 쓴다(`BEGIN IMMEDIATE` · `busy_timeout` 5초). CronJob은 `startingDeadlineSeconds: 120`이라 컨트롤러가 오래 멈춰도 놓친 일정을 쌓지 않는다. 수집이 실패하면 출처가 `FAILED`가 되고 화면 칸은 "확인 불가"다.
 
 온프렘 수집 경로는 T44 선언(`platform.json` tailnet-ingress `bravo-findings`, `target-dev.json` egress 그룹 `bravo-target-findings`)으로 따로 연다.
+
+## Google Cloud SCC 주기 수집 (CronJob `bravo-findings-scc-pull`, 5분)
+
+플랫폼 웹 신원으로 GCP workload identity pool을 거쳐 읽기 전용 reader 서비스 계정을 가장한다. 서비스 계정 키는 없다. GCP 쪽 설정은 [`infra/envs/gcp-scc-reader`](../gcp-scc-reader/README.md)(#940)가 만든다.
+
+| 무엇 | 어디서 | 비고 |
+|---|---|---|
+| pool · provider · reader | `infra/envs/gcp-scc-reader` terraform | 주체 `system:serviceaccount:bravo-security:bravo-findings-scc-pull` 하나, 토큰 audience는 고정 이름 `bravo-findings-scc` 하나(그래서 이 매니페스트에 프로젝트 번호가 없다) |
+| ConfigMap `bravo-findings-scc` | 운영자(Git 밖) | `scope.json`(terraform `scope` 출력), `credentials.json`(`credential_configuration` 출력, 토큰 파일 `/var/run/secrets/gcp/token`). 비밀은 아니지만 프로젝트 번호 · 서비스 계정 주소가 있어 Git에 두지 않는다 |
+| SCC 활성 | GCP 콘솔(스택 밖) | 꺼져 있으면 출처가 `NOT_ENABLED`, 연합 · 권한이 틀리면 `ACCESS_DENIED`. 어느 쪽도 "0건"이 아니다 |
+
+```sh
+kubectl -n bravo-security create configmap bravo-findings-scc \
+  --from-file=scope.json=<private>/scc-scope.json --from-file=credentials.json=<private>/scc-wif.json
+```
+
+API의 출처 목록(`BRAVO_FINDINGS_SOURCES`)에 `gcp_scc`/`env-gcp`가 있어서, 위가 갖춰지기 전에는 `env-gcp` 칸이 "확인 불가"로 보인다. 수집 Pod는 443 바깥 방향만 연다(googleapis, 클러스터 안과 링크 로컬 제외).
