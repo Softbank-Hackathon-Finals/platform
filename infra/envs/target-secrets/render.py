@@ -10,7 +10,7 @@ BAO_CHART_VERSION = "0.30.6"
 BAO_CHART_SHA256 = "76e90c2315a4922b4b0c6c63fd8a00b9f4bdf0cffda160664f8ea5762d59911c"
 # One scanned offline image per node architecture (image/build-receipt*.json). arm64 stays the default.
 BAO_IMAGES = {
-    "arm64": "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75",
+    "arm64": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-arm64@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d",
     "amd64": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64@sha256:eaf0d6c56196afd9348a9002f0ff7b48473ba2c34849be054fe5b263a4f8cb79",
 }
 BAO_IMAGE = BAO_IMAGES["arm64"]
