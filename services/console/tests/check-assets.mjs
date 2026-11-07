@@ -5,6 +5,7 @@ const html = readFileSync(new URL("index.html", root), "utf8");
 for (const name of [
   "app.js",
   "audit.js",
+  "security-progress.js",
   "model.js",
   "transport.js",
   "registration.js",

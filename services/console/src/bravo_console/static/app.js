@@ -20,6 +20,7 @@ import { mountPanels } from "./panels.js";
 import { mountOperations } from "./operations.js";
 import { mountNetworkWorkspace } from "./network-workspace.js";
 import { mountWorkload } from "./workload-view.js";
+import { renderSecurityProgress } from "./security-progress.js";
 const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
@@ -116,6 +117,7 @@ function render() {
   if (!model) return;
   networkWorkspace.render();
   workload.render();
+  renderSecurityProgress($("security-progress"), model, controls);
   const now = Date.now(),
     eligible = !extensionBusy && model.eligible(now),
     approvalRetry =

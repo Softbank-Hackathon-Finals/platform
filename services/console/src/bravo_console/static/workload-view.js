@@ -12,6 +12,7 @@ import {
   t10ResponseContext,
 } from "./workload-model.js";
 import { scenarioDocument, scenarioSteps } from "./workload-scenario.js";
+import { renderSecurityProgress } from "./security-progress.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const el = (name, className, text) => {
@@ -186,7 +187,19 @@ export function mountWorkload(
     context = el("div", "response-context");
   eventBox.append(el("h4", null, "대응 기록"), timeline);
   bottom.append(eventBox, context);
-  host.append(title, banner, toolbar, description, summary, main, flow, bottom);
+  const testProgress = el("section", "workload-test-progress");
+  testProgress.setAttribute("aria-label", "같은 계획의 보안 시험 결과");
+  host.append(
+    title,
+    banner,
+    toolbar,
+    description,
+    testProgress,
+    summary,
+    main,
+    flow,
+    bottom,
+  );
   function stop() {
     playing = false;
     clearInterval(timer);
@@ -364,6 +377,8 @@ export function mountWorkload(
   function render() {
     const model = getModel(),
       now = Date.now();
+    testProgress.hidden = mode !== "live";
+    renderSecurityProgress(testProgress, model, getControls(), now);
     if (
       mode === "live" &&
       live.document &&

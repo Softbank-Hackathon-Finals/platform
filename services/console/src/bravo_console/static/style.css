@@ -1474,3 +1474,28 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+/* Shared security summary follows the existing Sova cards on narrow screens too. */
+.security-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.security-progress-step {
+  background: #f4f7ff;
+  border: 1px solid #dce5fa;
+  border-radius: 12px;
+  padding: 16px;
+}
+.security-progress-step p {
+  overflow-wrap: anywhere;
+}
+.workload-test-progress {
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px solid #dce5fa;
+  border-radius: 12px;
+}
+[data-state="BLOCK"] .security-progress-step:last-child {
+  color: #a92c35;
+  background: #fff4f4;
+}
