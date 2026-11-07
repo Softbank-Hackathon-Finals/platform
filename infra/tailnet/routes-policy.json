@@ -349,6 +349,7 @@
     },
     {
       "src": "tag:bravo-t49-operator",
+      "accept": [],
       "deny": [
         "tag:bravo-metrics:9090",
         "tag:bravo-source-control-pooler:6432",
@@ -361,6 +362,7 @@
     },
     {
       "src": "tag:bravo-target-gce-operator",
+      "accept": [],
       "deny": [
         "tag:bravo-metrics:9090",
         "tag:bravo-source-control-pooler:6432",
@@ -373,6 +375,7 @@
     },
     {
       "src": "tag:bravo-target-gke-operator",
+      "accept": [],
       "deny": [
         "tag:bravo-metrics:9090",
         "tag:bravo-source-control-pooler:6432",

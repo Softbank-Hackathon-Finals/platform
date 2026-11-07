@@ -74,7 +74,7 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
                    for s, d, i, a in sorted(grants)],
         "tests": [{"src": src, "accept": sorted(accepts[src]),
                    "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)]
-                 + [{"src": tag, "deny": granted} for tag in operators if granted],
+                 + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 
 

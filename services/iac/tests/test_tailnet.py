@@ -203,4 +203,4 @@ def test_a_new_cluster_declares_its_operator_tag_owned_by_admins_and_nothing_els
         assert not [g for g in committed["grants"] if tag in g["src"]]  # the path to it is the network API's (#622)
         [test] = [t for t in committed["tests"] if t["src"] == tag]
         # Runtime device names escape a repository scan: the policy refuses every granted destination.
-        assert set(test["deny"]) == granted and "accept" not in test and "tag:bravo-metrics:9090" in test["deny"]
+        assert set(test["deny"]) == granted and test["accept"] == [] and "tag:bravo-metrics:9090" in test["deny"]
