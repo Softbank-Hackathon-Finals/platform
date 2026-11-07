@@ -229,6 +229,13 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
   --set application.enabled=false --set application.autoSync=false --set application.prune=false
 ```
 
+화면이 필요하면 같은 명령에 `-f infra/iac/argocd/ui-values.yaml --set argo-cd.configs.cm.url=https://<앱>-<번호>-argocd.<zone>`을 더한다.
+- 서버는 tailnet 장치 `bravo-target-argocd`(tailnet-ingress)의 노출 프록시 Pod에서만 받는다. 차트의 서버 정책은 모든 Pod를 받아서 끄고, 같은 구성 요소 정책을 `templates/ui-network-policies.yaml`에 둔다(시험 고정).
+- 서버 권한은 읽기(get · list · watch)뿐이고, 화면은 로그 없이 `bravo-iac` 프로젝트 Application만 보는 `role:bravo-viewer`다.
+- 로그인이 없어 Argo에는 모든 요청이 anonymous로 남는다. 누가 봤는지는 Cloudflare Access 로그에만 있다. 공개 주소는 플랫폼 공개 입구(`infra/envs/public-entry`)가 Access 뒤에서 중계한다.
+- 지금 장치 이름 · 태그 · Access 정책은 고객 하나 기준이다. 두 번째 고객부터는 이름 · 태그에 환경을 넣고 고객별 Access 정책을 둔다(후속).
+- 남는 위험: 서버 SA의 ClusterRole(`*` get · list · watch)은 클러스터 전체 Secret도 읽는다. 화면은 Secret 값을 가리지만, 익명 서버에 인증 우회 같은 결함이 생기면 그 범위가 읽힌다. Secret을 뺀 자원 목록으로 줄이는 것은 T44 권한 세분화의 후속이다.
+
 **적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
 클러스터에 닿지 않는다(develop은 승인 0이다). 승격은 검토한 커밋 SHA로 이 값 한 줄을 바꾸는 것이다.
 
@@ -280,6 +287,10 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 차트 0.2.2부터 `application.enabled`를 생략하면 렌더를 거부한다. bootstrap은 false, 기존 Application 유지·등록은 true를
 명시한다. 스키마 검사를 건너뛰어도 같은 검사를 하며, 생략을 기본 false로 해석하지 않는다.
 `autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
+차트 0.3.1부터 환경 Application은 Service의 `spec.externalName`을 비교와 적용에서 뺀다(`ignoreDifferences` +
+`RespectIgnoreDifferences=true`). tailnet-egress Service는 `placeholder`로 생성되고 Tailscale operator가 프록시 Service 이름으로
+바꿔 쓰므로, 이미 쓰이는 경로를 넘겨받을 때 `placeholder`를 다시 써서 복제·지표 경로를 끊지 않는다.
+사람이 만든 경로를 넘겨받기 전에는 `bravo-iac chart` 결과를 `kubectl diff --server-side --force-conflicts`로 실제와 비교한다.
 초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
 
 ### 클러스터의 Tailscale operator (`operator.enabled`, 차트 0.3.0, T48)

@@ -68,20 +68,14 @@ provider network는 기본 Cloudflare만 지원한다. `adaptive_routing.failove
 `profile`(T36), `lb_binding`, `journal`(`/records/edge/journal.db`), `token_file`(`/edge/token`), `operator_host`
 (`/rehearsal/host.json`). 승인 대상은 `plan_id`·`run_id`·`profile`·`lb_binding`만이다.
 
-```sh
-# 1. 승인할 값(사람이 T10 approval API에 approval_kind=infra로 넣는다. requested_by는 승인자가 아니어야 한다)
-kubectl exec POD -- python -m bravo_edge_control.drill --config drill.json digest
-# 2~3. 운영자의 Mac에서 20초마다 새 SSO 증명을 표준 입력으로 보낸다(60초 수명, 값은 출력하지 않는다)
-proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json register
-proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json sequence
-# 증명이 끊겨 멈췄고 가중치가 0이 아니면: 같은 작업 ID로 0%
-proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json restore
-```
+실행 순서·명령·알려진 함정은 [T17 승인된 Edge 시험 실행 절차](../../docs/operations/t17-edge-drill.md)에 있다.
+운영자 도구 `operations/edge-drill/drill.py`가 승인(`approve`)과 실행(`run … register|sequence|watch|restore`)을 맡고,
+실행 중 운영자 SSO 증명(60초)을 20초마다 승인 호스트의 drill에 넣는다.
 
 `sequence`의 결과는 `RESTORED`(10→50→100→0) 또는 `ABORTED`(기준 초과 자동 0%)다.
 정상 전환과 자동 0% 시험은 run을 따로 승인한다. 반영 시간은 영수증의 `request_at`부터 첫 완전한 T18 유효창
-끝까지로 `bravo-loadgen align`이 잰다. 목적지가 쓰기를 받으려면 실행 전에 write switch를 연다
-(`infra/envs/target-workloads/write_switch.py open`, 목적지 pooler가 출발지 DB를 가리킬 때만). 끝나면 닫는다.
+끝까지로 `bravo-loadgen align`이 잰다. Edge 기준 3개는 읽기만으로 잰다(`--write-rps 0`). 쓰기까지 시험할 때만
+목적지 write switch를 연다(`infra/envs/target-workloads/write_switch.py open`, 목적지 pooler가 출발지 DB를 가리킬 때만).
 
 ## 검증과 남은 통합
 

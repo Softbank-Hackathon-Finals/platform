@@ -194,6 +194,28 @@
                 "port_name": "s3"
               }
             ]
+          },
+          {
+            "name": "bravo-entry-egress",
+            "tag": "tag:bravo-entry",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app": "public-entry"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-target-argocd",
+                "namespace": "platform-state",
+                "destination": "bravo-target-argocd",
+                "destination_tag": "tag:bravo-target-argocd",
+                "port": 80,
+                "port_name": "http"
+              }
+            ]
           }
         ]
       }

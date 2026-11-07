@@ -192,6 +192,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-controls", extras = ["aws"], directory = "../control-runner" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
@@ -210,6 +211,7 @@ product-inputs = [
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
 ]
+target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
 trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
 
 [[package]]

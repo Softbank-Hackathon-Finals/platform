@@ -114,6 +114,15 @@ spec:
         'bravo-t10-rehearsal-intake' == v.projected.sources[0].serviceAccountToken.audience &&
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        {{- end }}
+        {{- if and .Values.workflowHost.enabled .Values.initialProposal.hostCreatesJobs }}
+        {{- /* T49 initialProposalAuto: the host's API token for its only grant, the bravo-initial Job Role
+        (initial-proposal.yaml); default audience, short-lived, plus the cluster CA. Inside the CEL scalar a
+        YAML comment would be part of the expression. */}}
+        || (object.metadata.name == 't10-workflow-host' && v.name == 'kube-api-token' &&
+        v.projected.sources.all(s, (has(s.serviceAccountToken) && !has(s.serviceAccountToken.audience) &&
+        has(s.serviceAccountToken.expirationSeconds) && s.serviceAccountToken.expirationSeconds <= 3600) ||
+        (has(s.configMap) && s.configMap.name == 'kube-root-ca.crt')))
         {{- end }})))
       # Exception: the platform Collector (observability) lists CNPG Pods in platform-state; its only grant is the
       # read-only discovery Role (platform-gitops-state-names).

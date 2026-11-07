@@ -160,6 +160,34 @@ dev = [
 ]
 
 [[package]]
+name = "bravo-controls"
+version = "0.1.0"
+source = { directory = "../control-runner" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.optional-dependencies]
+aws = [
+    { name = "botocore" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "botocore", marker = "extra == 'aws'", specifier = ">=1.35,<2" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.3.6,<4" },
+]
+provides-extras = ["aws", "postgres"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "botocore", specifier = ">=1.35,<2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6,<4" },
+    { name = "pytest", specifier = ">=8,<10" },
+]
+
+[[package]]
 name = "bravo-iac"
 version = "0.1.0"
 source = { directory = "../iac" }
@@ -239,6 +267,7 @@ dev = [
     { name = "bravo-agent-worker" },
     { name = "bravo-apply-path" },
     { name = "bravo-control-gate" },
+    { name = "bravo-controls", extra = ["aws"] },
     { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
@@ -256,6 +285,9 @@ product-inputs = [
     { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
+]
+target-controls = [
+    { name = "bravo-controls", extra = ["aws"] },
 ]
 trusted-host = [
     { name = "bravo-rehearsal-runner" },
@@ -283,6 +315,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-controls", extras = ["aws"], directory = "../control-runner" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
@@ -301,6 +334,7 @@ product-inputs = [
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
 ]
+target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
 trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
 
 [[package]]

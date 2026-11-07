@@ -6,6 +6,9 @@
     "tag:bravo-cutover-control": [
       "tag:bravo-platform-operator"
     ],
+    "tag:bravo-entry": [
+      "tag:bravo-platform-operator"
+    ],
     "tag:bravo-source-collector": [
       "tag:bravo-source-operator"
     ],
@@ -20,6 +23,9 @@
     ],
     "tag:bravo-t49-operator": [
       "autogroup:admin"
+    ],
+    "tag:bravo-target-argocd": [
+      "tag:bravo-target-operator"
     ],
     "tag:bravo-target-collector": [
       "tag:bravo-target-operator"
@@ -280,6 +286,17 @@
     },
     {
       "src": [
+        "tag:bravo-entry"
+      ],
+      "dst": [
+        "tag:bravo-target-argocd"
+      ],
+      "ip": [
+        "tcp:80"
+      ]
+    },
+    {
+      "src": [
         "tag:bravo-source-collector"
       ],
       "dst": [
@@ -345,6 +362,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -366,6 +384,24 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
+        "tag:bravo-target-control-pooler:22",
+        "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
+        "tag:bravo-target-operator:22"
+      ]
+    },
+    {
+      "src": "tag:bravo-entry",
+      "accept": [
+        "tag:bravo-target-argocd:80"
+      ],
+      "deny": [
+        "tag:bravo-metrics:22",
+        "tag:bravo-source-control-pooler:22",
+        "tag:bravo-source-db:22",
+        "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -382,6 +418,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -398,6 +435,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -414,6 +452,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -430,6 +469,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -446,6 +486,7 @@
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-operator:22",
+        "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
@@ -460,6 +501,7 @@
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
         "tag:bravo-target-objects:8333",
@@ -474,6 +516,7 @@
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
         "tag:bravo-target-objects:8333",
@@ -488,6 +531,7 @@
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
         "tag:bravo-target-objects:8333",

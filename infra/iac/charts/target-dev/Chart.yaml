@@ -1,6 +1,6 @@
 {
   "annotations": {
-    "bravo.dev/state-digest": "30dd11cf761191328f505d957bb98874f658356af83d99edaf26e49b9f87680b",
+    "bravo.dev/state-digest": "b3207cad62a7fd9671aa87b609b9a989432fac155bc0ee7f54ad812b30c9c2fb",
     "bravo.dev/unmanaged": "[\"cluster-audit:NodeFile/-/audit-policy\", \"operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin\", \"target-object-exposure:Secret/target-dev/target-seaweedfs-auth\"]"
   },
   "apiVersion": "v2",

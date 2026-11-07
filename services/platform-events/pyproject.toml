@@ -22,6 +22,7 @@ bravo-iac = { path = "../iac" }
 bravo-control-gate = { path = "../control-gate" }
 bravo-inventory = { path = "../inventory" }
 bravo-apply-path = { path = "../apply-path", editable = true }
+bravo-controls = { path = "../control-runner" }
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
@@ -35,12 +36,15 @@ dev = [
     "psycopg[binary]>=3.2,<4",
     {include-group = "product-inputs"},
     {include-group = "application-host"},
+    {include-group = "target-controls"},
 ]
 trusted-host = ["bravo-rehearsal-runner"]
 product-inputs = ["bravo-agent-worker", "bravo-inventory", "bravo-iac", {include-group = "trusted-host"}]
 application-host = ["bravo-apply-path", "bravo-control-gate==0.1.0"]
 # boto3: the T19 platform signer calls AWS KMS with the pod web identity (ADR-0038).
 gate-records = ["bravo-control-gate==0.1.0", "boto3>=1.35,<2"]
+# ADR-0041: the workflow host measures the post-cutover target T14 run with the T14 collectors.
+target-controls = ["bravo-controls[aws]"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

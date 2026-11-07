@@ -87,6 +87,9 @@ spec:
             {{- if or .Values.secrets.applyKubeconfig .Values.applyCredential.existingConfigMap }}
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
             {{- end }}
+            {{- if .Values.secrets.targetControlsKubeconfig }}
+            - {name: target-controls-kubeconfig, mountPath: /t14, readOnly: true}
+            {{- end }}
             {{- if .Values.candidatePull.enabled }}
             # T49: the registry credential the host copies into the target's one pull Secret before an apply.
             - {name: candidate-pull, mountPath: /ghcr, readOnly: true}
@@ -187,6 +190,15 @@ spec:
             items:
               - {key: kubeconfig, path: kubeconfig}
               - {key: registration.json, path: registration.json}
+        {{- end }}
+        {{- if .Values.secrets.targetControlsKubeconfig }}
+        # ADR-0041: the platform's bravo-t14-collector identity on the target (watch.target_controls).
+        - name: target-controls-kubeconfig
+          secret:
+            secretName: {{ .Values.secrets.targetControlsKubeconfig }}
+            defaultMode: 0440
+            items:
+              - {key: kubeconfig, path: kubeconfig}
         {{- end }}
         - name: state
           persistentVolumeClaim:
