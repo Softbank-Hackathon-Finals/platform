@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [manifest]
@@ -177,7 +177,7 @@ dev = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
-    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=d7f752b6ef9dec18f198d2e3760a08a1370f71ea" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
 gate-records = [
     { name = "boto3", specifier = ">=1.35,<2" },
@@ -188,13 +188,13 @@ product-inputs = [
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
-    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=d7f752b6ef9dec18f198d2e3760a08a1370f71ea" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
-security-governance = [{ name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=d7f752b6ef9dec18f198d2e3760a08a1370f71ea" }]
+security-governance = [{ name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" }]
 target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
 trusted-host = [
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
-    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=d7f752b6ef9dec18f198d2e3760a08a1370f71ea" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
 
 [[package]]

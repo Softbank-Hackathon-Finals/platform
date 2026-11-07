@@ -19,30 +19,32 @@ def git(*_a, **_k):
 class Driver(unittest.TestCase):
     def setUp(self):
         self.record = Path(tempfile.mkdtemp()) / "run.jsonl"
-        self.calls, self.codes, self.state = [], {}, "COLLECT"
+        self.calls, self.codes, self.timeouts, self.state = [], {}, [], "COLLECT"
 
-    def fake_run(self, argv, **_k):
+    def fake_run(self, argv, **kwargs):
+        self.timeouts.append(kwargs["timeout"])
         if argv[:len(hp.INITIAL)] == list(hp.INITIAL):
             self.calls.append("initial:" + argv[len(hp.INITIAL)])
         else:
-            self.calls.append(argv[1].rsplit("/", 1)[-1] + ":" + (argv[2] if argv[2] in ("check", "inject", "clear")
+            self.calls.append(argv[1].rsplit("/", 1)[-1] + ":" + (argv[2] if argv[2] in ("check", "inject", "clear", "prepare-change")
                                                                   else "-"))
         code = self.codes.get(self.calls[-1], 0)
         if code == "lost":
             raise OSError("lost")
         return SimpleNamespace(returncode=code, stdout=json.dumps({"ok": code == 0}) + "\n")
 
-    def run_driver(self, *extra, read_state="default"):
+    def run_driver(self, *extra, read_state="default", wall_clock=lambda: 0):
         args = hp.main.__globals__["argparse"].Namespace(
             plan_id="plan-1", record=str(self.record), profile="mock", plan_state_command=None, kubeconfig="/k",
             application_id="app-1", receipts="/r", fault_record="/f", wait=0, interval=1, step_timeout=5,
-            initial_args=["--from", "/i.json"], platform_context=None)
+            initial_args=["--from", "/i.json"], platform_context="platform", patch_preflight="/patch.json",
+            demo_budget=270)
         for k, v in extra:
             setattr(args, k, v)
         reader = (lambda _p: self.state) if read_state == "default" else read_state
         with contextlib.redirect_stdout(io.StringIO()) as out:
             code = hp.cmd_run(args, run=self.fake_run, sleep=lambda _s: None, clock=lambda: 0,
-                              read_state=reader, git=git)
+                              wall_clock=wall_clock, read_state=reader, git=git)
         return code, json.loads(out.getvalue().splitlines()[-1])
 
     def confirm(self, step):
@@ -78,6 +80,7 @@ class Driver(unittest.TestCase):
         self.state = "REHEARSE"
         code, line = self.run_driver()
         self.assertEqual((code, line["step"], line["reason"]), (10, "s2-change-approval", "awaiting_human"))
+        self.assertIn("run.py:prepare-change", self.calls)
         self.assertEqual(self.calls.count("demo_reset.py:check"), 1)  # preflight ran once only
         self.assertEqual(self.confirm("s2-change-approval"), 0)
         self.state = "AWAIT_APPROVAL"
@@ -136,6 +139,31 @@ class Driver(unittest.TestCase):
     def test_default_plan_reader_uses_the_platform_context(self):
         self.assertIn("bravo_platform_events.plan_state", hp.PLAN_STATE)
         self.assertEqual(hp.PLAN_STATE[:3], ("kubectl", "--context", "{context}"))
+
+    def test_security_program_is_required_before_change_approval(self):
+        self.state = "PROPOSE"
+        self.run_driver()
+        self.confirm("s2-candidate-import")
+        self.state = "REHEARSE"
+        code, line = self.run_driver(("patch_preflight", None))
+        self.assertEqual((code, line["step"], line["reason"]),
+                         (3, "s2-security-prepare", "security_program_unwired"))
+
+    def test_whole_demo_stops_after_270_second_budget(self):
+        code, line = self.run_driver(("demo_budget", 270), wall_clock=lambda: 0)
+        self.assertEqual((code, line["step"]), (10, "s1-analyzed"))
+        code, line = self.run_driver(("demo_budget", 270), wall_clock=lambda: 271)
+        self.assertEqual((code, line["reason"], line["budget_seconds"]),
+                         (1, "demo_budget_exceeded", 270))
+
+    def test_each_command_timeout_is_capped_by_remaining_demo_budget(self):
+        self.run_driver(("demo_budget", 3), wall_clock=lambda: 0)
+        self.assertEqual(self.timeouts[0], 3)
+
+    def test_demo_budget_cannot_be_disabled(self):
+        with self.assertRaises(SystemExit):
+            hp.main(["run", "--plan-id", "p", "--record", str(self.record),
+                     "--profile", "mock", "--demo-budget", "0"])
 
     def test_unknown_or_failed_step_is_never_repeated(self):
         self.codes["demo_reset.py:check"] = "lost"
@@ -198,4 +226,3 @@ class InitialArgs(unittest.TestCase):
     def test_empty_initial_args_is_refused(self):
         with self.assertRaises(SystemExit):
             self.parsed("--initial-args")
-

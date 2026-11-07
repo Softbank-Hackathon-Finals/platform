@@ -111,7 +111,8 @@ security-program-<kind>-<phase>-<13자리 revision>
 
 - `sova-security==0.11.1`을 사용한다.
 - 소스는 `security` 저장소 commit
-  `d7f752b6ef9dec18f198d2e3760a08a1370f71ea`로 고정했다.
+  `cf33e09c8d3be567542a17fe039f3e6e2295568d`로 고정했다. 이 revision에는 PHP2Shell
+  사례의 `preserve-rebuild-rotate` 침해 복구 회귀 계약이 포함된다.
 - 빌드 시 exact commit을 shallow fetch하고 `FETCH_HEAD`가 기대 SHA와 같은지 확인한다.
 - 이미지에는 `src/sova_security` 아래 일반 Git blob만 복사한다.
 - Git 메타데이터, symlink, uncommitted 파일, branch 최신 상태는 이미지에 포함하지 않는다.
