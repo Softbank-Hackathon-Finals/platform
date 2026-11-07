@@ -43,6 +43,8 @@ BUILD_INPUTS = (
     "services/apply-path/pyproject.toml",
     "services/edge-control/src",
     "services/edge-control/pyproject.toml",
+    "services/iac/src",
+    "services/iac/pyproject.toml",
     # Copied into every image context and run by its build (entry point import closure).
     "scripts/image_import_closure.py",
 )

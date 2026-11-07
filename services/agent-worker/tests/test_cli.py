@@ -100,3 +100,23 @@ def test_cli_refuses_an_inventory_it_cannot_bind(context, tmp_path, change):
     assert result.returncode == 2
     assert result.stdout.strip() == "NEEDS_HUMAN: input, policy, model, or output failure"
     assert not output.exists()
+
+
+IAC_STATE = Path(__file__).resolve().parents[3] / "infra/iac/environments/target-dev.json"
+
+
+def test_cli_builds_the_iac_port_from_the_committed_state(context, tmp_path):
+    result, output = _analyze(context, tmp_path, "--iac-state", str(IAC_STATE))
+    # No model credential: the run stops at the provider after the port was built and attached.
+    assert result.returncode == 2 and "state=NEEDS_HUMAN" in result.stdout
+    assert json.loads(output.read_text())["proposal"] is None
+
+
+@pytest.mark.parametrize("change", ["not_a_state", "oversized"])
+def test_cli_refuses_an_iac_state_it_cannot_check(context, tmp_path, change):
+    path = tmp_path / "state.json"
+    doc = json.loads(IAC_STATE.read_text())
+    path.write_text(json.dumps({"environment": "target-dev"} if change == "not_a_state"
+                               else {**doc, "padding": "x" * 262144}))
+    result, output = _analyze(context, tmp_path, "--iac-state", str(path))
+    assert result.returncode == 2 and "NEEDS_HUMAN: input" in result.stdout and not output.exists()
