@@ -5,10 +5,12 @@ REHEARSE  the approved change is applied once by ApplicationHost (T31), outside 
 GATE      GateRecheck asks T19 after the real APPLIED outcome, outside the lock;
           ApplicationEvidence's GATE branch reads the PASS under the lock.
 AWAIT_APPROVAL  a human shift approval (ShiftApprovalService) of the GATE checkpoint.
-SHIFT     owned by the operator cutover API (approve + submit); the host does not drive it.
+SHIFT     owned by the operator cutover API (approve + submit); the host does not drive it. Admission
+          needs the SHIFT really at 100% with a PASS judgement there (operator_ports.edge_at_full).
 CUTOVER   Integrity from the observed Executor run: DONE, committed, compare and commit succeeded
           (the Executor aborts before commit on any T13 mismatch).
-WATCH     T36 SLI judgement of the latest window plus the T19 control retest, both PASS.
+WATCH     T36 SLI judgement of the latest window plus the T19 control retest, both PASS
+          (watch_retest: a target T14 run recorded after the cutover, compared with the GATE source run).
 ANALYZE   a deployment port over T16/T14 records; there is no default.
 Every port without a deployment value is absent, so its state holds (fail closed).
 """
@@ -188,15 +190,6 @@ def integrity_reader(c, plan, previous, run):
     matched = (snapshot.get("remote_status") == "DONE" and snapshot.get("committed") is True
                and steps.get("compare") == "succeeded" and steps.get("commit") == "succeeded")
     return _evidence(plan, "integrity-" + run.execution_id, Integrity(run, matched))
-
-
-def pending_retest(_store):
-    """WATCH `retest` port until T14 ships a post-cutover control retest: always UNKNOWN.
-
-    ponytail: WATCH records the T36 verdict but never reaches DONE on SLI alone; a FAIL still leads
-    to the operator's FAILBACK. Replace with the T14 factory when it exists.
-    """
-    return lambda c, plan, run: "UNKNOWN"
 
 
 def watch_reader(*, observe, retest):
