@@ -1,10 +1,11 @@
 # tailnet 정책 조각 (T44)
 
-`routes-policy.json`은 `infra/iac/environments/*.json`의 `tailnet-egress` 선언에서 생성한 **조각**이다. 손으로 고치지 않는다.
+`routes-policy.json`(기본 tailnet)과 `routes-policy.workload.json`(워크로드 tailnet)은 `infra/iac/environments/*.json`의 `tailnet-egress` 선언에서 생성한 **조각**이다. tailnet마다 정책이 따로 있으므로 조각도 나눈다. 손으로 고치지 않는다.
 
 ```sh
 cd services/iac
 uv run bravo-iac tailnet-policy ../../infra/iac/environments/*.json > ../../infra/tailnet/routes-policy.json
+uv run bravo-iac tailnet-policy --tailnet workload ../../infra/iac/environments/*.json > ../../infra/tailnet/routes-policy.workload.json
 uv run bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON> ../../infra/iac/environments/*.json
 ```
 

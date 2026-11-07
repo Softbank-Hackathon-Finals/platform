@@ -5,8 +5,9 @@
     bravo-iac plan --current infra/iac/environments/target-dev.json --proposed proposed.json [--origin agent]
     bravo-iac stage --plan plan.json --proposed proposed.json --target infra/iac/environments/target-dev.json
     bravo-iac tailnet-policy infra/iac/environments/*.json > infra/tailnet/routes-policy.json
-    bravo-iac tailnet-check --policy <tailnet policy JSON> infra/iac/environments/*.json
-    bravo-iac tailnet-verify infra/iac/environments/*.json      # live, through this device's Tailscale
+    bravo-iac tailnet-policy --tailnet workload infra/iac/environments/*.json > infra/tailnet/routes-policy.workload.json
+    bravo-iac tailnet-check --policy <tailnet policy JSON> [--tailnet workload] infra/iac/environments/*.json
+    bravo-iac tailnet-verify [--tailnet workload] infra/iac/environments/*.json   # live, through this device's Tailscale
     bravo-iac chart infra/iac/environments/target-dev.json --out infra/iac/charts/target-dev
 
 stage writes the proposed state into the target file only if the file still has the plan's
@@ -47,13 +48,13 @@ def run(args) -> dict:
             written.append(name)
         return {"chart": args.out, "files": written}
     if args.command == "tailnet-policy":
-        return tailnet.fragment([_load(s) for s in args.states])
+        return tailnet.fragment([_load(s) for s in args.states], args.tailnet)
     if args.command == "tailnet-check":
-        missing = tailnet.check_policy(_load(args.policy), [_load(s) for s in args.states])
+        missing = tailnet.check_policy(_load(args.policy), [_load(s) for s in args.states], args.tailnet)
         return {"missing": missing, "ok": not missing}
     if args.command == "tailnet-verify":
         peers = tailnet.status(Path(args.status_json).read_text() if args.status_json else None)
-        rows = tailnet.verify([_load(s) for s in args.states], peers)
+        rows = tailnet.verify([_load(s) for s in args.states], peers, args.tailnet)
         return {"rows": rows, "ok": not any(r["result"] in ("OFFLINE", "TAG_MISMATCH") for r in rows)}
     planned, proposed = _load(args.plan), catalog.check_state(_load(args.proposed))
     current = catalog.check_state(_load(args.target))
@@ -82,12 +83,15 @@ def main(argv=None) -> int:
     ch.add_argument("state")
     ch.add_argument("--out", required=True)
     tp = sub.add_parser("tailnet-policy")
+    tp.add_argument("--tailnet", default="default", help="tailnet key: default, or a group's `tailnet`")
     tp.add_argument("states", nargs="+")
     tc = sub.add_parser("tailnet-check")
     tc.add_argument("--policy", required=True)
+    tc.add_argument("--tailnet", default="default", help="tailnet key the policy belongs to")
     tc.add_argument("states", nargs="+")
     tv = sub.add_parser("tailnet-verify")
     tv.add_argument("--status-json", help="saved `tailscale status --json` (default: ask this device)")
+    tv.add_argument("--tailnet", help="only the groups of this tailnet key (default: all)")
     tv.add_argument("states", nargs="+")
     st = sub.add_parser("stage")
     st.add_argument("--plan", required=True)

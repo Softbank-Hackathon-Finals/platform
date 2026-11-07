@@ -30,6 +30,16 @@ def test_charts_keep_the_tailnet_and_credentials_out_of_git():
     assert {o["kind"] for o in objects} == {"Namespace", "ProxyGroup", "Service", "NetworkPolicy"}
 
 
+def test_a_group_on_another_tailnet_needs_its_own_install_value():
+    platform = files(ENVIRONMENTS["platform"])
+    schema = json.loads(platform["values.schema.json"])
+    assert schema["required"] == ["tailnet", "tailnets"] and schema["properties"]["tailnets"]["required"] == ["workload"]
+    assert 'index .Values.tailnets "workload"' in platform["templates/resources.yaml"]
+    assert 'required "tailnets.workload' in platform["templates/resources.yaml"]
+    for environment in ("source-dev", "target-dev"):
+        assert json.loads(files(ENVIRONMENTS[environment])["values.schema.json"])["required"] == ["tailnet"]
+
+
 def test_objects_are_complete_kubernetes_manifests():
     objects, _ = manifests(ENVIRONMENTS["platform"])
     by_key = {(o["kind"], o["metadata"].get("namespace"), o["metadata"]["name"]): o for o in objects}

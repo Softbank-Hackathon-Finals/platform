@@ -1,12 +1,14 @@
 """Render one environment's desired state as a Helm chart for that cluster's own Argo CD (pull GitOps).
 
 The chart is generated, deterministic and committed under infra/iac/charts/<environment>. The
-tailnet suffix is the chart's only value (`tailnet`, e.g. `<name>.ts.net`): it stays out of the
-public repository and is set on the cluster's Argo Application at install. Resources that need
+tailnet suffix is the chart's only value (`tailnet`, e.g. `<name>.ts.net`; a group on another tailnet
+adds `tailnets.<key>`): it stays out of the public repository and is set on the cluster's Argo
+Application at install. Resources that need
 credentials (``secret_inputs``) are not in the chart; their own applier injects them.
 """
 
 import json
+import re
 
 from .catalog import check_state, module
 from .plan import digest
@@ -18,6 +20,7 @@ NAMESPACE_ANNOTATIONS = {"argocd.argoproj.io/sync-options": "Prune=false,Delete=
                          "argocd.argoproj.io/sync-wave": "-1"}
 SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
 TAILNET_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$"
+KEYED = re.compile(r"\{tailnet:([a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)\}")
 
 
 def manifests(state) -> tuple[list[dict], list[str]]:
@@ -57,18 +60,30 @@ def files(state) -> dict[str, str]:
         "annotations": {"bravo.dev/state-digest": digest(state),
                         "bravo.dev/unmanaged": json.dumps(unmanaged)},
     }
-    documents = []
+    documents, keys = [], set()
     for obj in objects:
         text = json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False)
+        keys |= set(KEYED.findall(text))
+        text = KEYED.sub(lambda m: '{{ index .Values.tailnets "' + m.group(1) + '" }}', text)
         documents.append(text.replace("{tailnet}", "{{ .Values.tailnet }}"))
-    template = ('{{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}\n'
-                + "".join(f"---\n{d}\n" for d in documents))
+    keys = sorted(keys)
+    header = '{{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}\n'
+    header += "".join(f'{{{{- $_ := required "tailnets.{k} (the <name>.ts.net suffix) is required" '
+                      f'(index (.Values.tailnets | default dict) "{k}") }}}}\n' for k in keys)
+    template = header + "".join(f"---\n{d}\n" for d in documents)
+    properties = {"tailnet": {"type": "string", "pattern": TAILNET_PATTERN}}
+    required = ["tailnet"]
+    values = '# The tailnet suffix is set on the cluster\'s Argo Application, never committed.\ntailnet: ""\n'
+    if keys:
+        properties["tailnets"] = {"type": "object", "additionalProperties": False, "required": keys,
+                                  "properties": {k: {"type": "string", "pattern": TAILNET_PATTERN} for k in keys}}
+        required.append("tailnets")
+        values += "tailnets:\n" + "".join(f'  {k}: ""\n' for k in keys)
     schema = {"$schema": "https://json-schema.org/draft-07/schema#", "type": "object",
-              "additionalProperties": False, "required": ["tailnet"],
-              "properties": {"tailnet": {"type": "string", "pattern": TAILNET_PATTERN}}}
+              "additionalProperties": False, "required": required, "properties": properties}
     return {
         "Chart.yaml": json.dumps(chart, indent=2, sort_keys=True) + "\n",
-        "values.yaml": '# The tailnet suffix is set on the cluster\'s Argo Application, never committed.\ntailnet: ""\n',
+        "values.yaml": values,
         "values.schema.json": json.dumps(schema, indent=2, sort_keys=True) + "\n",
         "templates/resources.yaml": template,
     }
