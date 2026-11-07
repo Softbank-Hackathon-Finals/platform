@@ -1,4 +1,4 @@
-# [ADR-0041] SOVA Deploy: RAILSHOT 배포 엔진을 플랫폼의 별도 파드로 이식한다
+# [ADR-0048] SOVA Deploy: RAILSHOT 배포 엔진을 플랫폼의 별도 파드로 이식한다
 
 * **상태 (Status):** 채택됨(Accepted). 2026-11-08 T21 담당(사용자 결정: "RAILSHOT 엔진 이식", "해당 배포 파드는 별도로 올려").
 * **날짜 (Date):** 2026-11-08
