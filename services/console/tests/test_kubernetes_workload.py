@@ -383,6 +383,50 @@ def test_client_prefix_cannot_smuggle_an_effect_verb(prefix, monkeypatch):
         KubectlReader(prefix)
 
 
+@pytest.mark.parametrize(
+    "args,environment,plugin_environment,allowed",
+    [
+        (["eks", "get-token", "--profile=default"], {"AWS_PROFILE": "bravo-personal"}, [], False),
+        (
+            ["eks", "get-token", "--profile", "default"],
+            {"AWS_PROFILE": "bravo-personal"},
+            [],
+            False,
+        ),
+        (["eks", "get-token", "--profile"], {"AWS_PROFILE": "bravo-personal"}, [], False),
+        (["--profile=bravo-personal", "--profile=default"], {}, [], False),
+        (["--profile", "bravo-personal", "--profile=bravo-personal"], {}, [], False),
+        (["eks", "get-token"], {"AWS_PROFILE": "default"}, [], False),
+        (["eks", "get-token"], {}, [], False),
+        (
+            ["eks", "get-token"],
+            {"AWS_PROFILE": "bravo-personal", "AWS_DEFAULT_PROFILE": "default"},
+            [],
+            False,
+        ),
+        (["eks", "get-token", "--profile=bravo-personal"], {}, [], True),
+        (["eks", "get-token", "--profile", "bravo-personal"], {}, [], True),
+        (["eks", "get-token"], {"AWS_PROFILE": "bravo-personal"}, [], True),
+        (["eks", "get-token"], {}, [{"name": "AWS_PROFILE", "value": "bravo-personal"}], True),
+    ],
+)
+def test_aws_credential_plugin_cannot_select_default_or_ambiguous_profile(
+    args, environment, plugin_environment, allowed, monkeypatch
+):
+    from bravo_console.kubernetes_workload import KubectlReader
+
+    config = {
+        "clusters": [{"cluster": {"server": "https://registered.invalid"}}],
+        "users": [{"user": {"exec": {"command": "aws", "args": args, "env": plugin_environment}}}],
+    }
+    monkeypatch.setattr(KubectlReader, "run", lambda *_: config)
+    if allowed:
+        KubectlReader(["kubectl"], env=environment)
+    else:
+        with pytest.raises(CollectionError, match="PERSONAL_AWS_PROFILE_REQUIRED"):
+            KubectlReader(["kubectl"], env=environment)
+
+
 def test_native_t10_http_consumes_same_observation_only_with_current_plan_permission(tmp_path):
     """Real existing T10/SQLite/HTTP; Kubernetes replies and human identity are fixtures."""
     from starlette.testclient import TestClient

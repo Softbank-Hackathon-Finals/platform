@@ -155,17 +155,28 @@ class KubectlReader:
             if Path(plugin.get("command", "")).name not in {"aws", "aws.exe"}:
                 continue
             args = plugin.get("args", [])
+            if type(args) is not list or any(type(arg) is not str for arg in args):
+                raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
             if any(
                 item.get("name") in {"AWS_PROFILE", "AWS_DEFAULT_PROFILE"}
                 and item.get("value") != "bravo-personal"
                 for item in plugin.get("env", [])
             ):
                 raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
-            if "--profile" in args and (
-                args.count("--profile") != 1
-                or args[args.index("--profile") + 1 : args.index("--profile") + 2]
-                != ["bravo-personal"]
-            ):
+            profiles = []
+            for index, arg in enumerate(args):
+                if arg == "--profile":
+                    profiles.append(args[index + 1] if index + 1 < len(args) else None)
+                elif arg.startswith("--profile="):
+                    profiles.append(arg.split("=", 1)[1])
+            if profiles and profiles != ["bravo-personal"]:
+                raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
+            effective = dict(os.environ if env is None else env)
+            effective.update({item["name"]: item["value"] for item in plugin.get("env", [])})
+            inherited = [
+                effective[key] for key in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE") if key in effective
+            ]
+            if not profiles and (not inherited or any(p != "bravo-personal" for p in inherited)):
                 raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
 
     def run(self, args):
