@@ -118,6 +118,43 @@ class CustomerStatus(unittest.TestCase):
         app["spec"]["syncPolicy"]["automated"].pop("enabled")
         self.assertEqual(assess(app)["status"], "BLOCKED")
 
+    def test_repeated_sync_is_distinct_from_the_first_attempt_and_never_passes(self):
+        for phase in ("Running", "Terminating"):
+            app = application()
+            app["status"]["operationState"].update(phase=phase, retryCount=2)
+            result = assess(app)
+            self.assertEqual(result["status"], "SYNC_RETRYING")
+            self.assertEqual(result["reasons"], ["OPERATION_RETRYING"])
+            self.assertEqual(result["retry_count"], 2)
+            self.assertIs(result["authorizes_cutover"], False)
+        # A new operation not yet started keeps the previous Failed one's retryCount: that is not a retry.
+        app = application()
+        app["operation"] = {"sync": {}}
+        app["status"]["operationState"].update(phase="Failed", retryCount=1)
+        self.assertEqual(assess(app)["status"], "SYNC_IN_PROGRESS")
+
+    def test_exhausted_retries_for_this_revision_are_a_failure_not_pending(self):
+        for enabled in (True, False):
+            for phase in ("Failed", "Error"):
+                app = application()
+                app["spec"]["syncPolicy"]["automated"]["enabled"] = enabled
+                app["status"]["operationState"].update(phase=phase, retryCount=5)
+                result = assess(app)
+                self.assertEqual(result["status"], "SYNC_FAILED")
+                self.assertEqual((result["reasons"], result["retry_count"]), (["OPERATION_FAILED"], 5))
+                self.assertIs(result["authorizes_cutover"], False)
+        # A failure of an older revision says nothing about this one.
+        app = application()
+        app["status"]["operationState"].update(phase="Failed", syncResult={"revision": "b" * 40})
+        self.assertEqual(assess(app)["status"], "SYNC_PENDING")
+
+    def test_invalid_retry_counts_never_become_sync_progress_or_verified(self):
+        for count in (True, -1, 1.5, "1", None):
+            app = application()
+            app["status"]["operationState"]["retryCount"] = count
+            self.assertEqual(assess(app)["status"], "BLOCKED")
+            self.assertEqual(assess(app)["reasons"], ["OPERATION_RETRY_COUNT_INVALID"])
+
     def test_prune_needs_separate_acknowledgement(self):
         app = application()
         app["spec"]["syncPolicy"]["automated"]["prune"] = True

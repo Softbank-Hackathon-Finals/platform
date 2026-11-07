@@ -267,7 +267,7 @@ def test_the_external_cluster_is_declared_by_the_database_render_and_only_checke
 
 def test_the_checks_look_at_keys_tls_and_the_route_not_only_names():
     cluster = MigrationCluster().prepared()
-    run = {"plan": {"request": REQUEST, "target": cluster.identity("bravo-target-1")}}
+    run = {"plan": {"request": REQUEST, "target": cluster.identity("bravo-target-1")}, "stack": {"steps": []}}
     checks = ClusterChecks(cluster)
     assert checks.check("replication-credentials", run) and checks.check("replication-external-cluster", run)
     cluster.loaded = {"t8-source-replication"}  # made after the Cluster without cnpg.io/reload: never loaded
@@ -296,7 +296,7 @@ def test_the_argo_check_runs_t44s_intake_itself():
     cluster.kubeconfig, cluster.context, cluster.kubectl = "/nonexistent/kubeconfig", None, "kubectl"
     result = cluster.argo_intake(REPO, "target-dev", "uid-1", IAC)
     assert result["status"] == "BLOCKED" and result["reasons"] == ["EXPLICIT_KUBECONFIG_REQUIRED"]
-    run = {"plan": {"request": REQUEST, "target": {"cluster_uid": "uid-1"}}}
+    run = {"plan": {"request": REQUEST, "target": {"cluster_uid": "uid-1"}}, "stack": {"steps": []}}
     with pytest.raises(StepOutcome, match="argo_explicit_kubeconfig_required"):
         ClusterChecks(cluster, REPO).check("iac-network-synced", run)
 
