@@ -1,0 +1,144 @@
+# T33 보안 탐지 수집 · 조회 API(플랫폼). namespace · 정적 PV · 기본 거부 정책은 클러스터를 세우는 쪽이 만든다
+# (infra/envs/platform-security). Secret(bravo-findings-tls, bravo-findings-auth, platform-ghcr-reader)은 Git에 두지 않고
+# 배포 전에 있어야 한다. 조회 클라이언트(콘솔 · SOVA MCP)의 namespace에 bravo.security/findings-client=true 라벨을 붙인다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bravo-findings-data
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  storageClassName: platform-local
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  replicas: 1
+  # SQLite 하나와 RWO 볼륨: 두 인스턴스가 겹치지 않게 내렸다 올린다
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: bravo-findings}
+  template:
+    metadata:
+      labels: {app: bravo-findings, component: platform}
+    spec:
+      serviceAccountName: bravo-findings
+      automountServiceAccountToken: false
+      imagePullSecrets: [{name: platform-ghcr-reader}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      # 자격 레지스트리는 Secret 링크가 아니라 서비스 UID 소유 0400 일반 파일이어야 한다(detection-hardening 2절)
+      initContainers:
+        - name: auth-registry
+          image: bravo-findings
+          command: [python, -c]
+          args:
+            - |
+              import os
+              data = open("/run/secret/registry.json", "rb").read()
+              fd = os.open("/run/bravo-findings-auth/registry.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+              os.write(fd, data); os.close(fd)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: auth-secret, mountPath: /run/secret, readOnly: true}
+            - {name: auth, mountPath: /run/bravo-findings-auth}
+      containers:
+        - name: api
+          image: bravo-findings
+          env:
+            - {name: BRAVO_FINDINGS_DB, value: /data/findings.db}
+            - {name: BRAVO_FINDINGS_AUTH_FILE, value: /run/bravo-findings-auth/registry.json}
+            - name: BRAVO_FINDINGS_SOURCES
+              value: '[{"source":"aws_guardduty","environment_id":"env-aws"},{"source":"falco","environment_id":"env-onprem"},{"source":"kyverno","environment_id":"env-onprem"}]'
+          ports:
+            - {name: https, containerPort: 8443}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tls, mountPath: /etc/bravo-findings-tls, readOnly: true}
+            - {name: auth, mountPath: /run/bravo-findings-auth, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: bravo-findings-data}
+        - name: tls
+          secret: {secretName: bravo-findings-tls, defaultMode: 0440}
+        - name: auth-secret
+          secret: {secretName: bravo-findings-auth, defaultMode: 0440, items: [{key: registry.json, path: registry.json}]}
+        - name: auth
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  selector: {app: bravo-findings}
+  ports:
+    - {name: https, port: 8443, targetPort: https}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 조회(콘솔 · SOVA MCP). 온프렘 수집 경로(tailnet-ingress 프록시)는 T44 경로 선언과 함께 더한다
+    - from:
+        - namespaceSelector:
+            matchLabels: {bravo.security/findings-client: "true"}
+      ports:
+        - {port: 8443, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
