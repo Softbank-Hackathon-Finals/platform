@@ -55,10 +55,12 @@ def _view(value):
 
 
 class IacPlanService:
-    def __init__(self, store, *, repository, infra_service, check_access):
-        if infra_service is None or infra_service.store is not store or not callable(check_access):
+    def __init__(self, store, *, repository, infra_service, check_access, check_request):
+        if (infra_service is None or infra_service.store is not store
+                or not callable(check_access) or not callable(check_request)):
             raise ValueError("iac_plan_configuration_invalid")
-        self.store, self.repository, self.infra, self.check_access = store, repository, infra_service, check_access
+        self.store, self.repository, self.infra = store, repository, infra_service
+        self.check_access, self.check_request = check_access, check_request
 
     def _plan(self, environment, module_id, params):
         try:
@@ -74,8 +76,9 @@ class IacPlanService:
         validate_identifier(command_key)
         if not isinstance(principal, Principal):
             raise EventError("forbidden")
+        # The requester (recorded as requested_by) must be able to apply infra, not only read the plan.
         with self.store._transaction() as c:
-            authorized_plan(c, principal, plan_id, self.check_access)
+            authorized_plan(c, principal, plan_id, self.check_request)
         try:
             _, base_sha, plan = self._plan(environment, module, params)
         except IacError as error:
@@ -85,7 +88,7 @@ class IacPlanService:
         value = dict(iac_plan_id=iac_plan_id, environment=environment, module=module, params=params,
                      base_sha=base_sha, plan=plan, requested_by=principal.subject_id)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
-            authorized_plan(c, principal, plan_id, self.check_access)
+            authorized_plan(c, principal, plan_id, self.check_request)
             old = _get(c, plan_id, KEY.format(iac_plan_id))
             if old:
                 if _canonical(old[0]) != _canonical(request):
@@ -120,6 +123,10 @@ class IacPlanService:
             return done[1]
         if not value["plan"]["accepted"]:
             raise EventError("iac_plan_refused")
+        # The approval must be of this plan as recorded: its id, its requester and its digest. The claim
+        # below compares only the digest; a receipt never changes once approved, so reading it first holds.
+        if self.infra.read(principal, plan_id, approval_id)["binding"] != _view(value)["binding"]:
+            raise EventError("binding_mismatch")
         try:
             state, base_sha, plan = self._plan(value["environment"], value["module"], value["params"])
         except IacError as error:

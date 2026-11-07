@@ -232,7 +232,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         from .iac_plans import IacPlanService
 
         iac_service = IacPlanService(store, repository=iac_repository, infra_service=infra_service,
-                                     check_access=access.check_read)
+                                     check_access=access.check_read, check_request=access.requires("apply_infra"))
     app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
                              change_service=change_service, failback_service=failback_service,
                              shift_service=shift_service, infra_service=infra_service, iac_service=iac_service)

@@ -55,11 +55,11 @@ class Repository:
 
 
 
-def setup(backend):
+def setup(backend, check_request=allow):
     collect(backend.store)
     repository, approvals = Repository(), infra(backend.store)
     return repository, approvals, IacPlanService(backend.store, repository=repository, infra_service=approvals,
-                                                 check_access=allow)
+                                                 check_access=allow, check_request=check_request)
 
 
 def approve(approvals, view, key="a1"):
@@ -111,6 +111,35 @@ def test_an_approval_of_another_digest_or_by_the_requester_opens_nothing(backend
     with pytest.raises(EventError, match="self_approval_forbidden"):
         approvals.approve(PRINCIPAL, PLAN, binding=view["binding"], expires_at=LATER, command_key="self")
     assert repository.opened == []
+
+
+def test_an_approval_opens_only_the_plan_and_requester_it_names(backend):
+    repository, approvals, iac = setup(backend)
+    view = iac.create(PRINCIPAL, PLAN, environment="target-dev", module="target-object-exposure", params=CLOSED,
+                      command_key="close-bucket")
+    # The requester approves their own plan under another requester's name: approve cannot tell.
+    renamed = approvals.approve(PRINCIPAL, PLAN, binding=view["binding"] | {"requested_by": "someone-else"},
+                                expires_at=LATER, command_key="renamed")["approval_id"]
+    # The same change planned again (another Idempotency-Key) is another plan: A's approval is not B's.
+    twin = iac.create(PRINCIPAL, PLAN, environment="target-dev", module="target-object-exposure", params=CLOSED,
+                      command_key="close-bucket-again")
+    assert twin["plan_digest"] == view["plan_digest"] and twin["iac_plan_id"] != view["iac_plan_id"]
+    for iac_plan_id, approval_id in ((view["iac_plan_id"], renamed), (twin["iac_plan_id"], approve(approvals, view))):
+        with pytest.raises(EventError, match="binding_mismatch"):
+            iac.open_pull_request(PRINCIPAL, PLAN, iac_plan_id, approval_id=approval_id)
+        assert approvals.read(PRINCIPAL, PLAN, approval_id)["claimed_run_id"] is None
+    assert repository.opened == []
+
+
+def test_only_an_operator_who_may_apply_infra_becomes_the_requester(backend):
+    def apply_infra(*_):
+        raise EventError("forbidden")
+
+    repository, _, iac = setup(backend, check_request=apply_infra)
+    repository.failures["state"].append(AssertionError("the repository is read before the permission check"))
+    with pytest.raises(EventError, match="forbidden"):
+        iac.create(PRINCIPAL, PLAN, environment="target-dev", module="target-object-exposure", params=CLOSED,
+                   command_key="close-bucket")
 
 
 def test_a_repository_failure_is_one_code_and_the_claimed_approval_resumes(backend):
