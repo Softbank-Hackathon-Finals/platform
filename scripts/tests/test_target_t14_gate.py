@@ -23,22 +23,14 @@ def by_kind(items):
 
 
 class AccountTests(unittest.TestCase):
-    def test_other_and_runner_accounts_mount_no_token(self):
-        items = by_kind(t14_gate.accounts())
-        for name in ("t14-other", "t14-runner"):
-            with self.subTest(account=name):
-                account = items[("ServiceAccount", name)]
-                self.assertIs(account["automountServiceAccountToken"], False)
-                self.assertEqual(account["metadata"]["namespace"], "target-dev")
+    def test_the_other_account_mounts_no_token(self):
+        account = by_kind(t14_gate.accounts())[("ServiceAccount", "t14-other")]
+        self.assertIs(account["automountServiceAccountToken"], False)
+        self.assertEqual(account["metadata"]["namespace"], "target-dev")
 
-    def test_runner_may_only_mint_tokens_for_the_two_compared_accounts(self):
-        items = by_kind(t14_gate.accounts())
-        (rule,) = items[("Role", "t14-token-minter")]["rules"]
-        self.assertEqual(rule, {"apiGroups": [""], "resources": ["serviceaccounts/token"], "verbs": ["create"],
-                                "resourceNames": ["demo-chat", "t14-other"]})
-        binding = items[("RoleBinding", "t14-token-minter")]
-        self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "t14-runner", "namespace": "target-dev"}])
-        self.assertEqual(binding["roleRef"]["kind"], "Role")
+    def test_nothing_in_the_cluster_may_mint_tokens(self):
+        # RBAC cannot bound a TokenRequest's audience or lifetime; the collector mints from the operator's machine.
+        self.assertEqual([(i["kind"], i["metadata"]["name"]) for i in t14_gate.accounts()], [("ServiceAccount", "t14-other")])
 
     def test_the_other_account_is_granted_nothing(self):
         subjects = [s["name"] for item in t14_gate.accounts() if item["kind"] == "RoleBinding" for s in item["subjects"]]
@@ -60,11 +52,19 @@ class CanaryTests(unittest.TestCase):
     def test_keys_come_only_from_the_existing_object_secrets(self):
         env = self.job()["spec"]["containers"][0]["env"]
         refs = {e["name"]: e["valueFrom"]["secretKeyRef"]["name"] for e in env if "valueFrom" in e}
-        self.assertEqual(refs, {"BOOTSTRAP_AWS_ACCESS_KEY_ID": "target-object-bootstrap",
-                                "BOOTSTRAP_AWS_SECRET_ACCESS_KEY": "target-object-bootstrap",
-                                "CLIENT_AWS_ACCESS_KEY_ID": "target-object-client",
+        # The client identity has Write; the bootstrap (Admin) key never enters this Job.
+        self.assertEqual(refs, {"CLIENT_AWS_ACCESS_KEY_ID": "target-object-client",
                                 "CLIENT_AWS_SECRET_ACCESS_KEY": "target-object-client"})
         self.assertFalse(any("value" in e and "KEY" in e["name"] for e in env))
+
+    def test_bytes_equal_the_source_canary(self):
+        # The cutover copy refuses a destination object whose bytes differ from the source's.
+        source = (WORKLOADS.parent / "source-workloads/main.tf").read_text()
+        block = source[source.index('resource "aws_s3_object" "t14"'):]
+        tree = ast.parse(CANARY)
+        body = next(n.value.value for n in tree.body if isinstance(n, ast.Assign) and n.targets[0].id == "BODY")
+        self.assertIn('key     = "attachments/t14-canary.txt"', block[:300])
+        self.assertIn(f'content = {json.dumps(body.decode())}', block[:300])
 
     def test_the_store_policy_lets_this_pod_in(self):
         # objects.py admits only pods labelled bravo-object-client=true.

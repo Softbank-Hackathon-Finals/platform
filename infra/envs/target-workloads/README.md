@@ -234,12 +234,13 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
 
 ## T14 demo-gate:1 목적지 준비 (`t14_gate.py`)
 
-T14 게이트 데모 계획(`demo-gate:1`)의 SEC-01.1 · IAM-01.1을 목적지에서 재기 위한 최소 준비다. 렌더러는 클러스터에 닿지 않는다.
+T14 게이트 데모 계획(`demo-gate:1`)의 SEC-01.1 · IAM-01.1을 목적지에서 재기 위한 클러스터 쪽 준비다. 렌더러는 클러스터에 닿지 않는다.
+OpenBao 역할(`t14-other`, 앱)과 KV 경로는 이 준비에 없다. T9가 별도로 만든다(SEC-01.1은 그 뒤에 잴 수 있다).
 
 | 단계 | 렌더 | 이유 |
 | --- | --- | --- |
-| `accounts` | SA `t14-other`(권한 없음) · SA `t14-runner` · Role/RoleBinding `t14-token-minter` | SEC-01.1은 앱 계정과 같은 namespace의 다른 계정을 비교한다. 수집 Job이 target-dev 안에서 두 계정의 짧은 토큰을 직접 만들 수 있게 `serviceaccounts/token` `create`를 **`demo-chat` · `t14-other` 두 이름에만** 준다 |
-| `canary --arch <노드>` | ConfigMap + Job `target-t14-canary` | IAM-01.1의 고정 객체 `demo-chat-attachments/attachments/t14-canary.txt`를 bootstrap 자격으로 쓰고 client 자격으로 읽는다. 익명 읽기는 **관측만** 한다 |
+| `accounts` | SA `t14-other`(권한 없음, 토큰 mount 없음) | SEC-01.1은 앱 계정과 같은 namespace의 다른 계정을 비교한다. 클러스터 안에 토큰을 만드는 권한은 두지 않는다(아래) |
+| `canary --arch <노드>` | ConfigMap + Job `target-t14-canary` | IAM-01.1의 고정 객체 `demo-chat-attachments/attachments/t14-canary.txt`를 client 자격으로 쓰고 읽는다(client에 Write가 있어 bootstrap 자격은 넣지 않는다). 내용은 출발지 카나리(`source-workloads` `aws_s3_object.t14`)와 **같은 바이트**다. 익명 읽기는 **관측만** 한다 |
 
 ```sh
 python3 t14_gate.py accounts > "$OUTPUT_DIR/t14-accounts.json"
@@ -248,11 +249,14 @@ kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/t14-accounts.json" 
 kubectl -n target-dev logs job/target-t14-canary   # 크기 · SHA-256 · client 읽기 · 익명 읽기 결과 한 줄
 ```
 
-- 수집 Job은 `t14-runner` 계정으로, Pod에 `bravo-object-client=true` 라벨을 달아야 SeaweedFS(8333)에 닿는다(`target-object-clients`).
+- 수집은 운영자 머신에서 `kubectl create token`과 port-forward로 한다(#644). 클러스터 안에는 토큰을 만드는 권한을 두지 않는다. RBAC는 TokenRequest의 audience와 수명을 제한하지 못하므로, 그런 권한은 T9가 만들 앱 OpenBao 역할로 가는 두 번째 길이 된다.
+- **컷오버 첨부 복사:** `attachments/t14-canary.txt`를 `ATTACHMENT_APPROVED_EXTRA_KEYS_FILE`에 넣는다. 출발지에도 같은 키가 있어서(#649) 어차피 필요하다. 목적지 객체는 출발지와 바이트가 같아야 하고, 다르면 복사가 `destination conflict`로 멈춘다.
 - 익명 읽기가 `allowed`이면 버킷이 위 "데모용 노출 상태"의 `open-demo`이거나 버킷 정책이 남은 것이다. 데모는 이 상태에서 IAM-01.1이 BLOCK되고 T31이 닫은 뒤 다시 잰다. 그래서 canary는 익명 읽기로 실패하지 않는다.
 - 권한 범위는 SubjectAccessReview로 확인한다. 이 접속 경로(Tailscale 인증 프록시)는 `kubectl --as`를 본인 신원으로 바꾸므로 `auth can-i --as`로는 확인되지 않는다.
 
-**2026-11-07 18:0x KST 목적지 적용·확인.** `t14-runner`는 `demo-chat` · `t14-other` 토큰만 만들 수 있고 다른 계정 토큰 · Secret 읽기는 거부됐다. `t14-other` · `demo-chat`은 어떤 토큰도 만들지 못했다. canary: 34바이트, client 읽기 성공, 익명 읽기 `allowed`.
+**2026-11-07 18:0x KST 목적지 적용·확인(이전 렌더).** `t14-runner`는 `demo-chat` · `t14-other` 토큰만 만들 수 있고 다른 계정 토큰 · Secret 읽기는 거부됐다. `t14-other` · `demo-chat`은 어떤 토큰도 만들지 못했다. canary: 34바이트, client 읽기 성공, 익명 읽기 `allowed`.
+
+**이 렌더로 바꾼 뒤 목적지에서 할 일.** 이전 렌더가 만든 SA `t14-runner`와 Role/RoleBinding `t14-token-minter`를 지운다. canary Job을 지우고 다시 실행해 객체를 출발지와 같은 17바이트로 바꾼다(로그의 크기 17, client 읽기 성공).
 
 ## 개발 측정용 앱
 

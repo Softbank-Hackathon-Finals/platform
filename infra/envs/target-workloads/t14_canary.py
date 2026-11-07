@@ -1,7 +1,8 @@
 """T14 IAM-01.1 canary: write one fixed object, then check what the collector checks. Runs in a Job.
 
-Writes with the bootstrap identity (the client identity cannot create objects outside the app's flow) and
-reads it back with the client identity. The unsigned read is only observed, not required: the demo starts
+Writes and reads back with the client identity (it has Write on the bucket; no Admin key is needed). The
+bytes equal the source canary (source-workloads `aws_s3_object.t14`): the cutover copy lists this key as an
+approved extra and refuses a destination object with other bytes. The unsigned read is only observed: the demo starts
 with the bucket in `open-demo` (README "데모용 노출 상태"), where IAM-01.1 is meant to BLOCK until T31 closes
 it. Prints only the bucket, key, size, SHA-256 and the outcomes; never a key or a secret.
 """
@@ -17,7 +18,7 @@ from botocore.exceptions import ClientError
 ENDPOINT = "http://seaweedfs.target-dev.svc.cluster.local:8333"
 BUCKET = "demo-chat-attachments"
 KEY = "attachments/t14-canary.txt"
-BODY = b"Team Bravo T14 IAM-01.1 canary v1\n"
+BODY = b"bravo t14 canary\n"  # = source-workloads main.tf aws_s3_object.t14 content
 
 
 def client(prefix=None):
@@ -33,9 +34,9 @@ def client(prefix=None):
 
 
 def main():
-    result = {"bucket": BUCKET, "key": KEY, "stage": "bootstrap_put"}
+    result = {"bucket": BUCKET, "key": KEY, "stage": "client_put"}
     try:
-        client("BOOTSTRAP").put_object(Bucket=BUCKET, Key=KEY, Body=BODY, ContentType="text/plain")
+        client("CLIENT").put_object(Bucket=BUCKET, Key=KEY, Body=BODY, ContentType="text/plain")
         result["stage"] = "client_get"
         body = client("CLIENT").get_object(Bucket=BUCKET, Key=KEY)["Body"].read()
         result.update(size=len(body), sha256=hashlib.sha256(body).hexdigest(),
