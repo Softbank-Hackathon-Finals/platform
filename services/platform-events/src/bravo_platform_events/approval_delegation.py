@@ -173,9 +173,13 @@ class DelegatedGates:
                 "SELECT plan_id, state, version, updated_at FROM plans "
                 "WHERE state IN ('REHEARSE', 'SHIFT', 'WATCH', 'FAILBACK')").fetchall()]
             gates = {p["plan_id"]: set((self.delegations.live(c, p["plan_id"]) or {}).get("gates", [])) for p in plans}
-            rehearsing = [p for p in plans if p["state"] == "REHEARSE" and self.rehearsal and "rehearsal" in gates[p["plan_id"]]
-                          and not c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
-                                            (p["plan_id"], f"rehearsal:{p['version']}:%")).fetchone()]
+            rehearsing = [p | {"admissions": [json.loads(r["receipt_json"]) for r in c.execute(
+                              "SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                              (p["plan_id"], f"rehearsal:{p['version']}:%")).fetchall()]}
+                          for p in plans if p["state"] == "REHEARSE" and self.rehearsal
+                          and "rehearsal" in gates[p["plan_id"]]]
+            rehearsing = [p for p in rehearsing if not p["admissions"] or not any(
+                _get(c, p["plan_id"], f"rehearsal-result:{a['rehearsal_id']}:{a['attempt']}") for a in p["admissions"])]
             failing_back = [p for p in plans if p["state"] == "FAILBACK" and self.failback
                             and "failback" in gates[p["plan_id"]]]
             due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and edge_at_full(c, p)]
@@ -195,14 +199,22 @@ class DelegatedGates:
         return decided
 
     def _rehearse(self, plan):
-        """Start the plan's one registered T15 rehearsal for this version, once (the same command key replays)."""
+        """Start the plan's one registered T15 rehearsal for this version once (the same command key replays), then
+        read its outcome until T15 records it: REHEARSE -> GATE requires the recorded PASS (require_rehearsals_complete),
+        and RehearsalService.reconcile is the only writer of that record.
+        ponytail: a FAIL is the result; no automatic attempt 2/3 (a person decides a retry)."""
         tasks = self.list_tasks(plan["plan_id"])
         if len(tasks) != 1:
             raise EventError("rehearsal_task_unselected")  # choosing among tasks is S1's decision
         principal = self.delegations.principal_for(plan["plan_id"], "rehearsal", binding={"task_id": tasks[0]},
                                                    version=plan["version"])
-        return self.rehearsal.start(principal, plan["plan_id"], task_id=tasks[0], expected_version=plan["version"],
-                                    attempt=1, command_key=f"delegated-rehearsal-{plan['version']}")
+        if not plan["admissions"]:
+            return self.rehearsal.start(principal, plan["plan_id"], task_id=tasks[0],
+                                        expected_version=plan["version"], attempt=1,
+                                        command_key=f"delegated-rehearsal-{plan['version']}")
+        latest = max(plan["admissions"], key=lambda a: a["attempt"])
+        return self.rehearsal.reconcile(principal, plan["plan_id"], rehearsal_id=latest["rehearsal_id"],
+                                        attempt=latest["attempt"])
 
     def _fail_back(self, plan):
         """Move a running FAILBACK on as the approver: read the Executor (GET only), and once a committed DONE is

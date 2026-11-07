@@ -87,6 +87,10 @@ def test_the_approval_host_starts_the_one_rehearsal_and_moves_a_failback_on(worl
             calls.append(("start", principal.subject_id, kw["task_id"], kw["command_key"]))
             return {"rehearsal_id": "r-1"}
 
+        def reconcile(self, principal, plan_id, *, rehearsal_id, attempt):
+            calls.append(("observe", rehearsal_id, attempt))
+            return {"status": "UNCONFIRMED"}
+
     class Failback:
         def reconcile(self, principal, plan_id, command_id):
             calls.append(("reconcile", command_id))
@@ -117,8 +121,14 @@ def test_the_approval_host_starts_the_one_rehearsal_and_moves_a_failback_on(worl
     assert calls[-1] == ("start", "approver", "credential-migration", f"delegated-rehearsal-{plan['version']}")
     with store._transaction(write=True, plan_id=SPEC.plan_id) as c:  # admitted: never started twice
         c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
-                  (SPEC.plan_id, f"rehearsal:{plan['version']}:credential-migration:1", "{}", "{}"))
-    assert gates.sweep() == {}
+                  (SPEC.plan_id, f"rehearsal:{plan['version']}:credential-migration:1", "{}",
+                   json.dumps({"rehearsal_id": "r-1", "attempt": 1})))
+    assert gates.sweep()[SPEC.plan_id] == {"status": "UNCONFIRMED"}  # its outcome is read until T15 records it
+    assert calls[-1] == ("observe", "r-1", 1) and [c[0] for c in calls].count("start") == 1
+    with store._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)", (SPEC.plan_id, "rehearsal-result:r-1:1", "{}",
+                                                                 json.dumps({"status": "PASS"})))
+    assert gates.sweep() == {}  # recorded: REHEARSE -> GATE is the host's again
     plan = _plan(store, "FAILBACK")
     from bravo_platform_events.failback import failback_key
 
