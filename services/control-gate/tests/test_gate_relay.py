@@ -232,6 +232,42 @@ def test_a_data_block_is_signed_but_never_spends_the_context_unless_asked(relay)
     assert out["evaluated"]["data"] == "BLOCK" and len(evaluated) == 1
 
 
+def test_a_pass_that_would_expire_before_the_evaluation_holds_instead_of_spending_the_context(relay):
+    """Live S1 (11/8): signing took the 30 s record past its validity and the GATE recorded a freshness BLOCK."""
+    f = relay
+    signed_context_and_runs(f)
+    observation = executor_observation(f)
+    evaluated = []
+
+    def slow(request):
+        if request["op"] == "publish":
+            f.clock.at += timedelta(seconds=12)  # one kubectl exec round trip each
+        if request["op"] == "evaluate":
+            evaluated.append(request)
+        return f.call(request)
+
+    with pytest.raises(RuntimeError, match="hold:readiness_expires_before_evaluate"):
+        cli.run(capture_args(f), relay=slow, now=f.clock.at, observe=lambda _: {"observation": observation},
+                clock=lambda: f.clock.at)
+    assert evaluated == []  # the context is still unevaluated: the next capture can record its decision
+
+
+def test_one_relay_session_answers_many_requests_in_order():
+    import sys
+
+    fake = ("import json, sys\nprint(json.dumps({'status': 'READY'}), flush=True)\n"
+            "for line in sys.stdin:\n"
+            "    r = json.loads(line)\n"
+            "    print(json.dumps({'status': 'HOLD', 'code': 'NO'} if r['op'] == 'evaluate' else"
+            " {'status': 'PASS', 'op': r['op']}), flush=True)\n")
+    with cli.Session([sys.executable, "-c", fake]) as call:
+        assert [call({"op": op})["op"] for op in ("capture", "subjects", "publish")] == ["capture", "subjects", "publish"]
+        with pytest.raises(RuntimeError, match="hold:NO"):
+            call({"op": "evaluate"})
+    with pytest.raises(cli.RelayFailed, match="relay_session_unavailable"):
+        cli.Session([sys.executable, "-c", "print('no')"]).__enter__()
+
+
 def test_capture_signs_nothing_when_another_record_lands_first(relay):
     f = relay
     signed_context_and_runs(f)
