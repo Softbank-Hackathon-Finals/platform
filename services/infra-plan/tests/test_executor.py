@@ -580,6 +580,36 @@ def test_synced_tailscale_is_not_a_join_until_the_operator_has_a_profile(world):
     assert run["steps"]["verify"]["status"] not in ("APPLIED", "SKIPPED")
 
 
+def test_the_join_probe_waits_for_a_login_that_comes_after_the_sync(world):
+    """WIF exchanges its token after the operator Deployment is Healthy: the profile can appear a few
+    polls later. The probe keeps reading within its timeout instead of failing the run at once."""
+    request = json.loads(json.dumps(REQUEST))
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+
+    class LateLogin(FakeCluster):
+        reads = 0
+
+        def secret_keys(self, namespace, name):
+            if (namespace, name) == ("tailscale-system", "operator"):
+                LateLogin.reads += 1
+                if LateLogin.reads < 3:
+                    return {"_machinekey"}  # started, not logged in yet
+            return super().secret_keys(namespace, name)
+
+    cluster = LateLogin()
+    del cluster.secrets[("tailscale-system", "operator-oauth")]
+    cluster.prepare_node()
+    executor = world["executor"](cluster=cluster)
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    world["approvals"].approve("appr-late", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-late", run_id="run-late",
+                         started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
+    assert run["steps"]["tailscale-joined"]["status"] == "APPLIED" and LateLogin.reads >= 3
+    assert run["status"] == "SUCCEEDED"
+
+
 def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     """OpenBao cannot be Ready before init and unseal; only its sync accepts Progressing."""
 
