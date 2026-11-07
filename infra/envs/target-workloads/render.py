@@ -125,15 +125,21 @@ def database(node_name):
                        "hostssl chat chat_owner all scram-sha-256",
                        "hostssl chat chat_app all scram-sha-256",
                        "hostssl chat chat_replicator all scram-sha-256",
+                       "hostssl chat cutover_control all scram-sha-256",
                        "host all all all reject"],
         },
         "monitoring": {"customQueriesConfigMap": [{"name": SUBSCRIPTION_METRICS, "key": "queries"}]},
         "externalClusters": [SOURCE_REPLICATION],
-        "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner"}},
+        # chat_app is created once here and never managed: the Cutover Executor fences and opens it with
+        # NOLOGIN/LOGIN, which CNPG's managed roles would reset (T12 platform integration contract). It starts
+        # NOLOGIN (the target takes no writes before cutover); its password is set from target-app-db at
+        # cutover readiness. cutover_control is the Executor's control login (fixed functions only).
+        "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner",
+                                 "postInitSQL": ["CREATE ROLE chat_app NOLOGIN"]}},
         "managed": {"roles": [
-            {"name": "chat_app", "ensure": "present", "login": False,
-             "superuser": False, "createdb": False, "createrole": False,
-             "passwordSecret": {"name": "target-app-db"}},
+            {"name": "cutover_control", "ensure": "present", "login": True,
+             "superuser": False, "createdb": False, "createrole": False, "inRoles": ["pg_read_all_stats"],
+             "passwordSecret": {"name": "cutover-db-control"}},
             {"name": "chat_replicator", "ensure": "present", "login": True,
              "replication": True, "superuser": False, "createdb": False, "createrole": False,
              "passwordSecret": {"name": "target-replication"}},

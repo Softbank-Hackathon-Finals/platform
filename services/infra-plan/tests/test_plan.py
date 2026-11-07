@@ -90,7 +90,8 @@ def test_plan_holds_no_secret_value_and_secret_steps_only_name_keys():
         for secret in step.get("secrets", []):
             for spec in secret["keys"].values():
                 assert set(spec) <= {"literal", "random"}
-                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator", "bravo-admin")
+                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator", "cutover_control",
+                                                                    "bravo-admin")
 
 
 def test_charts_get_rendered_values_post_processing_and_the_kube_version():
@@ -328,3 +329,18 @@ def test_without_an_edge_the_login_line_is_omitted_and_its_addresses_are_not_req
         del request["params"][name]
         with pytest.raises(StackError, match="invalid_plan_request"):
             plan(request)
+
+
+def test_the_destination_db_is_cutover_ready_as_built():
+    """T12 platform integration: CNPG never manages chat_app (the Executor fences and opens it with NOLOGIN/LOGIN),
+    cutover_control is the Executor's managed control login, and pg_hba admits it over TLS only."""
+    result = plan()
+    cluster = next(item for files in result.files.values() for text in files.values()
+                   for item in json.loads(text)["items"] if item["kind"] == "Cluster")["spec"]
+    roles = {r["name"]: r for r in cluster["managed"]["roles"]}
+    assert "chat_app" not in roles
+    assert roles["cutover_control"]["login"] and roles["cutover_control"]["inRoles"] == ["pg_read_all_stats"]
+    assert not any(roles["cutover_control"][k] for k in ("superuser", "createdb", "createrole"))
+    assert cluster["bootstrap"]["initdb"]["postInitSQL"] == ["CREATE ROLE chat_app NOLOGIN"]
+    hba = cluster["postgresql"]["pg_hba"]
+    assert "hostssl chat cutover_control all scram-sha-256" in hba and hba[-1] == "host all all all reject"

@@ -262,6 +262,19 @@
               "random": 32
             }
           }
+        },
+{
+          "namespace": "target-dev",
+          "name": "cutover-db-control",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "cutover_control"
+            },
+            "password": {
+              "random": 32
+            }
+          }
         }
       ]
     },
