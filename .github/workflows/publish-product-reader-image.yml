@@ -19,6 +19,8 @@ on:
       - services/edge-control/pyproject.toml
       - services/iac/src/**
       - services/iac/pyproject.toml
+      - services/control-runner/src/**
+      - services/control-runner/pyproject.toml
       - scripts/image_import_closure.py
       - scripts/registration_delivery.py
       - scripts/image_delivery/**
