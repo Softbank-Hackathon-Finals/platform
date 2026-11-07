@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { observedTopology } from "../src/bravo_console/static/observation-model.js";
+import { CONTROL_TESTS } from "../src/bravo_console/static/model.js";
 const original = JSON.parse(
   readFileSync(new URL("./fixtures/workload-synthetic.json", import.meta.url)),
 );
@@ -157,6 +158,17 @@ test("browser clock independently withdraws expired configuration", () => {
     observedTopology(configured(), NOW + 91000).securityConfig,
     {},
   );
+});
+test("all existing T14 catalog tests including ENC-02 and ISO-01 render as history", () => {
+  const d = configured();
+  d.control_history[0].rows = Object.keys(CONTROL_TESTS).map((test_id) => ({
+    test_id,
+    control_id: test_id.split(".")[0],
+    recorded_verdict: "UNKNOWN",
+    evidence_state: "NO_EVIDENCE",
+    unknown_reason: "NOT_RUN",
+  }));
+  assert.equal(observedTopology(d, NOW).controlHistory[0].rows.length, 20);
 });
 for (const mutate of [
   (d) => (Object.values(d.security_config)[0].resource_uid = "old-resource"),

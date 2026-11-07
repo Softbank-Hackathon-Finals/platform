@@ -1,5 +1,6 @@
 import { createWorkloadRenderer } from "./workload-motion.js";
 import { observedTopology } from "./observation-model.js";
+import { CONTROL_TESTS } from "./model.js";
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -343,7 +344,7 @@ function drawHistory() {
         RECORDED: "기록 보존 · 현 자원 미검증",
       }[test.evidence_state];
       for (const value of [
-        test.test_id,
+        `${test.test_id} · ${CONTROL_TESTS[test.test_id]}`,
         test.recorded_verdict,
         proofLabel,
         test.unknown_reason

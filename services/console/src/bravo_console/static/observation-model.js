@@ -1,5 +1,6 @@
 // Standalone read-only observations are never operational T10 plans.
 import { workloadGraph, projectedWorkload } from "./workload-model.js";
+import { CONTROL_TESTS } from "./model.js";
 const id = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const exact = (value, keys) =>
   value &&
@@ -286,7 +287,7 @@ function controlHistory(rows, environments, now) {
           test,
           "test_id control_id recorded_verdict evidence_state unknown_reason",
         ) ||
-        !/^(IAM|ENC|SEC|AUD|NET|DR)-01\.[1-9]$/.test(test.test_id) ||
+        !Object.hasOwn(CONTROL_TESTS, test.test_id) ||
         test.control_id !== test.test_id.split(".")[0] ||
         !["PASS", "FAIL", "UNKNOWN"].includes(test.recorded_verdict) ||
         !["NO_EVIDENCE", "EXPIRED", "RECORDED"].includes(test.evidence_state) ||
