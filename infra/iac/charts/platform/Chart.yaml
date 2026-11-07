@@ -1,6 +1,6 @@
 {
   "annotations": {
-    "bravo.dev/state-digest": "2e9913fa2cdced15c25059e1bb440e87c33b26822a02ca8189643f72719b7683",
+    "bravo.dev/state-digest": "ffaaa373cf3683525b379c48f9d71ca7ed7a588d96dc3b2ae3e16448b8738d7d",
     "bravo.dev/unmanaged": "[\"operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin\"]"
   },
   "apiVersion": "v2",

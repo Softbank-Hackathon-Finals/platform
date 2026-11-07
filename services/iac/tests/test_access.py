@@ -37,11 +37,11 @@ def test_platform_operators_are_one_group_bound_to_cluster_admin():
     assert "@" not in json.dumps(PLATFORM)
 
 
-SOURCES = ("autogroup:admin", "autogroup:owner")
+SOURCES = ("autogroup:admin", "autogroup:owner", "group:bravo-operators")
 MISSING = [f"GRANT:{s}->tag:bravo-platform-operator:tcp:443+app" for s in SOURCES]
 
 
-def test_tailnet_admins_and_the_owner_get_one_grant_each_naming_the_impersonated_group():
+def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_group():
     policy = fragment(STATES)
     for src in SOURCES:
         assert {"src": [src], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"], "app": CAP} in policy["grants"]
@@ -137,6 +137,6 @@ def test_verify_checks_the_api_proxy_device_and_its_tag():
 def test_the_network_view_answers_how_people_reach_the_platform_api():
     access = view(STATES)["environments"]["platform"]["access"]
     assert access == [{"proxy": "bravo-platform-operator", "proxy_tag": "tag:bravo-platform-operator",
-                       "tailnet": "default", "tailnet_groups": ["autogroup:admin", "autogroup:owner"],
+                       "tailnet": "default", "tailnet_groups": ["autogroup:admin", "autogroup:owner", "group:bravo-operators"],
                        "group": "bravo:operators", "cluster_role": "cluster-admin"}]
     assert check_state(PLATFORM)["modules"][-1]["id"] == "operator-access"

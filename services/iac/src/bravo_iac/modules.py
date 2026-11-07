@@ -447,3 +447,47 @@ OPERATOR_ACCESS = Module(
     exposure=_access_exposure,
     grants=_access_grants,
 )
+
+
+def _api_transport_check(params: dict) -> dict:
+    """Transport only: the existing Kubernetes/IAM authenticator still decides access."""
+    _exact(params, ("proxy_hostname", "proxy_tag", "tailnet_groups"), ("tailnet",))
+    sources = params["tailnet_groups"]
+    if (type(sources) is not list or not 1 <= len(sources) <= 4
+            or len(set(map(str, sources))) != len(sources)
+            or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in sources)):
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"proxy_hostname": _name(params["proxy_hostname"]), "proxy_tag": _tag(params["proxy_tag"]),
+           "tailnet_groups": sorted(sources)}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    return out
+
+
+def _api_transport_grants(params: dict) -> list[dict]:
+    return [{"tailnet": tailnet_of(params), "src": [source], "dst": [params["proxy_tag"]],
+             "ip": [API_PROXY_PORT]} for source in params["tailnet_groups"]]
+
+
+def _api_transport_exposure(params: dict) -> dict:
+    return {"anonymous": [], "checks": [], "reach": sorted(
+        f'{source}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]}):443 existing-kubernetes-auth'
+        for source in params["tailnet_groups"])}
+
+
+API_TRANSPORT_ACCESS = Module(
+    id="api-transport-access", version="1",
+    description="Private HTTPS reachability to an existing Kubernetes API proxy. Does not impersonate, "
+                "create RBAC or replace existing Kubernetes/IAM authentication.",
+    params={"type": "object", "additionalProperties": False,
+            "required": ["proxy_hostname", "proxy_tag", "tailnet_groups"],
+            "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
+                           "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "tailnet_groups": {"type": "array", "minItems": 1, "maxItems": 4,
+                                              "items": {"type": "string", "pattern": TAILNET_GROUP_RE.pattern}}}},
+    check=_api_transport_check, render=lambda params: [], exposure=_api_transport_exposure,
+    grants=_api_transport_grants,
+)

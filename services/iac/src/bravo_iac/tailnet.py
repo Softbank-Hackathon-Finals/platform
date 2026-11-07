@@ -40,7 +40,7 @@ def _api_proxies(states, tailnet=None):
     """(hostname, tag) of every API server proxy an operator-access module names."""
     for state in states:
         for entry in check_state(state)["modules"]:
-            if entry["id"] == "operator-access" and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
+            if entry["id"] in {"operator-access", "api-transport-access"} and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
                 yield entry["params"]["proxy_hostname"], entry["params"]["proxy_tag"]
 
 
@@ -59,9 +59,9 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
     # Policy tests cover route grants only: a grant with an app capability (API server proxy access)
     # names a tailnet group whose members live outside this repository; check_policy matches it instead.
     for src, dst, ip, app in grants:
-        if not app:
+        if not app and src.startswith("tag:"):
             accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
-    destinations = sorted({dst for _, dst, _, app in grants if not app})
+    destinations = sorted({dst for src, dst, _, app in grants if not app and src.startswith("tag:")})
     return {
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
         "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}

@@ -3,6 +3,7 @@
 import re
 
 from .modules import (
+    API_TRANSPORT_ACCESS,
     OPERATOR_ACCESS,
     TAILNET_EGRESS,
     TAILNET_INGRESS,
@@ -12,7 +13,7 @@ from .modules import (
 )
 
 CATALOG: dict[tuple[str, str], Module] = {
-    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, OPERATOR_ACCESS)
+    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, OPERATOR_ACCESS, API_TRANSPORT_ACCESS)
 }
 SCHEMA_VERSION = "1"
 ENVIRONMENT_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")
