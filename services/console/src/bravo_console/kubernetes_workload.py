@@ -255,15 +255,17 @@ def collect(reader, registration, *, now=None):
             containers = pod.get("spec", {}).get("containers", [])
             if not 1 <= len(containers) <= 8:
                 raise CollectionError("CONTAINER_LIMIT_EXCEEDED")
-            ready = len(statuses) == len(containers) and all(
-                c.get("ready") is True for c in statuses
-            )
+            conditions = [
+                c for c in pod.get("status", {}).get("conditions", []) if c.get("type") == "Ready"
+            ]
+            state = conditions[0].get("status") if len(conditions) == 1 else None
+            ready = True if state == "True" else False if state == "False" else None
             # Readiness is a facet; it never becomes HTTP health or a security verdict.
             nodes[pid] = dict(
                 id=pid,
                 label=f"{entry['label']} · Pod {index + 1}",
                 resource_uid=metadata["uid"],
-                detail=f"Kubernetes 준비 {sum(c.get('ready') is True for c in statuses)}/{len(containers)} · 업무 응답 미측정",
+                detail=f"컨테이너 준비 {sum(c.get('ready') is True for c in statuses)}/{len(containers)} · Pod Ready 별도 관측 · 업무 응답 미측정",
                 kind=entry["kind"],
                 lane=r.lane,
                 column=1,
@@ -353,7 +355,7 @@ def collect(reader, registration, *, now=None):
                             evidence_id=None,
                         )
                     )
-    if not nodes or len(nodes) > 24 or len(edges) > 96:
+    if not nodes or len(nodes) > 23 or len(edges) > 40:
         raise CollectionError("TOPOLOGY_UNAVAILABLE_OR_OVERSIZED")
     check = {
         obj["metadata"]["name"]: obj
@@ -383,6 +385,8 @@ def collect(reader, registration, *, now=None):
         expires_at=(started + timedelta(seconds=90)).isoformat(),
         cluster_identity_matches=True,
         namespace_policy_count=len(policies),
+        registered_service_count=len(r.services),
+        observed_service_count=sum(s["name"] in by_name for s in r.services),
         nodes=list(nodes.values()),
         edges=edges,
         facets=facets,

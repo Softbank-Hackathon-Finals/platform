@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from .kubernetes_workload import ClusterRegistration, opaque
-from .workload import PlanWorkload, RegisteredWorkload, identifier, validate_projection
+from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_projection
 
 
 class ObservedWorkloads:
@@ -47,12 +47,31 @@ class ObservedWorkloads:
                 or value["cluster_identity_matches"] is not True
             ):
                 raise ValueError("registered_observation_mismatch")
+            if (
+                any(
+                    n.get("health") != "unknown"
+                    or n.get("security") != "unknown"
+                    or n.get("health_evidence") is not None
+                    or n.get("security_evidence") is not None
+                    or n.get("lane") != registration.lane
+                    for n in value["nodes"]
+                )
+                or any(
+                    e.get("state") != "unknown" or e.get("evidence_id") is not None
+                    for e in value["edges"]
+                )
+                or any(type(ok) is not bool and ok is not None for _, ok in value["probes"])
+                or len({node for node, _ in value["probes"]}) != len(value["probes"])
+            ):
+                raise ValueError("unsupported_observation_claim")
             # Validate the display shape through the existing contract, without
             # inventing or registering an operational T10 plan.
             trial = self._graph([value], now=self.clock())
             self._validate_graph(trial)
             with self.lock:
-                self.snapshots[registration.environment_id] = value
+                self.snapshots[registration.environment_id] = json.loads(
+                    json.dumps(value, allow_nan=False)
+                )
                 self.failures.discard(registration.environment_id)
                 self.revision += 1
                 self.issued.clear()
@@ -90,8 +109,9 @@ class ObservedWorkloads:
                     facet["ready"] is not None and type(facet["ready"]) is not bool
                 ):
                     raise ValueError("invalid_readiness_facet")
+                safe_text(facet["summary"], 240)
                 facets[key] = (
-                    facet
+                    dict(facet)
                     if fresh
                     else dict(ready=None, summary="관측 만료·수집 실패 · 현재 준비 상태 미확인")
                 )
@@ -219,6 +239,8 @@ class ObservedWorkloads:
                         status="CURRENT" if current else "STALE" if item else "UNAVAILABLE",
                         observed_at=item["observed_at"] if item else None,
                         namespace_policy_count=item["namespace_policy_count"] if current else None,
+                        registered_service_count=len(r.services),
+                        observed_service_count=item["observed_service_count"] if current else None,
                     )
                 )
             graph = self._graph(snapshots, now=now) if snapshots else None
@@ -239,9 +261,9 @@ class ObservedWorkloads:
 
     def load(self, scope, plan):
         with self.lock:
-            if plan["workload_id"] != self.application_id or {
-                r.environment_id for r in self.registrations
-            } - {plan["source_environment_id"], plan["target_environment_id"]}:
+            if plan["workload_id"] != self.application_id or any(
+                r.environment_id != plan[r.lane + "_environment_id"] for r in self.registrations
+            ):
                 raise ValueError("observation_plan_mismatch")
             doc = self.read()
             if doc["graph"] is None:

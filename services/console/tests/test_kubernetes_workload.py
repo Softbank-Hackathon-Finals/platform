@@ -189,3 +189,60 @@ def test_registered_reference_is_not_just_a_hash(case):
         source.load({}, plan | {"workload_id": "other"})
     source.refresh(r)
     assert not source.authenticate({}, plan, issued)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("security", "isolated"), ("security", "clear"), ("health", "ready")]
+)
+def test_inventory_cannot_claim_security_or_copy_readiness_into_http_health(case, field, value):
+    reader, r, source, clock = case
+
+    def forged(registration):
+        document = collect(reader, registration, now=clock[0])
+        document["nodes"][0][field] = value
+        return document
+
+    source.collect = forged
+    source.refresh(r)
+    result = source.read()
+    assert result["environments"][0]["status"] == "STALE"
+    assert not result["graph"]["evidence"]
+    assert all(
+        node["security"] == "unknown" and node["health"] == "unknown"
+        for node in result["graph"]["nodes"]
+    )
+
+
+def test_native_plan_must_keep_registered_source_target_direction(case):
+    _, r, source, _ = case
+    plan = dict(
+        workload_id="registered-chat",
+        source_environment_id=r.environment_id,
+        target_environment_id="other",
+        plan_id="real-plan",
+        plan_digest="b" * 64,
+        version=1,
+    )
+    with pytest.raises(ValueError, match="observation_plan_mismatch"):
+        source.load({}, plan)
+
+
+def test_container_ready_does_not_override_a_failed_pod_readiness_gate(case):
+    reader, r, source, clock = case
+    reader.pods[0]["status"]["conditions"] = [{"type": "Ready", "status": "False"}]
+    source.refresh(r)
+    doc = source.read()
+    pod = next(n for n in doc["graph"]["nodes"] if n["resource_uid"] == "pod-chat")
+    assert doc["graph"]["facets"][pod["id"]]["ready"] is False
+    reader.pods[0]["status"]["conditions"] = []
+    source.refresh(r)
+    assert source.read()["graph"]["facets"][pod["id"]]["ready"] is None
+
+
+def test_a_missing_registered_service_is_counted_instead_of_silent_success(case):
+    reader, r, source, _ = case
+    reader.services.pop()
+    source.refresh(r)
+    doc = source.read()
+    assert doc["environments"][0]["registered_service_count"] == 2
+    assert doc["environments"][0]["observed_service_count"] == 1
