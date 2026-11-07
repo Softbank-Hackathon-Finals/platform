@@ -76,14 +76,20 @@ def run(get, *, url, token, environment_id, context, falco_namespace="falco", no
     failed = 0
     for whole in collect(get, now or datetime.now(UTC), falco_namespace=falco_namespace):
         events = whole["events"]
-        for start in range(0, max(len(events), 1), CHUNK):
-            batch = {**whole, "events": events[start:start + CHUNK]}
+        batches = [{**whole, "events": events[start:start + CHUNK]} for start in range(0, max(len(events), 1), CHUNK)]
+        while batches:
+            batch = batches.pop(0)
             line = {"source": batch["source"], "events": len(batch["events"]), "agent_error": batch.get("agent_error")}
             try:
                 line["status"] = push(url.rstrip("/"), token, environment_id, batch, context, opener)
             except Exception as error:  # noqa: BLE001 — report the kind only, never the body or credential
                 failed += 1
                 line["error"] = type(error).__name__
+                # The chunks already sent refreshed the source: a partial run must not leave the cell "OK".
+                if not batch.get("agent_error"):
+                    batches = [{"source": batch["source"], "events": [], "agent_error": "API_ERROR"}]
+                else:
+                    batches = []
             print(json.dumps(line))
     return 1 if failed else 0
 

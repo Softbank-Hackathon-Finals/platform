@@ -41,11 +41,16 @@
    ```sh
    helm pull kyverno/kyverno --version 3.9.2 -d "$WORK"
    echo "f6fe7184544d5e2ee33a77808c09e67aa603ce6560cc197038fde31d727c861e  $WORK/kyverno-3.9.2.tgz" | shasum -a 256 -c
-   helm upgrade --install kyverno "$WORK/kyverno-3.9.2.tgz" -n kyverno -f kyverno-values.yaml
-   # 실행 중에 만든 웹훅에는 webhook.kyverno.io/managed-by=kyverno만 붙는다. 비어 있으면 선택이 틀린 것이다
-   hooks=$(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -l webhook.kyverno.io/managed-by=kyverno \
-     -o jsonpath='{range .items[*].webhooks[*]}{.name}{" "}{.failurePolicy}{"\n"}{end}')
-   test -n "$hooks" && ! printf '%s\n' "$hooks" | grep -qv ' Ignore$' && echo "웹훅 모두 Ignore"
+   helm upgrade --install kyverno "$WORK/kyverno-3.9.2.tgz" -n kyverno -f kyverno-values.yaml --wait --timeout 5m
+   # 실행 중에 만든 웹훅에는 webhook.kyverno.io/managed-by=kyverno만 붙는다. admission controller가 뜬 뒤에 생기므로 기다린다
+   for _ in $(seq 30); do
+     hooks=$(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -l webhook.kyverno.io/managed-by=kyverno \
+       -o jsonpath='{range .items[*].webhooks[*]}{.name}{" "}{.failurePolicy}{"\n"}{end}')
+     [ -n "$hooks" ] && break; sleep 5
+   done
+   if [ -z "$hooks" ]; then echo "멈춤: 150초 안에 Kyverno 웹훅이 생기지 않았다(기동 · 선택자 확인)" >&2
+   elif printf '%s\n' "$hooks" | grep -v ' Ignore$' >&2; then echo "멈춤: 위 웹훅이 Ignore가 아니다" >&2
+   else echo "웹훅 $(printf '%s\n' "$hooks" | wc -l | tr -d ' ')개 모두 Ignore"; fi
    kubectl apply -f policies/
    kubectl get policyreports -A | head     # 백그라운드 검사 결과
    ```
