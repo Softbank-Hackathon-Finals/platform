@@ -145,6 +145,18 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertIn("serviceAccountName == 't10-workflow-host'", text)
 
 
+    def test_the_host_may_run_the_ai_job_and_refresh_the_pull_secret_but_nothing_else(self):
+        runtime = {"configuration": {"existingConfigMap": "c", "sha256": "s"},
+                   "initialProposalAuto": {"enabled": True}, "candidatePull": {"enabled": True}}
+        result, docs = render({"workflowHost": {"enabled": True, "runtime": runtime}}, ROOT / "infra/gitops/argocd")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        app = next(d for d in docs if d.get("kind") == "Application" and d["metadata"]["name"] == "platform-workflow-host")
+        values = app["spec"]["source"]["helm"]["valuesObject"]
+        self.assertEqual((values["initialProposalAuto"], values["candidatePull"]), ({"enabled": True}, {"enabled": True}))
+        refused, _ = render({"workflowHost": {"enabled": True, "runtime": runtime | {"image": {"digest": "x"}}}},
+                            ROOT / "infra/gitops/argocd")
+        self.assertNotEqual(refused.returncode, 0)  # the image stays the reviewed pin, never a runtime value
+
     def test_both_hosts_enabled_render_distinct_rbac(self):
         # sangmu1126 15:02Z (4): the rehearsal and workflow host apps must not render the same RBAC.
         import test_rehearsal_host_chart as rehearsal
