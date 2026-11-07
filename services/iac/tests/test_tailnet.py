@@ -31,6 +31,9 @@ def test_routes_are_rendered_without_anything_observed_after_apply():
         "tailscale.com/parent-resource": "bravo-cutover-control", "tailscale.com/parent-resource-type": "proxygroup"}
     ingress = rendered["NetworkPolicy/tailscale-system/bravo-cutover-control-ingress"]["shape"]
     assert ingress["ingress"][0]["ports"] == [{"protocol": "TCP", "port": 9002}]
+    # WireGuard direct connections from any peer (random UDP port per Pod); TCP stays limited to named sources.
+    assert ingress["ingress"][2] == {"ports": [{"protocol": "UDP"}]}
+    assert all("from" in rule for rule in ingress["ingress"] if any(p["protocol"] == "TCP" for p in rule["ports"]))
     service = rendered["Service/bravo-platform/target-pooler-for-cutover"]["shape"]
     assert service["annotations"]["tailscale.com/tailnet-fqdn"] == "bravo-target-control-pooler.{tailnet}"
     assert rendered["ProxyGroup/-/bravo-cutover-control"]["shape"]["tags"] == ["tag:bravo-cutover-control"]
