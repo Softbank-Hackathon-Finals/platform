@@ -1,0 +1,49 @@
+{
+  "source_revision": "8674c60cff7378767ec7955ef09649087b412131",
+  "source_files": [
+    {
+      "path": "services/control-runner/qualification/gcp_live_probes.py",
+      "sha256": "76c47ad2a5b1e1a55b794a01c284b68fd0d1ea2d6b951baea0b31829d775f524"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/app_isolation.py",
+      "sha256": "7821aae8fefd3cbe99da64f739173c784563cbcee47fd4319ab28fd7a90923b9"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/audit_probes.py",
+      "sha256": "2bfa2032134b29f9eb2b73de17d70e10577cd4243e23d5955808d80082d6df99"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_probes.py",
+      "sha256": "4393b6038a62279a0ea8e0c41c255a4ce3b995fb6b4a1fd24a5615407070681c"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/gcp_probes.py",
+      "sha256": "16796240477098f3df2ee981511a2a759e02070e41790321c9e38e8d701659f7"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/gcp_rest.py",
+      "sha256": "ffe6079610d8c541f8dd705d3aaeab50f7cf65d252c18cee79acc665fc9e5caf"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/registry.py",
+      "sha256": "42813773aa74edf863e804a69eb9280be9bdd131e704ac2932d7618370ad10dd"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "60607afac64581c4d92b19788ef965e826bb62b0ac94b587864e03b48eae2f82"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/secret_logs.py",
+      "sha256": "898fea5497b89fda6067f2680042bc2beae05a484dbfffe22057db9fd82e543a"
+    },
+    {
+      "path": "services/inventory/src/bravo_inventory/deploy_trace.py",
+      "sha256": "ceed0d3d5f6d8c01180d63b530b846a61173cbc5d28022d960db588b9afe41d2"
+    },
+    {
+      "path": "services/inventory/src/bravo_inventory/sources/gcp.py",
+      "sha256": "263ff4af03b71c7595300fa972dc63030a378777a2619c97ca445a493c44357a"
+    }
+  ]
+}

@@ -224,7 +224,7 @@ def test_gcloud_adapter_live_shapes_from_a11(tmp_path):
         {"annotations": {"iam.gke.io/gcp-service-account": gsa}} if gsa else {})}}
     deploy = lambda name: {"metadata": {"name": name, "namespace": "a11-probe"}, "spec": {"template": {"spec": {  # noqa: E731
         "serviceAccountName": name, "containers": [{"name": "probe", "image": "python:3.12-slim"}]}}}}
-    gsa = "bravo-a11-app@example-proj.iam.gserviceaccount.com"
+    gsa = "bravo-a11-app@example-proj.iam.gserviceaccount.invalid"
     (exports / "serviceaccounts.json").write_text(json.dumps({"kind": "List", "items": [sa("a11-app", gsa), sa("a11-reader")]}))
     (exports / "deployments.json").write_text(json.dumps({"kind": "List", "items": [deploy("a11-app"), deploy("a11-reader")]}))
     key = "projects/example-proj/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets"

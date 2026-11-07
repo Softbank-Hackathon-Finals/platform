@@ -1,0 +1,354 @@
+{
+  "note": "A11 live run on GKE. Identifiers replaced; raw runs kept private (0600).",
+  "control_run": {
+    "kind": "control_run",
+    "schema_version": "1",
+    "run_id": "a11-20261107T115911Z",
+    "app": "a11-app",
+    "environment": {
+      "id": "gcp-a11",
+      "role": "target",
+      "ref": "gcp:gke/a11-probe"
+    },
+    "started_at": "2026-11-07T12:00:38.336004Z",
+    "finished_at": "2026-11-07T12:01:04.978285Z",
+    "results": [
+      {
+        "test_id": "SEC-01.1",
+        "control_id": "SEC-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": "deny",
+        "positive_control": "pass",
+        "verdict": "PASS",
+        "unknown_reason": null,
+        "evidence": {
+          "collected_at": "2026-11-07T12:00:45.560843Z",
+          "expires_at": "2026-11-08T12:00:45.560843Z",
+          "tool": "bravo-controls-gcp",
+          "tool_version": "1",
+          "output_sha256": "sha256:1bba24f1ba93a6101c2b01009559620aebde901738c280ee3d4d761e2130b05b"
+        },
+        "started_at": "2026-11-07T12:00:38.336055Z",
+        "duration_ms": 7225
+      },
+      {
+        "test_id": "SEC-01.2",
+        "control_id": "SEC-01",
+        "method_version": "1",
+        "expected": "absent",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:45.561338Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "SEC-01.3",
+        "control_id": "SEC-01",
+        "method_version": "1",
+        "expected": "absent",
+        "observed": "absent",
+        "positive_control": "pass",
+        "verdict": "PASS",
+        "unknown_reason": null,
+        "evidence": {
+          "collected_at": "2026-11-07T12:00:48.258811Z",
+          "expires_at": "2026-11-08T12:00:48.258811Z",
+          "tool": "bravo-secret-log-search",
+          "tool_version": "1",
+          "output_sha256": "sha256:193baa85e4b5900aafc1293ad18a4ad0eb65fd001f6d8112ecfd42280dd44a5e"
+        },
+        "started_at": "2026-11-07T12:00:45.561357Z",
+        "duration_ms": 2697
+      },
+      {
+        "test_id": "SEC-01.4",
+        "control_id": "SEC-01",
+        "method_version": "1",
+        "expected": "success",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:48.259223Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ENC-02.1",
+        "control_id": "ENC-02",
+        "method_version": "1",
+        "expected": "enabled",
+        "observed": "enabled",
+        "positive_control": "not_applicable",
+        "verdict": "PASS",
+        "unknown_reason": null,
+        "evidence": {
+          "collected_at": "2026-11-07T12:00:57.510058Z",
+          "expires_at": "2026-11-08T12:00:57.510058Z",
+          "tool": "bravo-controls-gcp",
+          "tool_version": "1",
+          "output_sha256": "sha256:174b0582127912468119a9ae9ba45b9547b8db808d76586e422cd4597829001a"
+        },
+        "started_at": "2026-11-07T12:00:48.259230Z",
+        "duration_ms": 9251
+      },
+      {
+        "test_id": "ENC-01.1",
+        "control_id": "ENC-01",
+        "method_version": "1",
+        "expected": "success",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510522Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ENC-01.5",
+        "control_id": "ENC-01",
+        "method_version": "1",
+        "expected": "enabled",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510529Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ENC-01.2",
+        "control_id": "ENC-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510538Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ENC-01.3",
+        "control_id": "ENC-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510544Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ENC-01.4",
+        "control_id": "ENC-01",
+        "method_version": "1",
+        "expected": "enabled",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510548Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "AUD-01.1",
+        "control_id": "AUD-01",
+        "method_version": "1",
+        "expected": "present",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510553Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "AUD-01.2",
+        "control_id": "AUD-01",
+        "method_version": "1",
+        "expected": "present",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:00:57.510556Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "AUD-01.3",
+        "control_id": "AUD-01",
+        "method_version": "1",
+        "expected": "present",
+        "observed": "present",
+        "positive_control": "not_applicable",
+        "verdict": "PASS",
+        "unknown_reason": null,
+        "evidence": {
+          "collected_at": "2026-11-07T12:01:00.508439Z",
+          "expires_at": "2026-11-08T12:01:00.508439Z",
+          "tool": "bravo-audit-search",
+          "tool_version": "1",
+          "output_sha256": "sha256:9eff0af6f5e955e8a1a094111f52ce3ac63c54ea5635bb2a95fe35a69bec9bbc"
+        },
+        "started_at": "2026-11-07T12:00:57.510560Z",
+        "duration_ms": 2998
+      },
+      {
+        "test_id": "NET-01.1",
+        "control_id": "NET-01",
+        "method_version": "1",
+        "expected": "absent",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:01:00.508739Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "NET-01.2",
+        "control_id": "NET-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:01:00.508746Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "NET-01.3",
+        "control_id": "NET-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:01:00.508750Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "IAM-01.1",
+        "control_id": "IAM-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": "deny",
+        "positive_control": "pass",
+        "verdict": "PASS",
+        "unknown_reason": null,
+        "evidence": {
+          "collected_at": "2026-11-07T12:01:04.977848Z",
+          "expires_at": "2026-11-08T12:01:04.977848Z",
+          "tool": "bravo-controls-gcp",
+          "tool_version": "1",
+          "output_sha256": "sha256:164a18f195580cd69fab45f8d47dd2a6127d2b4078492cddc0a05652bf7a09ea"
+        },
+        "started_at": "2026-11-07T12:01:00.508753Z",
+        "duration_ms": 4469
+      },
+      {
+        "test_id": "IAM-01.2",
+        "control_id": "IAM-01",
+        "method_version": "1",
+        "expected": "absent",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": {
+          "collected_at": "2026-11-07T12:01:04.978202Z",
+          "expires_at": "2026-11-08T12:01:04.978202Z",
+          "tool": "UNSUPPORTED",
+          "tool_version": "bravo.environment-kinds/v1",
+          "output_sha256": "sha256:fd64baf3b441addb16f2568f80fa9fe4ea46cf811939f1c5ff69c1236dbb948a"
+        },
+        "started_at": "2026-11-07T12:01:04.978186Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "ISO-01.1",
+        "control_id": "ISO-01",
+        "method_version": "1",
+        "expected": "deny",
+        "observed": null,
+        "positive_control": "fail",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:01:04.978260Z",
+        "duration_ms": 0
+      },
+      {
+        "test_id": "DR-01.1",
+        "control_id": "DR-01",
+        "method_version": "1",
+        "expected": "success",
+        "observed": null,
+        "positive_control": "not_applicable",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN",
+        "evidence": null,
+        "started_at": "2026-11-07T12:01:04.978266Z",
+        "duration_ms": 0
+      }
+    ]
+  },
+  "iso_object_leg": {
+    "positive": true,
+    "outcome": "deny",
+    "reason": null,
+    "details": {
+      "provider": "gcs",
+      "identity_sha256": "sha256:0d39b2fafcfa5460575e6b5ea2856e3b43ec417315e9422eb8531e2e5cd6b75c",
+      "positive_before": [
+        "allow",
+        "allow"
+      ],
+      "positive_after": [
+        "allow",
+        "allow"
+      ],
+      "cross": "deny"
+    }
+  },
+  "sec_01_3_simulated_leak": {
+    "run_id": "a11-20261107T120125Z",
+    "result": {
+      "test_id": "SEC-01.3",
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "absent",
+      "observed": "present",
+      "positive_control": "pass",
+      "verdict": "FAIL",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-07T12:02:50.252392Z",
+        "expires_at": "2026-11-08T12:02:50.252392Z",
+        "tool": "bravo-secret-log-search",
+        "tool_version": "1",
+        "output_sha256": "sha256:468fd156944ac75406a126abc134f52687fb4d2dc387ee665eeed65fdc40b3cc"
+      },
+      "started_at": "2026-11-07T12:02:47.541943Z",
+      "duration_ms": 2710
+    }
+  }
+}

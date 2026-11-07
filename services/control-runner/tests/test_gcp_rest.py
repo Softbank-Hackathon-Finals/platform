@@ -20,7 +20,7 @@ from bravo_controls.gcp_rest import (
 )
 
 TOKEN = "ya29.FAKE-TOKEN-must-never-appear-0123456789"
-SA = "bravo-a11-app@fixture-proj.iam.gserviceaccount.com"
+SA = "bravo-a11-app@fixture-proj.iam.gserviceaccount.invalid"
 SECRET = "projects/fixture-proj/secrets/bravo-a11-ctl-db/versions/1"
 
 

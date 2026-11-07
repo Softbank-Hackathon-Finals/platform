@@ -1,0 +1,100 @@
+# A11 probe namespace (identifiers replaced; substitute your project before applying).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: a11-probe
+  labels: {component: a11}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: a11-app
+  namespace: a11-probe
+  labels: {component: a11}
+  annotations:
+    iam.gke.io/gcp-service-account: bravo-a11-app@GCP_PROJECT_001.iam.gserviceaccount.invalid
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: a11-intruder
+  namespace: a11-probe
+  labels: {component: a11}
+  annotations:
+    iam.gke.io/gcp-service-account: bravo-a11-intruder@GCP_PROJECT_001.iam.gserviceaccount.invalid
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: a11-reader
+  namespace: a11-probe
+  labels: {component: a11}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a11-app
+  namespace: a11-probe
+  labels: {component: a11, app: a11-app}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: a11-app}}
+  template:
+    metadata:
+      labels: {component: a11, app: a11-app}
+    spec:
+      serviceAccountName: a11-app
+      nodeSelector: {iam.gke.io/gke-metadata-server-enabled: "true"}
+      containers:
+        - name: probe
+          image: python:3.12-slim
+          command: ["sleep", "infinity"]
+          env:
+            - {name: ATTACH_BUCKET, value: bravo-a11-ctl-attach-SUFFIX}
+            - {name: DB_SECRET, value: bravo-a11-ctl-db}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, runAsUser: 10001}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a11-intruder
+  namespace: a11-probe
+  labels: {component: a11, app: a11-intruder}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: a11-intruder}}
+  template:
+    metadata:
+      labels: {component: a11, app: a11-intruder}
+    spec:
+      serviceAccountName: a11-intruder
+      nodeSelector: {iam.gke.io/gke-metadata-server-enabled: "true"}
+      containers:
+        - name: probe
+          image: python:3.12-slim
+          command: ["sleep", "infinity"]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, runAsUser: 10001}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a11-reader
+  namespace: a11-probe
+  labels: {component: a11, app: a11-reader}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: a11-reader}}
+  template:
+    metadata:
+      labels: {component: a11, app: a11-reader}
+    spec:
+      serviceAccountName: a11-reader
+      nodeSelector: {iam.gke.io/gke-metadata-server-enabled: "true"}
+      containers:
+        - name: probe
+          image: python:3.12-slim
+          command: ["sleep", "infinity"]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, runAsUser: 10001}

@@ -112,7 +112,7 @@ def gcloud_token(
     """
     argv = ["gcloud", "auth", "print-access-token", "--quiet"]
     if impersonate is not None:
-        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z0-9-]+\.iam\.gserviceaccount\.com", impersonate):
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9.-]{1,200}[a-z]", impersonate):
             raise ValueError("service account email required")
         argv.append(f"--impersonate-service-account={impersonate}")
 
