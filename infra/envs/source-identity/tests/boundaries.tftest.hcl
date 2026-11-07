@@ -12,7 +12,8 @@ variables {
   app_origins   = ["https://chat.example.com"]
 }
 
-run "public_client_uses_code_with_pkce_only" {
+# Cognito에는 공개 클라이언트에 PKCE를 강제하는 설정이 없다. 여기서는 "비밀 없음 + code 흐름"만 고정한다.
+run "public_client_without_secret_uses_code_flow_only" {
   command = apply
   assert {
     condition     = aws_cognito_user_pool_client.demo_chat.generate_secret == false && aws_cognito_user_pool_client.demo_chat.allowed_oauth_flows == toset(["code"])
@@ -29,6 +30,40 @@ run "public_client_uses_code_with_pkce_only" {
   assert {
     condition     = aws_cognito_user_pool.demo.admin_create_user_config[0].allow_admin_create_user_only == true
     error_message = "No self sign-up: only the operator creates demo accounts."
+  }
+  assert {
+    condition     = aws_cognito_user_pool_client.demo_chat.prevent_user_existence_errors == "ENABLED" && aws_cognito_user_pool_client.demo_chat.logout_urls == toset(["https://chat.example.com/"])
+    error_message = "Sign-in errors do not reveal accounts; logout returns only to the app."
+  }
+}
+
+# demo-chat은 preferred_username → cognito:username → email → name 순으로 작성자 이름을 정한다.
+# 사용자가 그 속성을 바꿀 수 있으면 다른 사람 이름으로 쓸 수 있다.
+run "users_cannot_rename_themselves" {
+  command = apply
+  assert {
+    condition     = aws_cognito_user_pool_client.demo_chat.allowed_oauth_scopes == toset(["openid", "profile", "email"]) && !contains(aws_cognito_user_pool_client.demo_chat.allowed_oauth_scopes, "aws.cognito.signin.user.admin")
+    error_message = "No aws.cognito.signin.user.admin scope: tokens from this client cannot update user attributes."
+  }
+  assert {
+    condition     = length(aws_cognito_user_pool_client.demo_chat.write_attributes) > 0 && length(setintersection(aws_cognito_user_pool_client.demo_chat.write_attributes, ["preferred_username", "name", "email", "nickname", "given_name", "family_name"])) == 0
+    error_message = "write_attributes is explicit (empty means all) and holds no attribute the app can use as a name."
+  }
+}
+
+run "rejects_localhost_callbacks_for_a_demo_pool" {
+  command = plan
+  variables {
+    app_origins = ["http://localhost:8080"]
+  }
+  expect_failures = [var.app_origins]
+}
+
+run "accepts_localhost_callbacks_only_when_asked" {
+  command = plan
+  variables {
+    app_origins           = ["http://localhost:8080"]
+    allow_local_callbacks = true
   }
 }
 

@@ -20,9 +20,16 @@ variable "app_origins" {
   description = "Public origins of the demo app. The app's sign-in callback is <origin>/. Each environment behind the same Edge hostname shares one origin."
   type        = list(string)
   validation {
-    condition     = length(var.app_origins) > 0 && alltrue([for o in var.app_origins : can(regex("^https://[a-z0-9.-]+(:[0-9]+)?$", o)) || can(regex("^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$", o))])
-    error_message = "Origins are https://host[:port] without a path. Plain http is only for this machine."
+    condition = length(var.app_origins) > 0 && alltrue([for o in var.app_origins :
+      can(regex("^https://[a-z0-9.-]+(:[0-9]+)?$", o)) ||
+    (var.allow_local_callbacks && can(regex("^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$", o)))])
+    error_message = "Origins are https://host[:port] without a path. Plain http localhost needs allow_local_callbacks = true."
   }
+}
+variable "allow_local_callbacks" {
+  description = "Only for a throwaway pool on this machine. A demo pool must not keep localhost callbacks."
+  type        = bool
+  default     = false
 }
 variable "id_token_minutes" {
   description = "ID token lifetime. The app only accepts ID tokens; a shorter life narrows a leaked token."

@@ -30,7 +30,7 @@ resource "aws_cognito_user_pool" "demo" {
     require_uppercase                = true
     require_numbers                  = true
     require_symbols                  = false
-    temporary_password_validity_days = 1
+    temporary_password_validity_days = 3 # 시연 전날 만든 계정이 당일 만료되지 않게
   }
 }
 
@@ -47,15 +47,22 @@ resource "aws_cognito_user_pool_client" "demo_chat" {
   generate_secret                      = false
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
-  allowed_oauth_scopes                 = ["openid", "profile", "email"]
-  supported_identity_providers         = ["COGNITO"]
-  callback_urls                        = [for origin in var.app_origins : "${origin}/"]
-  logout_urls                          = [for origin in var.app_origins : "${origin}/"]
+  # demo-chat은 두 발급자에 같은 scope(openid profile email)를 요청한다. 여기서 email을 빼면 Cognito가
+  # 로그인 요청을 invalid_scope로 거절한다. 사용자에게 email이 없으면 토큰에도 없을 뿐이다.
+  allowed_oauth_scopes         = ["openid", "profile", "email"]
+  supported_identity_providers = ["COGNITO"]
+  # aws.cognito.signin.user.admin을 넣으면 사용자가 자기 속성(이름)을 바꿀 수 있다. 앱은 이름으로 작성자를 정한다.
+  callback_urls = [for origin in var.app_origins : "${origin}/"]
+  logout_urls   = [for origin in var.app_origins : "${origin}/"]
 
   # 사용자 이름·비밀번호를 앱이 직접 받는 흐름은 열지 않는다. 로그인은 Cognito 화면에서만 한다.
   explicit_auth_flows           = ["ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
-  enable_token_revocation       = true
+
+  # 작성자 이름이 되는 속성(preferred_username · name · email · nickname)은 이 클라이언트로 쓸 수 없다.
+  # 빈 목록은 "모두 허용"으로 읽히므로 이름과 무관한 속성만 둔다.
+  write_attributes        = ["locale", "zoneinfo"]
+  enable_token_revocation = true
 
   id_token_validity      = var.id_token_minutes
   access_token_validity  = var.id_token_minutes
