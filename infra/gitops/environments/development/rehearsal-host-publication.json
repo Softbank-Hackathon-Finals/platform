@@ -1,10 +1,10 @@
 {
-  "source_revision": "ff04c7412535ece5963e2006a25631d9b980b1a5",
+  "source_revision": "2cb46d0bf51e685ffb200c748cf4d53afbb52029",
   "image": "ghcr.io/softbank-hackathon-finals/platform-rehearsal-host",
-  "image_digest": "sha256:2d1fa6c9484fb26c887a04b258a3d89d968f592a677b6766aec522c58da42286",
-  "platform_manifest_digest": "sha256:60b4387f1ac60f9e6eef3d7ec06e9e892b193af1ba95f6c84fc290876c76fa52",
-  "config_digest": "sha256:e39d57d8c58362ac2a51328e72358996abb6eba78a79be4bd46d1f86ec6bdb7c",
-  "context_sha256": "e9bfe932f080979d19a2c04d1beb7e288f8d26098fb462a487bd99e6b99757fa",
+  "image_digest": "sha256:81d6aed6e692f528c08180ef484d52050b52e7bbc5712f4ed735e32c62236dfe",
+  "platform_manifest_digest": "sha256:89e4db6377b5829ca30184abe93ef781cb6e5021b85068e8d652d9f03defc8c1",
+  "config_digest": "sha256:a8d7fda6ea49328f3a148973c28299c24894e0171ca556013ef555a009ff4149",
+  "context_sha256": "e2882b9b3e4e33bc0026f331150dcdf424fc02937d29ea625de7149c65553c1b",
   "oci_blobs": 21,
   "scan": {
     "scanners": [
@@ -25,10 +25,10 @@
     "secret_match_count": 0
   },
   "registry_visibility": "private",
-  "tag": "sha-ff04c7412535ece5963e2006a25631d9b980b1a5-42386613403-1",
-  "run_id": "42386613403",
+  "tag": "sha-2cb46d0bf51e685ffb200c748cf4d53afbb52029-42389576415-1",
+  "run_id": "42389576415",
   "attempt": "1",
-  "workflow_revision": "ff04c7412535ece5963e2006a25631d9b980b1a5",
+  "workflow_revision": "2cb46d0bf51e685ffb200c748cf4d53afbb52029",
   "published": true,
   "deployed": false
 }
