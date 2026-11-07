@@ -239,15 +239,20 @@ def read_planned(repo_root: Path, environment_id: str, base_revision: str, iac_p
                  approved_iac_plan_digest: str, bucket: str) -> dict:
     """ADR-0044: check an agent's accepted ``infra.plan`` that closes the bucket (Git only, no cluster).
 
-    The plan must be exactly what T44 computes for "this module, ``closed``, nothing else" from the
-    desired state committed at ``base_revision`` (the state the proposal job planned against), and it
-    must be the one the person approved (``approved_iac_plan_digest`` from the T10 binding). Git keeps
-    ``open-demo`` as the demo's starting state; this closes it at run time."""
+    The plan must be the one the person approved (``approved_iac_plan_digest`` from the T10 binding) and
+    must close this bucket and change nothing else: its ``changes`` and ``effects`` equal what T44
+    computes for this module alone going from the committed ``open-demo`` to ``closed``. When
+    ``base_revision`` (the configured commit the proposal is expected to have planned against) holds the
+    very state the plan names (``base_digest``), the whole plan is also recomputed from it and must be
+    equal. A different base is recorded (``base_verified: false``), not refused: the desired-state file
+    also carries the network modules and changes often, and the cluster effect is the same either way,
+    removing anonymous access. Git keeps ``open-demo`` as the demo's starting state."""
     if not ENVIRONMENT.fullmatch(environment_id or ""):
         raise DesiredRefused("ENVIRONMENT_INVALID")
     if not REVISION.fullmatch(base_revision or ""):
         raise DesiredRefused("REVISION_NOT_FULL_SHA")
-    if type(iac_plan) is not dict or iac_plan.get("kind") != "iac-plan.v1" or iac_plan.get("origin") not in ("agent", "operator"):
+    if (type(iac_plan) is not dict or iac_plan.get("kind") != "iac-plan.v1"
+            or iac_plan.get("origin") not in ("agent", "operator") or iac_plan.get("environment") != environment_id):
         raise DesiredRefused("IAC_PLAN_INVALID")
     if not isinstance(approved_iac_plan_digest, str) or approved_iac_plan_digest != iac_plan.get("plan_digest"):
         raise DesiredRefused("IAC_PLAN_NOT_APPROVED")
@@ -261,23 +266,30 @@ def read_planned(repo_root: Path, environment_id: str, base_revision: str, iac_p
     t44 = load_t44()
     if t44.digest({k: v for k, v in iac_plan.items() if k != "plan_digest"}) != iac_plan.get("plan_digest"):
         raise DesiredRefused("IAC_PLAN_DIGEST_MISMATCH")
-    proposed = json.loads(json.dumps(state))
-    next(m for m in proposed["modules"] if m.get("id") == MODULE)["params"] = {"state": "closed", "bucket": bucket}
-    try:
-        expected = t44.plan(state, proposed, origin=iac_plan["origin"])
-    except t44.IacError:
-        raise DesiredRefused("DESIRED_STATE_UNRECOGNIZED") from None
-    if iac_plan.get("base_digest") != expected["base_digest"]:
-        raise DesiredRefused("IAC_PLAN_NOT_THIS_BASE")
-    if iac_plan != expected:
-        raise DesiredRefused("IAC_PLAN_NOT_A_CLOSE")  # it changes more, or other than, this bucket's exposure
-    if not expected["accepted"]:
+    if iac_plan.get("accepted") is not True or iac_plan.get("refusals") or iac_plan.get("widens") is not False:
         raise DesiredRefused("IAC_PLAN_NOT_ACCEPTED")
+
+    def close_of(base):
+        proposed = json.loads(json.dumps(base))
+        next(m for m in proposed["modules"] if m.get("id") == MODULE)["params"] = {"state": "closed", "bucket": bucket}
+        try:
+            return t44.plan(base, proposed, origin=iac_plan["origin"])
+        except t44.IacError:
+            raise DesiredRefused("DESIRED_STATE_UNRECOGNIZED") from None
+
+    entry = next(m for m in state["modules"] if m.get("id") == MODULE)
+    alone = close_of({"schema_version": state.get("schema_version"), "environment": environment_id, "modules": [entry]})
+    if (iac_plan.get("changes"), iac_plan.get("effects")) != (alone["changes"], alone["effects"]):
+        raise DesiredRefused("IAC_PLAN_NOT_A_CLOSE")  # it changes more, or other than, this bucket's exposure
+    full = close_of(state)
+    base_verified = iac_plan.get("base_digest") == full["base_digest"]
+    if base_verified and iac_plan != full:
+        raise DesiredRefused("IAC_PLAN_NOT_A_CLOSE")
     return {"environment_id": environment_id, "base_revision": base_revision, "module": MODULE,
             "module_version": MODULE_VERSION, "state": "closed", "bucket": bucket,
-            "environment_file_sha256": file_sha256, "base_digest": expected["base_digest"],
-            "state_digest": expected["proposed_digest"], "iac_plan_digest": expected["plan_digest"],
-            "origin": expected["origin"]}
+            "environment_file_sha256": file_sha256, "base_digest": iac_plan["base_digest"],
+            "base_verified": base_verified, "state_digest": iac_plan["proposed_digest"],
+            "iac_plan_digest": iac_plan["plan_digest"], "origin": iac_plan["origin"]}
 
 
 def planned_application_id(iac_plan_digest: str) -> str:
