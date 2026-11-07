@@ -1,6 +1,7 @@
 """데모 업무: 메시지 개인정보 검사. AWS Lambda용으로 쓴 그대로이며 실행기는 이 파일을 고치지 않고 부른다.
 
-큐 메시지에는 ID만 있다. 본문은 DB에서 읽고, 결과는 업무 멱등 키를 PK로 한 행 하나로 남긴다(T46 spec D7 · D11).
+큐 메시지에는 메시지 행 번호(message_id)만 있다. 본문은 DB에서 읽고, 결과는 message_id를 PK로 한 행 하나로 남긴다
+(T46 spec D7 · D11). 일치한 값과 본문은 결과 · 로그에 남기지 않고 종류와 개수만 저장한다.
 """
 
 import json
@@ -17,7 +18,8 @@ PATTERNS = {
 
 
 def detect(text):
-    return sorted(k for k, p in PATTERNS.items() if p.search(text))
+    """종류별 개수만 돌려준다. 일치한 값은 밖으로 내보내지 않는다."""
+    return {k: n for k, p in PATTERNS.items() if (n := len(p.findall(text)))}
 
 
 # 한 이벤트의 트랜잭션을 200ms 안에 끝낸다(T46 spec D11, Executor의 긴 트랜잭션 기준과 같다).
@@ -28,15 +30,15 @@ SESSION_LIMITS = "-c lock_timeout=50 -c statement_timeout=80 -c idle_in_transact
 def handler(event, context):
     with psycopg.connect(os.environ["DB_DSN"], autocommit=False, options=SESSION_LIMITS) as conn:
         for record in event["Records"]:
-            key = json.loads(record["body"])["idempotency_key"]
+            message_id = int(json.loads(record["body"])["message_id"])
             # 한 이벤트는 짧은 트랜잭션 하나: 읽고, 판정하고, 쓰고 끝낸다.
             with conn.transaction():
-                row = conn.execute("SELECT id, body FROM messages WHERE idempotency_key = %s", (key,)).fetchone()
+                row = conn.execute("SELECT body FROM messages WHERE id = %s", (message_id,)).fetchone()
                 if row is None:
-                    raise LookupError(f"message {key} not found")
-                kinds = detect(row[1])
+                    raise LookupError(f"message {message_id} not found")
+                counts = detect(row[0])
                 conn.execute(
-                    "INSERT INTO message_checks (idempotency_key, message_id, has_pii, kinds, sqs_message_id)"
-                    " VALUES (%s, %s, %s, %s, %s) ON CONFLICT (idempotency_key) DO NOTHING",
-                    (key, row[0], bool(kinds), kinds, record["messageId"]),
+                    "INSERT INTO message_checks (message_id, has_pii, kinds, counts, sqs_message_id)"
+                    " VALUES (%s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING",
+                    (message_id, bool(counts), sorted(counts), json.dumps(counts), record["messageId"]),
                 )

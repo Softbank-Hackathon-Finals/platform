@@ -47,22 +47,22 @@ def compose(*args: str) -> None:
 
 
 # 앱 쪽 코드: AWS에서 쓰던 그대로 ------------------------------------------------
-def post_message(conn, sqs, author: str, body: str) -> str:
-    key = uuid.uuid4()
-    conn.execute("INSERT INTO messages (idempotency_key, author, body) VALUES (%s, %s, %s)", (key, author, body))
+def post_message(conn, sqs, author: str, body: str) -> int:
+    message_id = conn.execute("INSERT INTO messages (idempotency_key, author, body) VALUES (%s, %s, %s) RETURNING id",
+                              (uuid.uuid4(), author, body)).fetchone()[0]
     conn.commit()
-    sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps({"idempotency_key": str(key)}))
-    return str(key)
+    sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps({"message_id": message_id}))
+    return message_id
 
 
-def send(sqs, url: str, key: str) -> None:
-    sqs.send_message(QueueUrl=url, MessageBody=json.dumps({"idempotency_key": key}))
+def send(sqs, url: str, message_id: int) -> None:
+    sqs.send_message(QueueUrl=url, MessageBody=json.dumps({"message_id": message_id}))
 
 
 # 관측 ----------------------------------------------------------------------
-def checks(conn) -> dict[str, bool]:
+def checks(conn) -> dict[int, bool]:
     conn.commit()
-    return {str(k): v for k, v in conn.execute("SELECT idempotency_key, has_pii FROM message_checks").fetchall()}
+    return dict(conn.execute("SELECT message_id, has_pii FROM message_checks").fetchall())
 
 
 def all_checked(conn, expected: dict) -> dict | None:
@@ -106,9 +106,9 @@ def cli_check(config: dict, source: str | None = None) -> int:
         os.remove(path)
 
 
-def dlq_receive_count(sqs, url: str, key: str) -> str | None:
+def dlq_receive_count(sqs, url: str, message_id: int) -> str | None:
     for m in sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10, AttributeNames=["All"]).get("Messages", []):
-        if json.loads(m["Body"])["idempotency_key"] == key:
+        if json.loads(m["Body"])["message_id"] == message_id:
             return m["Attributes"].get("ApproximateReceiveCount")
     return None
 
@@ -151,8 +151,23 @@ def check_basic(conn, sqs, expected: dict) -> dict:
             "pii_mismatch": sum(1 for k, v in expected.items() if got.get(k) != v)}
 
 
+def check_no_values_stored(conn) -> dict:
+    """T22 조건: 결과 테이블 · 실행기 로그에 일치한 값과 본문이 없고, 종류 · 개수만 있다."""
+    conn.commit()
+    rows = conn.execute("SELECT m.body, c.kinds, c.counts, c::text FROM message_checks c"
+                        " JOIN messages m ON m.id = c.message_id WHERE c.has_pii").fetchall()
+    values = ["900101-1234567", "1234-5678-9012-3456", "110-123-456789"]
+    leaked_rows = sum(1 for body, _, _, row in rows if body in row or any(v in row for v in values))
+    counts_ok = all(sum(counts.values()) >= 1 and sorted(counts) == kinds for _, kinds, counts, _ in rows)
+    logs = subprocess.run(["docker", "compose", "logs", "function"], cwd=HERE, capture_output=True, text=True).stdout
+    leaked_logs = sum(1 for v in values + PII if v in logs)
+    ok = bool(rows) and leaked_rows == 0 and counts_ok and leaked_logs == 0
+    return {"verdict": "PASS" if ok else "FAIL", "pii_rows": len(rows), "rows_with_value_or_body": leaked_rows,
+            "kinds_match_counts": counts_ok, "log_lines_with_value": leaked_logs}
+
+
 def check_duplicate(conn, sqs, expected: dict) -> dict:
-    """기준 8: 같은 업무 이벤트를 다시 보내도 결과는 1행이고, 다시 보낸 메시지도 처리돼 큐에서 지워진다."""
+    """기준 8: 같은 메시지 번호로 다시 보내도 결과는 1행이고, 다시 보낸 메시지도 처리돼 큐에서 지워진다."""
     for key in list(expected)[:5]:
         send(sqs, QUEUE_URL, key)
     drained = wait_for(lambda: empty(sqs, QUEUE_URL), 30)
@@ -183,8 +198,8 @@ def check_killed_mid_batch(conn, sqs, expected: dict) -> dict:
 
 def check_failures_to_dlq(conn, sqs) -> dict:
     """기준 9: 예외와 시간 초과 모두 재시도 한도(3회)를 채운 뒤에만 실패 보관 큐로 가고, 결과 행은 없다."""
-    poison, slow = str(uuid.uuid4()), str(uuid.uuid4())
-    send(sqs, QUEUE_URL, poison)  # 본문 행이 없는 키: 핸들러가 예외를 낸다
+    poison, slow = -1, -2  # 없는 행 번호
+    send(sqs, QUEUE_URL, poison)  # 본문 행이 없는 번호: 핸들러가 예외를 낸다
     send(sqs, SLOW_URL, slow)  # 제한 시간을 넘기는 핸들러
     wait_for(lambda: queue_counts(sqs, DLQ_URL)["ApproximateNumberOfMessages"] >= 1
              and queue_counts(sqs, SLOW_DLQ_URL)["ApproximateNumberOfMessages"] >= 1, 90, step=1)
@@ -229,10 +244,11 @@ def main() -> int:
     os.environ.update(ENV)
     sqs = boto3.client("sqs")
     conn = psycopg.connect(DB)
-    expected: dict[str, bool] = {}
+    expected: dict[int, bool] = {}
     results = {
         "12_unsupported_rejected": check_unsupported(),
         "8a_basic": check_basic(conn, sqs, expected),
+        "t22_no_values_stored": check_no_values_stored(conn),
         "8b_duplicate": check_duplicate(conn, sqs, expected),
         "8c_killed_mid_batch": check_killed_mid_batch(conn, sqs, expected),
         "9_failures_to_dlq": check_failures_to_dlq(conn, sqs),

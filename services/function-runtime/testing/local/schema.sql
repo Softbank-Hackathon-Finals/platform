@@ -7,12 +7,13 @@ CREATE TABLE messages (
     body            text   NOT NULL,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
--- 시퀀스 없음: PK는 업무 멱등 키(D7). 컷오버 시퀀스 보정 대상이 늘지 않는다.
+-- PK는 messages 행 번호(message_id). 메시지 하나에 결과 하나라 중복이 생기지 않고, 새 시퀀스가 없어 컷오버 시퀀스 보정 대상이 늘지 않는다.
+-- 일치한 값과 본문은 저장하지 않는다. 종류와 개수만 둔다(T22 담당 조건).
 CREATE TABLE message_checks (
-    idempotency_key uuid    PRIMARY KEY,
-    message_id      bigint  NOT NULL REFERENCES messages (id),
+    message_id      bigint  PRIMARY KEY REFERENCES messages (id),
     has_pii         boolean NOT NULL,
     kinds           text[]  NOT NULL,
+    counts          jsonb   NOT NULL,
     sqs_message_id  text    NOT NULL,
     checked_at      timestamptz NOT NULL DEFAULT now()
 );
