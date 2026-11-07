@@ -1,8 +1,8 @@
-# [ADR-0032] 목적지 구축을 정형 계획 API와 목적지 GitOps로 제공
+# [ADR-0033] 목적지를 처음 세우는 순서를 정형 단계 스택과 실행기로 제공
 
-* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 목적지 Argo CD, 설정 저장소, 승인 묶음 단위는 2026-11-07 정했다(4장). T30 단계 순서 확인이 남아 있다.
+* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 설정 저장소, 승인 묶음 단위는 2026-11-07 정했다(4장). T44(ADR-0032)와의 범위 나눔은 이상무 확인을 요청했고, T30 단계 순서 확인이 남아 있다.
 * **날짜 (Date):** 2026-11-07
-* **관련 (Related):** T44(신규), T30 #17, T9 #13, T11 #20, T10 #19, T43 #355, 설계 문서 8.8 · 8.11 "목적지 구축" 어댑터, ADR-0007 · 0019 · 0021 · 0024 · 0029
+* **관련 (Related):** T45(신규), T44 · ADR-0032(목적지 IaC 모듈 · 원하는 상태 · 고객 클러스터 Argo CD), T30 #17, T9 #13, T11 #20, T10 #19, T43 #355, 설계 문서 8.8 · 8.11 "목적지 구축" 어댑터, ADR-0007 · 0019 · 0021 · 0024 · 0029
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
@@ -19,6 +19,20 @@
   * 계획 생성 · 승인 · 적용 · 진행 조회를 **API**로 제공한다. 운영자, 콘솔, 에이전트가 같은 API를 쓴다.
   * 에이전트는 자유 텍스트나 셸 명령이 아니라 **스키마로 검증되는 계획 요청**만 낼 수 있고, 적용 권한은 갖지 않는다.
   * 단계별 소요 시간을 기록하고, 의존 관계가 없는 단계를 병렬로 실행해 재구축 시간을 줄인다.
+
+### T44(ADR-0032)와의 관계
+
+같은 날 같은 지적으로 이상무가 T44 "목적지 IaC API"를 먼저 만들었다(#592 · #593). 두 작업은 다음처럼 나눈다.
+
+| | T44 (ADR-0032) | T45 (이 ADR) |
+|---|---|---|
+| 다루는 것 | 이미 선 목적지의 **설정**을 모듈과 원하는 상태(Git)로 관리한다(버킷 공개 상태, tailnet 경로) | 빈 클러스터에서 목적지를 **처음 세우는 순서**를 실행한다(DB → SeaweedFS → OpenBao/ESO → 앱) |
+| 적용 | 병합된 원하는 상태를 고객 클러스터의 Argo CD가 끌어온다 | 같은 Argo CD에 자기 AppProject · Application을 더한다. 비밀값 생성, 사람 단계, 일회성 Job은 실행기가 직접 한다 |
+| 목적지 Argo CD | `infra/iac/argocd` 설치(namespace `bravo-iac-gitops`)를 소유한다 | 설치하지 않는다. 그 설치가 있는지 확인만 한다 |
+| 비밀값이 필요한 자원 | 차트에서 빼고 "다른 적용기 담당"으로 표시한다 | 그 "다른 적용기"를 맡는다(사람 단계 또는 `secret_generate`) |
+| 에이전트 도구 | T11 `infra.plan`(모듈 변경 계획) | 이번 범위에서 새 도구를 만들지 않는다. 에이전트 신원은 API로 구축 계획을 만들고 조회만 할 수 있다 |
+
+같은 자원의 주인은 하나다. 지금 겹치는 자원은 `target-dev/target-seaweedfs-auth` Secret이며, T44가 비워 둔 값을 T45의 사람 단계가 만든다.
 
 ## 2. 고려한 옵션들 (Considered Options)
 
@@ -102,7 +116,7 @@
 | 적용 실행기 | `services/infra-plan` (별도 모듈) | T10 승인 확인 → digest 재계산 → 직접 단계 실행 · 설정 저장소 커밋 · 목적지 Argo CD 동기화 확인 |
 | HTTP API | `services/infra-plan` | 아래 3.3. FastAPI(platform-events와 같은 방식). 플랫폼 배포는 T43(ADR-0029) 경로를 따른다 |
 | 목적지 설정 저장소 | 목적지(고객)마다 비공개 Git 저장소 하나 | 렌더된 선언형 매니페스트. 비밀값은 넣지 않는다 |
-| 목적지 Argo CD | 목적지 클러스터의 `argocd` namespace | 설정 저장소를 읽기 전용으로 받아 동기화한다. 플랫폼 Argo CD와 별개다 |
+| 목적지 Argo CD | T44 설치(`infra/iac/argocd`, namespace `bravo-iac-gitops`) | T45는 설치하지 않고 자기 AppProject · Application만 더한다. 설정 저장소를 읽기 전용으로 받아 동기화한다 |
 | 에이전트 도구 | `services/agent-worker` (T11) | `infra.plan` 도구. 계획 생성 · 조회만 가능 |
 
 계획 엔진과 적용 실행기는 LLM 클라이언트를 import하지 않는다.
@@ -115,7 +129,7 @@
 | `gitops_publish` | Git → Argo | 저장소의 렌더러를 고정 인자로 실행하고, Helm chart는 고정한 아카이브 SHA-256으로 `helm template` 뒤 후처리(예: `finalize-bao`)까지 마친 매니페스트를 설정 저장소의 정해진 경로에 커밋한다 | 렌더 트리가 설정 저장소의 현재 트리와 같으면 `SKIPPED` |
 | `gitops_sync` | Git → Argo | 목적지 Argo CD Application이 해당 커밋 SHA로 `Synced`이고 `Healthy`인지 확인한다. 상한 시간이 있다 | 이미 그 SHA로 수렴했으면 즉시 통과 |
 | `render_apply` | API 직접 | Argo CD가 맡기 어려운 일회성 자원(예: 마이그레이션 Job)만 렌더 → 서버 측 dry-run → `kubectl apply --server-side --field-manager=bravo-infra-plan` | dry-run 차이가 없거나 Job이 이미 성공했으면 `SKIPPED` |
-| `helm_release` | API 직접 | 목적지 Argo CD 최초 설치 한 건에만 쓴다. 고정 chart · values | 같은 chart · values digest의 release가 있으면 `SKIPPED` |
+| `helm_release` | API 직접 | 고정 chart · values를 설치한다. 첫 스택은 쓰지 않는다(목적지 Argo CD는 T44가 설치) | 같은 chart · values digest의 release가 있으면 `SKIPPED` |
 | `secret_generate` | API 직접 | 정해진 형식의 비밀값을 실행기 메모리에서 생성해 Kubernetes API로 바로 만든다. Git · 계획 · 기록 · 로그에는 Secret 이름과 키 이름만 남긴다 | Secret이 이미 있으면 **덮어쓰지 않고** `SKIPPED` |
 | `wait` | API 직접 | 조건 대기(DB Ready, Job Complete, ExternalSecret Ready). 상한 시간이 있다 | 조건이 이미 참이면 즉시 통과 |
 | `operator_action` | 사람 | 사람만 할 수 있는 일(호스트 디렉터리 생성, 오프라인 이미지 반입, OpenBao init과 복구 자료 보관, Tailscale OAuth 입력, 설정 저장소 읽기 자격 등록). 실행기는 멈추고 지시문과 확인 조건을 보여 준다 | 확인 조건(`probe`)이 참이면 `SKIPPED` |
@@ -152,14 +166,14 @@
 1차는 해피패스를 먼저 통과시키기 위해 권한을 넉넉하게 두고, 해피패스가 안정된 뒤 세분화한다(2026-11-07 류지환 의견).
 
 * 계획 엔진은 환경 등록(T10 `connection_ref`)의 **읽기 전용** 신원으로 dry-run과 상태 조회만 한다.
-* 적용 실행기는 1차에서 목적지 클러스터 관리자 수준의 적용 신원을 실행마다 받는다. 상시 보관하지 않고 실행 시간과 대상 클러스터 UID로 제한한다. 세분화(delete 제외, namespace 한정, 목적지 Argo CD로 쓰기 이전)는 T44의 후속 고도화로 남긴다.
+* 적용 실행기는 1차에서 목적지 클러스터 관리자 수준의 적용 신원을 실행마다 받는다. 상시 보관하지 않고 실행 시간과 대상 클러스터 UID로 제한한다. 세분화(delete 제외, namespace 한정, 목적지 Argo CD로 쓰기 이전)는 T45의 후속 고도화로 남긴다.
 * 설정 저장소 쓰기는 그 저장소의 정해진 브랜치 하나로 제한한 자격을 쓴다. 목적지 Argo CD는 같은 저장소의 읽기 전용 자격만 받는다.
 * 목적지 Argo CD는 UI · Dex · admin 계정 없이 설치하고(플랫폼 Argo CD 값과 같은 기준), AppProject로 대상 namespace와 리소스 종류를 제한한다. 플랫폼은 목적지 Argo CD의 관리자 자격을 보관하지 않는다.
 * **에이전트 신원은 넉넉한 권한 적용 대상이 아니다.** `POST /v1/infra/plans`와 조회만 할 수 있고, 승인 · 적용 · 확인 경로는 API가 신원 종류로 거부한다(프롬프트가 아니라 API에서 막는다).
 
 ### 3.6 에이전트 연결
 
-* T11에 `infra.plan` 도구를 추가한다. 인자는 계획 요청 JSON Schema와 같고, 스택이 허용한 `params`만 받는다.
+* 에이전트 신원은 `POST /v1/infra/plans`로 구축 계획을 만들고 조회할 수 있다. 요청 본문은 계획 요청 JSON Schema와 같고, 스택이 허용한 `params`만 받는다. T11의 `infra.plan` 도구 이름은 T44(모듈 변경 계획)가 쓰므로, 구축 계획 도구가 필요해지면 다른 이름으로 따로 둔다(이번 범위 밖).
 * 에이전트가 바꿀 수 있는 것은 파라미터뿐이다. 스택 정의, 렌더러, 단계 종류, 설정 저장소 내용은 모델의 수정 범위가 아니다(ADR-0007의 운영 IaC 제외 규칙 유지).
 * 에이전트가 만든 계획도 사람이 T10에서 승인해야 적용된다. 에이전트 계획의 `requested_by`에는 실행 ID와 시도 번호를 결속한다.
 
@@ -171,7 +185,7 @@
 |---|---|---|---|---|
 | 1 | 클러스터 · 노드 신원, 새 환경 여부 확인 | `probe` | target-workloads README 1 | T30 |
 | 2 | 호스트 디렉터리(DB UID 26, objects UID 1000, OpenBao 100:1000 0700) | `operator_action` | target-workloads 2, target-secrets 3 | T30 · T9 |
-| 3 | 목적지 Argo CD 설치, 설정 저장소 읽기 자격 등록 | `helm_release` · `operator_action` | 신규 | T44 |
+| 3 | T44 목적지 Argo CD 설치 확인, 설정 저장소 읽기 자격 등록 | `operator_action` | `infra/iac/README.md` 설치 절차 | T44 · T45 |
 | 4 | `target-dev` namespace, 서비스 계정 | Git | target-workloads 3 · 5 (`render.py accounts`) | T30 |
 | 5 | DB 비밀값 `target-app-db`, `target-replication`, SeaweedFS `s3.json` | `secret_generate` | target-workloads 3, 개발용 첨부 저장소 | T30 · T9 |
 | 6 | CNPG operator chart 0.29.1 → 목적지 DB → Ready 대기 | Git · `wait` | target-workloads 4 · 5 | T30 |
@@ -204,10 +218,10 @@
 
 ### 합의된 점 (2026-11-07)
 * 승인은 T10 approvals에 `approval_kind=infra`를 추가해 한곳으로 모은다(류지환 동의).
-* 선언형 배포는 고객 클러스터 안의 Argo CD가 맡는다. 플랫폼 Argo CD가 고객 클러스터를 떠안지 않는다(류지환 의견).
+* 선언형 배포는 고객 클러스터 안의 Argo CD가 맡는다. 플랫폼 Argo CD가 고객 클러스터를 떠안지 않는다(류지환 의견). 그 Argo CD는 T44가 설치한 것을 함께 쓴다.
 * 권한은 1차에 넉넉하게 두고 해피패스 뒤에 세분화한다(류지환 의견).
 * 목적지 설정 저장소는 조직 안의 비공개 저장소로 새로 만든다. 공개 저장소인 `platform`에는 노드 이름 같은 운영 식별자가 들어간 렌더 결과를 두지 않는다(전동훈 결정).
-* `infra` 승인 종류는 T44에서 PR을 내고 T10 담당(류지환) 리뷰를 받는다. T10 코드는 승인 종류 추가 범위만 바꾼다(11/7 스레드 공지, 이견 시 조정).
+* `infra` 승인 종류는 #603으로 T10에 들어갔다(PR 제목은 당시 번호 T44). T10 코드는 승인 종류 추가 범위만 바꿨다.
 * 목적지 구축 승인은 그 목적지로 옮기는 이전 계획(`/v1/plans/{plan_id}`)에 묶는다. 컷오버 전 단계(COLLECT ~ AWAIT_APPROVAL)에서만 승인할 수 있다.
 
 ### 팀 확인이 필요한 점

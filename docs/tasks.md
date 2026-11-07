@@ -905,6 +905,27 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용 → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 
+### [T45] 목적지 처음 구축 실행기: 정형 단계 스택 · T10 승인 · T44 Argo CD
+
+**어디에 필요** 목적지 클러스터 위 구성(CNPG · SeaweedFS · Tailscale · OpenBao/ESO · 앱)을 운영자가 README 순서대로 렌더 · 적용하고 있어, 구축 절차가 코드로 관리되지 않고 재구축 시간도 측정되지 않는다(11/7 중간 점검 지적). 설계 문서 8.11의 "목적지 구축" 어댑터 구현이다.
+
+**만들 것** 기존 렌더러를 정형 단계(`probe` · `gitops_publish` · `gitops_sync` · `render_apply` · `helm_release` · `secret_generate` · `wait` · `operator_action`)로 감싼 `target-onprem` 스택 정의, 계획 엔진(렌더 · 설정 저장소 트리 digest · 서버 측 dry-run · `plan_digest`), T10 `kind=infra` 승인을 재계산 digest와 대조한 뒤에만 적용하는 실행기, T44 목적지 Argo CD에 더하는 AppProject · Application과 비공개 설정 저장소, 계획 · 적용 · 조회 API(에이전트는 계획 생성 · 조회만). 결정은 ADR-0033. 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44(ADR-0032)가 맡고, T45는 그 Argo에 Application을 더하며 T44의 "비밀 값이 필요한 자원은 다른 적용기 담당"을 맡는다. 렌더러 코드는 바꾸지 않는다.
+
+- **우선순위** P1 · **영역** 에이전트 · 리허설 · **담당** 전동훈
+- **선행** `T9`, `T30` (통합 시점: `T10`, `T24`, `T44`) · **후속** 없음 · **설계 문서** 8.8, 8.11, ADR-0033
+
+**목표** 새 목적지 VM을 API 호출 몇 번으로 같은 기준까지 구축하고, 사람이 승인한 계획과 설정 저장소 커밋 · 실제 클러스터 상태가 같으며, 단계별 소요 시간이 남는다. 선언형 상태는 고객 클러스터 안의 Argo CD가 유지하고, 에이전트는 정형 계획만 낼 수 있고 적용할 수 없다.
+
+**할 일**
+- [ ] 스택 정의 · 계획 요청 JSON Schema와 `target-onprem` 스택(README 16단계, 병렬 줄기 4개), T30 · T9 담당 순서 확인
+- [ ] 계획 엔진: 렌더러 고정 인자 호출, chart `helm template` 후처리, 설정 저장소 트리 digest, 읽기 전용 신원 dry-run, 비밀값 없는 `plan_digest`, CI에서 스택 렌더 시험
+- [ ] T44 목적지 Argo CD 위에 줄기별 Application · 전용 AppProject(설정 저장소 한정), 자동 prune 끔, 설정 저장소 읽기 전용 자격
+- [ ] 적용 실행기: T10 `kind=infra` 승인 대조, digest · 기준 커밋 재확인 거부, 설정 저장소 커밋과 Argo revision 확인, 의존 그래프 병렬 실행, 멱등 `SKIPPED`, `operator_action` 대기 · 확인, 상태 불명 `HOLD`, 삭제 동작 없음, T24 기록
+- [ ] API: 계획 생성 · 조회(에이전트 포함), 적용 실행 · 조회 · 사람 단계 확인(사람만), 에이전트 신원의 실행 · 확인 거부와 요청 스키마 검사
+- [ ] 새 로컬 VM에서 계획 → 승인 → 적용 실측: 단계별 시각 · 전체 소요 시간, Argo revision과 커밋 일치, 재적용 전부 `SKIPPED`, 중간 실패 뒤 이어서 적용, digest 불일치 `REFUSED`, 비밀값 비노출 확인
+
+**완료 기준** `local-vm.sh up`으로 만든 새 VM이 API 적용만으로 16단계 확인을 통과하고 단계별 소요 시간이 기록된다. 목적지 Argo CD가 실행 기록의 커밋으로 수렴하고, 같은 계획 재적용은 커밋과 클러스터를 바꾸지 않으며, 승인 뒤 렌더 결과나 기준 커밋이 바뀌면 적용이 거부되고, 에이전트 신원은 승인 · 적용을 할 수 없다. 적용 신원의 권한 세분화와 AWS Terraform 스택 일괄 적용은 별도 범위로 진행한다.
+
 ## 6단계
 
 ### [T25] 반복 측정 · 장애 주입 · SAFE_HOLD 시험
@@ -946,27 +967,6 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 컷오버 직전 첨부 복사 정식 실행(컷오버 요청의 plan_id · epoch)과 컷오버 뒤 역방향 복제 도착 확인 (T8에서 옮김)
 
 **완료 기준** 270초 안에 끝나는 리허설 3회 연속 성공.
-
-### [T44] 목적지 구축 계획 API: 정형 스택 · T10 승인 · 목적지 GitOps
-
-**어디에 필요** 목적지 클러스터 위 구성(CNPG · SeaweedFS · Tailscale · OpenBao/ESO · 앱)을 운영자가 README 순서대로 렌더 · 적용하고 있어, 구축 절차가 코드로 관리되지 않고 재구축 시간도 측정되지 않는다(11/7 중간 점검 지적). 설계 문서 8.11의 "목적지 구축" 어댑터 구현이다.
-
-**만들 것** 기존 렌더러를 정형 단계(`probe` · `gitops_publish` · `gitops_sync` · `render_apply` · `helm_release` · `secret_generate` · `wait` · `operator_action`)로 감싼 `target-onprem` 스택 정의, 계획 엔진(렌더 · 설정 저장소 트리 digest · 서버 측 dry-run · `plan_digest`), T10 `kind=infra` 승인을 재계산 digest와 대조한 뒤에만 적용하는 실행기, 목적지 클러스터 안의 Argo CD와 비공개 설정 저장소, 계획 · 적용 · 조회 API, T11 `infra.plan` 도구(계획 생성 · 조회만). 결정은 ADR-0032. 렌더러 코드는 바꾸지 않는다.
-
-- **우선순위** P1 · **영역** 에이전트 · 리허설 · **담당** 전동훈
-- **선행** `T9`, `T30` (통합 시점: `T10`, `T11`, `T24`, `T43`) · **후속** 없음 · **설계 문서** 8.8, 8.11, ADR-0032
-
-**목표** 새 목적지 VM을 API 호출 몇 번으로 같은 기준까지 구축하고, 사람이 승인한 계획과 설정 저장소 커밋 · 실제 클러스터 상태가 같으며, 단계별 소요 시간이 남는다. 선언형 상태는 고객 클러스터 안의 Argo CD가 유지하고, 에이전트는 정형 계획만 낼 수 있고 적용할 수 없다.
-
-**할 일**
-- [ ] 스택 정의 · 계획 요청 JSON Schema와 `target-onprem` 스택(README 16단계, 병렬 줄기 4개), T30 · T9 담당 순서 확인
-- [ ] 계획 엔진: 렌더러 고정 인자 호출, chart `helm template` 후처리, 설정 저장소 트리 digest, 읽기 전용 신원 dry-run, 비밀값 없는 `plan_digest`, CI에서 스택 렌더 시험
-- [ ] 목적지 Argo CD: UI · admin 없는 설치값, 줄기별 Application · AppProject 제한, 자동 prune 끔, 설정 저장소 읽기 전용 자격
-- [ ] 적용 실행기: T10 `kind=infra` 승인 대조, digest · 기준 커밋 재확인 거부, 설정 저장소 커밋과 Argo revision 확인, 의존 그래프 병렬 실행, 멱등 `SKIPPED`, `operator_action` 대기 · 확인, 상태 불명 `HOLD`, 삭제 동작 없음, T24 기록
-- [ ] API와 T11 `infra.plan` 도구: 계획 생성 · 조회, 적용 실행 · 조회 · 사람 단계 확인, 에이전트 신원의 승인 · 적용 거부와 인자 스키마 검사
-- [ ] 새 로컬 VM에서 계획 → 승인 → 적용 실측: 단계별 시각 · 전체 소요 시간, Argo revision과 커밋 일치, 재적용 전부 `SKIPPED`, 중간 실패 뒤 이어서 적용, digest 불일치 `REFUSED`, 비밀값 비노출 확인
-
-**완료 기준** `local-vm.sh up`으로 만든 새 VM이 API 적용만으로 16단계 확인을 통과하고 단계별 소요 시간이 기록된다. 목적지 Argo CD가 실행 기록의 커밋으로 수렴하고, 같은 계획 재적용은 커밋과 클러스터를 바꾸지 않으며, 승인 뒤 렌더 결과나 기준 커밋이 바뀌면 적용이 거부되고, 에이전트 신원은 승인 · 적용을 할 수 없다. 적용 신원의 권한 세분화와 AWS Terraform 스택 일괄 적용은 별도 범위로 진행한다.
 
 ## P2 (시간이 남으면)
 
