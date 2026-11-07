@@ -69,6 +69,10 @@ spec:
         {{- if .Values.workflowHost.enabled }}
         || (request.resource.resource in ['deployments', 'serviceaccounts'] &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-workflow-host')
+        {{- end }}
+        {{- if .Values.publicEntry.enabled }}
+        || (request.resource.resource == 'deployments' &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) == 'public-entry')
         {{- end }})
       message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"

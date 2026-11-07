@@ -3,13 +3,12 @@ import re
 
 import pytest
 
-from bravo_public_entry.reconcile import MARK, Refused, emails_from, reconcile, validate
+from bravo_public_entry.reconcile import MARK, Refused, emails_from, file_writer, reconcile, validate
 
 SPEC = {
     "zone": "example.ai",
     "tunnel": "bravo-platform-entry",
     "access": {"app": "Bravo public entry", "policy": "Team Bravo members", "session_duration": "8h"},
-    "token_secret": {"namespace": "bravo-gitops", "name": "argocd-tunnel-token", "key": "token"},
     "entries": [
         {"hostname": "platform-argocd.example.ai", "service": "http://bravo-gitops-server.bravo-gitops.svc:80"},
         {"hostname": "demo-chat-01-argocd.example.ai", "service": "http://bravo-target-argocd.bravo-gitops.svc:80"},
@@ -150,3 +149,9 @@ def test_emails_must_be_present_and_well_formed():
     for bad in ("", "not-an-email", "a@b"):
         with pytest.raises(Refused):
             emails_from(bad)
+
+
+def test_token_file_is_rewritten_only_when_it_changes(tmp_path):
+    write = file_writer(tmp_path / "token")
+    assert write("t1") is True and write("t1") is False and write("t2") is True
+    assert (tmp_path / "token").read_text() == "t2" and oct((tmp_path / "token").stat().st_mode)[-3:] == "440"

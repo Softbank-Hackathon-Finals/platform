@@ -1,0 +1,85 @@
+{{- if .Values.publicEntry.enabled }}
+# The controller may write only the four public entry objects, by name. Creating them is bounded by the
+# registration name policy (Deployment) and by these names for the rest.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-public-entry
+  namespace: platform-state
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create]
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: [get, list, watch, create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [public-entry]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [public-entry-spec]
+    verbs: [update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [public-entry]
+    verbs: [update, patch, delete]
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    resourceNames: [public-entry-cloudflare]
+    verbs: [update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-public-entry
+  namespace: platform-state
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-gitops-public-entry
+subjects:
+  - kind: ServiceAccount
+    name: bravo-gitops-application-controller
+    namespace: {{ .Release.Namespace }}
+---
+# Create-by-name for the kinds the registration name policy does not cover.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: platform-gitops-public-entry-names
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["", networking.k8s.io, external-secrets.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [configmaps, networkpolicies, externalsecrets]
+  matchConditions:
+    - name: gitops-controller
+      expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller'"
+  validations:
+    - expression: >-
+        request.namespace == 'platform-state' &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) in
+        (request.resource.resource == 'configmaps' ? ['public-entry-spec'] :
+         request.resource.resource == 'networkpolicies' ? ['public-entry'] : ['public-entry-cloudflare'])
+      message: This controller may write only the public entry ConfigMap, NetworkPolicy and ExternalSecret.
+    - expression: >-
+        object == null || request.resource.resource != 'externalsecrets' ||
+        (object.spec.secretStoreRef.name == 'cloudflare-gitops-reader' && object.spec.target.name == 'public-entry-cloudflare')
+      message: The public entry may read only the platform Cloudflare GitOps credential.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: platform-gitops-public-entry-names
+spec:
+  policyName: platform-gitops-public-entry-names
+  validationActions: [Deny]
+{{- end }}

@@ -5,7 +5,6 @@ connector; the customer side is reached over the tailnet, so no customer cluster
 
 Spec (ConfigMap rendered from infra/envs/public-entry/entries.json):
   {"zone": "...", "tunnel": "...", "access": {"app": "...", "policy": "...", "session_duration": "8h"},
-   "token_secret": {"namespace": "...", "name": "...", "key": "token"},
    "entries": [{"hostname": "<label>.<zone>", "service": "http://<svc>.<ns>.svc:<port>"}]}
 Credential files: token, account_id, zone_id, access_emails (comma separated; never in Git).
 
@@ -14,11 +13,9 @@ comment is MARK. A record without MARK on a declared hostname stops the run befo
 Every request is behind Access, and the tunnel route also requires the Access token at the origin.
 """
 
-import base64
 import json
 import os
 import re
-import ssl
 import sys
 import time
 import urllib.error
@@ -172,46 +169,30 @@ def _route(ingress):
             for r in ingress]
 
 
-def secret_writer(namespace: str, name: str, key: str, sa=Path("/var/run/secrets/kubernetes.io/serviceaccount")):
-    """Write one key of one Secret through the API with this Pod's token. Returns True when it changed."""
-    ctx = ssl.create_default_context(cafile=str(sa / "ca.crt"))
-    url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
-
-    def request(method, path, body=None):
-        req = urllib.request.Request(url + path, method=method, data=None if body is None else json.dumps(body).encode(),
-                                     headers={"Authorization": "Bearer " + (sa / "token").read_text().strip(),
-                                              "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as res:
-            return json.load(res)
-
+def file_writer(path: Path):
+    """The connector in the same Pod reads the token from a memory volume; it never becomes a Secret.
+    Returns True when the file changed (a recreated tunnel); the connector's probe then restarts it."""
     def write(value: str) -> bool:
-        data = {key: base64.b64encode(value.encode()).decode()}
-        body = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "data": data,
-                "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "bravo-public-entry"}}}
-        try:
-            current = request("GET", "/" + name)
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-            request("POST", "", body)
-            return True
-        if current.get("data") == data:
+        if path.exists() and path.read_text() == value:
             return False
-        body["metadata"]["resourceVersion"] = current["metadata"]["resourceVersion"]
-        request("PUT", "/" + name, body)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(value)
+        tmp.chmod(0o440)
+        tmp.replace(path)
         return True
 
     return write
 
 
 def main():
-    spec = validate(json.loads(Path(os.environ.get("ENTRY_SPEC", "/etc/public-entry/entries.json")).read_text()))
+    spec_file = Path(os.environ.get("ENTRY_SPEC", "/etc/public-entry/entries.json"))
     creds = Path(os.environ.get("CLOUDFLARE_CREDENTIALS", "/run/cloudflare"))
-    target = spec["token_secret"]
-    write = secret_writer(target["namespace"], target["name"], target.get("key", "token"))
+    write = file_writer(Path(os.environ.get("TUNNEL_TOKEN_FILE", "/run/tunnel/token")))
     interval = int(os.environ.get("RECONCILE_SECONDS", "60"))
     while True:
         try:
+            # The ConfigMap and the ESO Secret change in place; read both every round instead of restarting.
+            spec = validate(json.loads(spec_file.read_text()))
             cf = Cloudflare((creds / "token").read_text().strip())
             result = reconcile(cf, spec, (creds / "account_id").read_text().strip(), (creds / "zone_id").read_text().strip(),
                                emails_from((creds / "access_emails").read_text()), write)

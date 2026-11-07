@@ -4,7 +4,7 @@ Git에 선언한 공개 호스트를 Cloudflare에 맞춘다. 사람이 대시�
 
 | 맞추는 것 | 기준 |
 |---|---|
-| Tunnel 하나(`tunnel`) | 없으면 만든다. 토큰은 `token_secret`의 Secret에 쓴다(값이 같으면 쓰지 않는다) |
+| Tunnel 하나(`tunnel`) | 없으면 만든다. 토큰은 같은 Pod의 연결기(cloudflared)와 나누는 메모리 볼륨 파일에만 쓴다(Secret · API 자격 없음) |
 | Tunnel 경로 | 선언한 호스트 → 클러스터 안 Service. 모든 경로가 origin에서도 Access 토큰을 요구한다. 마지막은 404 |
 | DNS | 호스트마다 proxied CNAME → `<tunnel>.cfargotunnel.com`. 주석이 `managed-by: bravo-public-entry`인 레코드만 바꾸고 지운다 |
 | Access | self-hosted 앱 하나(호스트 전부)와 재사용 정책 하나(허용 이메일) |
