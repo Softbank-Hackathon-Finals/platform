@@ -353,7 +353,8 @@
                 ],
                 "properties": {
                   "file": {
-                    "$ref": "#/$defs/repo_path"
+                    "type": "string",
+                    "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]*(\\{environment_id\\})?[A-Za-z0-9._/-]*\\.json$"
                   },
                   "module": {
                     "$ref": "#/$defs/id"

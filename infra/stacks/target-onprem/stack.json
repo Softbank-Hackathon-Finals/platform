@@ -215,7 +215,7 @@
       "instruction": "계획의 desired 값으로 object_exposure.py render --state <state> --bucket <bucket>를 실행한다. state가 open-demo이면 --acknowledge-anonymous-read --demo-run-id <demo_run_id>를 함께 준다(데모 1번 결함). 결과를 target-dev/target-seaweedfs-auth Secret에 메모리에서만 넣고, client 키는 openbao-init에서 OpenBao KV에 쓸 값이므로 운영자 자격 저장소에 보관한다.",
       "confirm": "seaweedfs-auth",
       "desired": {
-        "file": "infra/iac/environments/target-dev.json",
+        "file": "infra/iac/environments/{environment_id}.json",
         "module": "target-object-exposure",
         "params": [
           "state",
