@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -200,8 +201,22 @@ class KubectlCluster:
         command = [self.kubectl, *(["--context", self.context] if self.context else []), *args]
         return _run(command, stdin=stdin, env=self._env(), check=check)
 
+    # The API was not reached at all (a dropped tunnel or forwarded connection), so nothing was decided.
+    TRANSPORT = ("Unable to connect to the server", "broken pipe", "connection reset by peer", "unexpected EOF",
+                 "i/o timeout", "TLS handshake timeout", "connection refused")
+
+    def _read(self, *args, stdin=None, attempts=3):
+        """A read-only kubectl call, retried a few times only when the request never reached the API."""
+        for attempt in range(attempts):
+            result = self._k(*args, stdin=stdin, check=False)
+            if result.returncode == 0 or not any(t in result.stderr for t in self.TRANSPORT):
+                return result
+            if attempt + 1 < attempts:
+                time.sleep(1 + attempt)
+        return result
+
     def _get(self, kind, namespace, name):
-        result = self._k("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json", check=False)
+        result = self._read("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json")
         if result.returncode != 0:
             if "NotFound" in result.stderr or "not found" in result.stderr:
                 return None
@@ -233,8 +248,8 @@ class KubectlCluster:
     def diff(self, items):
         """True when applying would change the cluster (server-side diff)."""
         manifest = json.dumps({"apiVersion": "v1", "kind": "List", "items": items})
-        result = self._k("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
-                         "-f", "-", stdin=manifest, check=False)
+        result = self._read("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
+                            "-f", "-", stdin=manifest)
         if result.returncode not in (0, 1):
             raise RuntimeError("kubectl diff failed")  # cannot compare: HOLD, never a blind apply
         return result.returncode == 1
@@ -277,12 +292,18 @@ class KubectlCluster:
         return bool(obj) and status.get("readyReplicas", 0) >= 1 and status.get("readyReplicas") == status.get("replicas")
 
     def deployments_available(self, namespace):
-        listing = json.loads(self._k("get", "deployments", "-n", namespace, "-o", "json").stdout)["items"]
+        result = self._read("get", "deployments", "-n", namespace, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get deployments failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)["items"]
         return bool(listing) and all(any(c.get("type") == "Available" and c.get("status") == "True"
                                           for c in d.get("status", {}).get("conditions", [])) for d in listing)
 
     def labelled_secret_exists(self, namespace, selector):
-        listing = json.loads(self._k("get", "secrets", "-n", namespace, "-l", selector, "-o", "json").stdout)
+        result = self._read("get", "secrets", "-n", namespace, "-l", selector, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get secrets failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)
         return bool(listing["items"])
 
 
