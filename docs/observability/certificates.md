@@ -7,6 +7,9 @@ Collector → 지표 저장소, 콘솔 API → 지표 저장소는 모두 mTLS�
 | 인증서 | 이름(CN · SAN의 DNS) | 쓰는 곳 | 유효기간 |
 |---|---|---|---|
 | 관측 CA | `bravo-observability-ca-<날짜>-<무작위>` (매번 고유) | 모든 쪽의 `ca.crt` | 90일 |
+| 앱 CA(목적지) | `bravo-app-telemetry-ca-<날짜>`, 목적지 OpenBao `pki-telemetry`에서 생성. 키는 OpenBao 밖으로 나오지 않는다 | 앱 클라이언트(ESO 생성기) · Collector 수신 서버(사이드카)가 발급받는다. 72시간, 하루마다 교체 | 90일 |
+| 앱 CA(출발지) | 관측 CA와 같은 규칙으로 따로 만든다(발급자 PC) | 출발지 Collector 수신 서버 · 앱 클라이언트(`demo-chat-source`) | 90일 |
+| 플랫폼 수신 CA | 같은 규칙으로 따로 만든다 | 저장소 `ca.crt` 묶음에 추가. 플랫폼 Collector(`collector-platform`)만 발급 | 90일 |
 | 출발지 Collector | `collector-aws` | Secret `bravo-collector-tls` (출발지 클러스터) | 30일 |
 | 목적지 Collector | `collector-onprem` | Secret `bravo-collector-tls` (목적지 클러스터) | 30일 |
 | 콘솔 API | `console-api` | Secret `bravo-observability-api-tls` | 30일 |

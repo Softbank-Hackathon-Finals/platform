@@ -1,7 +1,7 @@
 # T37 관측 경로 알림. 런북: docs/observability/runbooks.md
 # 모두 Collector가 출처 라벨을 붙인 지표만 본다: 수집 경로는 bravo_signal="collector-self", DB는 bravo_signal="cnpg-scrape".
 # 앱 경로는 이 라벨을 지우므로 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
-# 환경 이름(aws · onprem)은 데모에 등록한 환경이다. 환경을 추가하면 absent 줄도 추가한다.
+# 환경 이름(aws · onprem · platform)은 데모에 등록한 환경이다. platform은 플랫폼 클러스터 자신이다. 환경을 추가하면 absent 줄도 추가한다.
 groups:
   - name: bravo-telemetry
     rules:
@@ -14,6 +14,7 @@ groups:
             or max by (bravo_env) (up{bravo_signal="collector-self"}) != 1
             or absent(up{bravo_signal="collector-self", bravo_env="aws"})
             or absent(up{bravo_signal="collector-self", bravo_env="onprem"})
+            or absent(up{bravo_signal="collector-self", bravo_env="platform"})
           )
         labels:
           severity: page
