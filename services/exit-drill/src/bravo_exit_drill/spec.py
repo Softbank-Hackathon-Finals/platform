@@ -3,7 +3,7 @@
 여기서는 모양만 본다. "복제 경로를 막는 선언인가" 같은 의미 판단은 policy.py가 한다.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 SPEC_VERSION = "exit-drill-spec/v1"
@@ -14,6 +14,8 @@ PROBE_KINDS = {"tcp", "dns"}
 CHECK_KINDS = {"http", "websocket"}
 EVIDENCE_KINDS = {"tcp", "stream"}
 DIRECTIONS = {"egress", "ingress"}
+# 환경 종류 계약(environment-kinds.json)의 scope_keys 전체. 어느 키가 어느 종류의 것인지는 exit_scope.py가 본다.
+SCOPE_KEYS = {"account_id", "region", "project_id", "cluster_uid"}
 
 
 class SpecError(ValueError):
@@ -64,11 +66,20 @@ class Route:
 @dataclass(frozen=True)
 class DrillSpec:
     namespace: str
-    aws_region: str
+    # 출발지 범위 값(aws: account_id · region, gcp: project_id · region, onprem: cluster_uid).
+    # 옛 명세의 aws_region은 {"region": aws_region}으로 읽는다.
+    source_scope: dict[str, str]
     workloads: dict[str, Workload]
     routes: tuple[Route, ...]
     new_connection_checks: tuple[dict[str, Any], ...]
     declared_residuals: tuple[str, ...]
+    # 목적지 범위 값. 같은 종류 간 이전에서 출발지만 고르는 데 쓴다.
+    target_scope: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def aws_region(self) -> str:
+        """옛 입력과 운영 도구 호환. 출발지가 AWS가 아니면 빈 글자다."""
+        return self.source_scope.get("region", "")
 
 
 def parse_spec(doc: Any) -> DrillSpec:
@@ -79,7 +90,11 @@ def parse_spec(doc: Any) -> DrillSpec:
 
 
 def _parse_spec(doc: Any) -> DrillSpec:
-    _require_keys(doc, "spec", {"schema_version", "namespace", "aws_region", "workloads", "routes", "new_connection_checks"}, {"declared_residuals"})
+    _require_keys(
+        doc, "spec",
+        {"schema_version", "namespace", "workloads", "routes", "new_connection_checks"},
+        {"declared_residuals", "aws_region", "source_scope", "target_scope"},
+    )
     if doc["schema_version"] != SPEC_VERSION:
         raise SpecError("unsupported spec schema_version")
     namespace = _text(doc["namespace"], "namespace")
@@ -95,12 +110,32 @@ def _parse_spec(doc: Any) -> DrillSpec:
         raise SpecError("new_connection_checks ids must be unique")
     return DrillSpec(
         namespace=namespace,
-        aws_region=_text(doc["aws_region"], "aws_region"),
+        source_scope=_source_scope(doc),
         workloads=_workloads(doc["workloads"]),
         routes=tuple(_route(r, namespace) for r in _list(doc["routes"], "routes")),
         new_connection_checks=parsed_checks,
         declared_residuals=tuple(residuals),
+        target_scope=_scope(doc["target_scope"], "target_scope") if "target_scope" in doc else {},
     )
+
+
+def _source_scope(doc: dict) -> dict[str, str]:
+    if ("aws_region" in doc) == ("source_scope" in doc):
+        raise SpecError("spec needs exactly one of source_scope or aws_region")
+    if "aws_region" in doc:
+        return {"region": _text(doc["aws_region"], "aws_region")}
+    return _scope(doc["source_scope"], "source_scope")
+
+
+def _scope(value: Any, label: str) -> dict[str, str]:
+    """모양만 본다. 비어 있어도 받는다(onprem → 다른 종류는 범위 값 없이 주소를 만든다)."""
+    scope = _labels(value, label)
+    unknown = scope.keys() - SCOPE_KEYS
+    if unknown:
+        raise SpecError(f"{label}: unknown {sorted(unknown)}")
+    for key, item in scope.items():
+        _text(item, f"{label} {key}")
+    return scope
 
 
 def _workloads(doc: Any) -> dict[str, Workload]:

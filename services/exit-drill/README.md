@@ -22,7 +22,8 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 |---|---|
 | `spec.py` | 드릴 명세 읽기. 어떤 경로가 무슨 경로인지 사람이 선언한 입력이다 |
 | `inventory_input.py` | T16 인벤토리 읽기. **T16의 필드와 값(등급 · 역할 · 환경 종류)을 아는 곳은 이 파일뿐이다.** 계약이 제안 상태라 바뀌면 여기만 고친다 |
-| `aws_endpoints.py` | AWS 서비스 이름 → 시험할 공개 주소 |
+| `exit_scope.py` | 출발지 종류별 차단 대상 등록부(ADR-0034 칸 `source.exit_scope`). 같은 종류 목적지는 범위 값으로 출발지만 고른다 |
+| `aws_endpoints.py` · `gcp_endpoints.py` | AWS · Google API 이름 → 시험할 공개 주소 |
 | `cluster.py` | `kubectl get -o json` 결과와 NetworkPolicy 해석 |
 | `policy.py` | 경로별 결정(ALLOW · BLOCK · KEEP)과 NetworkPolicy 생성. 위험한 입력은 만들지 않고 실패한다 |
 | `probe.py` | Pod 안에서 대상을 재는 접속 시험. 파일 하나 · 표준 라이브러리만 쓴다 |
@@ -41,7 +42,23 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 | `source_access` | BLOCK | AWS API, 풀러→출발지 DB 프록시 | 허용 목록에서 뺀다 |
 | `replication` | KEEP | 목적지 DB↔출발지 DB(Tailscale) | DB Pod를 고르지 않는다 |
 
-AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비스마다 자동으로 차단 시험 대상이 된다.** 같은 입력이면 같은 계획이 나오고, 경로 순서를 바꿔도 해시가 같다. 재시작으로 Pod UID가 바뀌어도 같은 계획이다.
+출발지 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비스마다 자동으로 차단 시험 대상이 된다.** 같은 입력이면 같은 계획이 나오고, 경로 순서를 바꿔도 해시가 같다. 재시작으로 Pod UID가 바뀌어도 같은 계획이다.
+
+### 출발지 종류별 차단 대상 (A8)
+
+출발지 종류는 인벤토리의 `source.env_kind`, 목적지 종류는 후보의 `env_kind`에서 읽는다. 범위 값은 명세의 `source_scope` · `target_scope`에 적는다(키는 [environment-kinds.json](../../docs/contracts/environment-kinds.json)의 `scope_keys`). 옛 명세의 `aws_region`은 `source_scope: {"region": …}`으로 읽는다.
+
+| 출발지 | 차단 대상 | 같은 종류 목적지일 때 막는 것 |
+|---|---|---|
+| aws | 쓰는 서비스의 `*.amazonaws.com` 주소(`aws-<서비스>`) | 리전이 다르면 출발지 리전 주소. 출발지 S3 버킷 가상 호스트(`aws-s3-bucket-<이름>`, 자원의 `account_id`가 목적지면 제외) |
+| gcp | 같은 역할의 `*.googleapis.com` 주소(`gcp-<API>`)와 GCS 버킷 주소 | 리전이 다르면 출발지 리전 엔드포인트(`*.rep.googleapis.com`). 출발지 프로젝트의 버킷 |
+| onprem | 인벤토리 `deploy.resources[].attributes.endpoint`의 출발지 내부 주소(`onprem-<역할>-<이름>`) | 자원의 `cluster_uid`가 목적지 클러스터가 아닌 주소 |
+
+같은 종류 간 이전은 양쪽 범위 값을 모두 요구한다(`SCOPE_KEY_MISSING`). 같은 `cluster_uid`는 이전이 아니다(`SAME_CLUSTER`). 모르는 종류는 `UNSUPPORTED_SOURCE_KIND` · `UNSUPPORTED_TARGET_KIND`, 다른 종류의 범위 키는 `SCOPE_KEY_UNKNOWN`이다.
+
+**호스트로 출발지와 목적지를 가를 수 없는 의존성은 버리지 않는다.** 공통 주소(같은 리전의 서비스 주소, `iam.amazonaws.com`, `*.googleapis.com`), 클러스터 안 이름(`*.svc`), 목적지 범위의 자원, 못 읽은 주소는 계획의 `scope_indistinct`에 이유와 함께 적고 판정은 `SCOPE_INDISTINCT`로 UNKNOWN이다. 지도에도 그 의존성의 근거로 `scope:<id>`가 나온다.
+
+출발지에만 해당하는 주소(버킷 가상 호스트 등)도 목적지와 같은 IP를 쓸 수 있다. NetworkPolicy는 IP로만 막으므로, 목적지가 같은 클라우드 API를 써야 하면 그 주소가 열린 채로 재져 FAIL이 된다. 이 경우를 통과시키려면 호스트 이름을 보는 송신 통제(FQDN 정책 · 송신 프록시)가 필요하다. 판정은 실측을 보므로 거짓 PASS는 나지 않는다.
 
 **밖에서 들어오는 경로(`edge` 역할)는 정책으로 고르지 않는다.** Cloudflare Tunnel connector(`cloudflared`)처럼 공개 트래픽을 앱 Service로 넘기는 Pod다. 송신을 좁히면 공개 경로가 끊긴다. 명세에 그 Pod가 기대는 잔존 의존성(`residual`)을 적으면 지도의 그 항목 "목적지 구현" 칸에 나온다. 시험 대상이 아니라서 터널이 내려가 있어도 드릴은 돈다.
 
@@ -64,6 +81,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | `CONTROL_SELECTED` · `NO_CONTROL` | 대조군이 차단되거나 없으면 대상이 살아 있는지 잴 수 없다 |
 | `EDGE_SELECTED` | 앱 선택자가 터널(`edge`) Pod까지 고른다. 차단하면 공개 경로가 끊긴다 |
 | `UNKNOWN_RESIDUAL` | `edge`가 잇는 잔존 의존성이 인벤토리에도 명세의 `declared_residuals`에도 없다 |
+| `SCOPE_KEY_MISSING` · `SCOPE_KEY_UNKNOWN` · `SAME_CLUSTER` · `UNSUPPORTED_SOURCE_KIND` · `UNSUPPORTED_TARGET_KIND` | 출발지만 고를 범위 값이 없거나 틀렸다. 위 "출발지 종류별 차단 대상" 참고 |
 | `CONTAINER_NOT_IN_POD` | 명세의 앱 컨테이너 이름이 Pod에 없다. 드릴을 다 돌린 뒤 판정 불가가 되기 전에 멈춘다 |
 | `OWNER_ROLE_MISMATCH` · `UNKNOWN_WORKLOAD` · `DUPLICATE_ROUTE` · `POLICY_NAME_CONFLICT` · `NO_REPLICATION_ROUTE` · `NO_SOURCE_ROUTE` · `NO_AWS_CLIENT` · `EMPTY_SELECTOR` | 명세 자체의 모순 |
 
@@ -94,6 +112,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | 측정 중 정책이 바뀜 | `POLICY_CHANGED_DURING_OBSERVATION` | 무엇을 잰 것인지 모른다 |
 | 관측 값의 모양이 틀림 | `OBSERVATION_UNREADABLE` | 읽지 못한 증거로 판정하지 않는다 |
 | 잴 수 없는 의존성 | `UNMAPPED_DEPENDENCY` | 차단을 확인할 경로가 없다 |
+| 범위로 구분 불가 | `SCOPE_INDISTINCT` | 같은 종류 목적지가 같은 주소를 써서 출발지만 막혔는지 잴 수 없다 |
 
 **거부 하나를 세는 조건**은 넷이다. 대상 Pod가 거부되고, 그 Pod의 차단 전 측정은 연결됐고, 차단되지 않은 대조군이 재기 전과 후 모두 연결되고, 잰 Pod가 그 워크로드 소속이다.
 

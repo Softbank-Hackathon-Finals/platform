@@ -31,3 +31,13 @@ def endpoint_host(service: str, region: str) -> str:
     if service in _GLOBAL_HOST:
         return _GLOBAL_HOST[service]
     return f"{_REGIONAL_PREFIX[service]}.{region}.amazonaws.com"
+
+
+def is_global(service: str) -> bool:
+    """리전이 없는 주소. 다른 계정 · 다른 리전의 목적지도 같은 주소를 쓴다."""
+    return service in _GLOBAL_HOST
+
+
+def bucket_host(bucket: str, region: str) -> str:
+    """버킷 가상 호스트 주소. 버킷 이름은 전역에서 하나라 출발지 버킷에만 해당한다."""
+    return f"{bucket}.s3.{region}.amazonaws.com"
