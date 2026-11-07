@@ -26,12 +26,14 @@ spec:
       prune: true
       selfHeal: true
       allowEmpty: false
+    # No CreateNamespace: namespaces belong to whoever builds the cluster (T45), never to this chart.
     syncOptions:
-      - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+    # On an empty cluster T45 installs the Tailscale CRDs and namespaces after this Application exists.
+    # Automated sync never retries a failed revision by itself, so keep retrying until they are there.
     retry:
-      limit: 5
+      limit: -1
       backoff:
         duration: 10s
         factor: 2
