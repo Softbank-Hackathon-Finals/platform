@@ -1,3 +1,4 @@
+import { agentAudit, auditSummary, renderAudit } from "./audit.js";
 import {
   Model,
   STATES,
@@ -23,6 +24,7 @@ let model,
 let observed = null;
 let controls = null;
 let security = null;
+let audit = null;
 let pending = null,
   commandId = null,
   lastHeartbeat = 0,
@@ -202,6 +204,21 @@ function render() {
       ? `실행 묶음 문제: ${controls.report.run_issues.join(", ")}`
       : "",
   );
+  const auditFresh =
+    audit &&
+    now - audit.at < 15000 &&
+    audit.value.plan_digest === model.snapshot?.plan_digest;
+  text(
+    "audit-status",
+    auditFresh
+      ? auditSummary(audit.value)
+      : "감사 기록 확인 불가 — 저장소 연결·권한·검증 상태를 확인하세요.",
+  );
+  text(
+    "audit-digest",
+    auditFresh ? `체인 지문 ${audit.value.chain_digest}` : "",
+  );
+  renderAudit($("audit-rows"), auditFresh ? audit.value : null);
   text("failback-status", failbackSummary(model.failback?.data));
   details(
     "failback-detail",
@@ -332,6 +349,7 @@ function revokeView(error) {
   observed = null;
   controls = null;
   security = null;
+  audit = null;
   commandId = null;
   notice(messages.forbidden, true);
   text(
@@ -352,7 +370,7 @@ async function refresh(g) {
     });
     if (g !== generation) return;
     model.observeSnapshot(value, Date.now());
-    const [metrics, report, findings] = await Promise.allSettled([
+    const [metrics, report, findings, auditResult] = await Promise.allSettled([
       request(`/v1/plans/${model.plan}/observations`, {
         signal: AbortSignal.timeout(7000),
       }),
@@ -362,9 +380,12 @@ async function refresh(g) {
       request(`/v1/plans/${model.plan}/security`, {
         signal: AbortSignal.timeout(7000),
       }),
+      request(`/v1/plans/${model.plan}/audit`, {
+        signal: AbortSignal.timeout(7000),
+      }),
     ]);
     if (g !== generation) return;
-    for (const result of [metrics, report, findings]) {
+    for (const result of [metrics, report, findings, auditResult]) {
       if (result.status === "rejected" && revokeView(result.reason)) return;
     }
     try {
@@ -407,9 +428,21 @@ async function refresh(g) {
     } catch {
       security = null;
     }
+    try {
+      audit =
+        auditResult.status === "fulfilled"
+          ? {
+              value: agentAudit(auditResult.value, model.snapshot),
+              at: Date.now(),
+            }
+          : null;
+    } catch {
+      audit = null;
+    }
     return true;
   } catch (error) {
     if (g !== generation || revokeView(error)) return false;
+    audit = null;
     model.connected = false;
     notice(
       messages[error.code] ??
@@ -490,6 +523,7 @@ async function connectPlan(plan, recovery = false) {
   observed = null;
   controls = null;
   security = null;
+  audit = null;
   commandId = null;
   lastHeartbeat = 0;
   refreshBusy = false;

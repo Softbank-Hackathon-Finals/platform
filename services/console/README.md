@@ -245,7 +245,6 @@ WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확
 - 브라우저의 복귀 시나리오는 명시적 HTTP/SSE 계약 fixture다. 실제 DB·Edge 복귀, 운영 권한,
   서비스 무중단 검증을 뜻하지 않는다. 기존 실제 T10 코드/SQLite 회귀도 함께 실행한다.
 
-
 ## T33 보안 탐지 요약 연결
 
 `PlanSecurity`는 기존 T33 `/v1/security/summary`의 환경별 수집 상태·미해결 탐지 건수를
@@ -314,3 +313,77 @@ T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는�
 실제 승인·실행은 기존 T10 현재 권한·T19 검증을 계속 따른다.
 
 [실제 DB·두 브라우저·변이·Linux 검증](../../docs/evidence/t21-control-read-deadline-2026-11-06/README.md).
+
+### T11 버킷 삭제 차단 기록 → T24 → T21
+
+`GET /v1/plans/{plan_id}/audit`는 T24에 **저장된** 실행별 기록의 읽기 전용 투영이다.
+표시 문구는 **“버킷 삭제 시도 차단 — 에이전트 도구 정책”**이며 AWS IAM의
+`DeleteBucket` 거부 시험이나 T5 통제 PASS로 사용하지 않는다. 콘솔 자체에서
+새로운 차단 이벤트를 만들거나 승인·전환 권한을 부여하지 않는다.
+
+- 원문: [T11 도구 기록](../agent-worker/src/bravo_agent/tools.py),
+  [T24 감사 기록 계약](../../docs/contracts/T24-audit-record-v1-proposal.md).
+  생산자 스키마·기록 작성·버전 확인 읽기(`read_run`)·등록값 형식은 T24 소유다. 소비자에 복사하지 않는다.
+- T24의 `from_agent_tool_event`는 원래 `run_id`, `attempt`와 시도 내 **원래 이벤트 인덱스**로
+  `origin_id`를 만든다. 필터링한 목록의 새 인덱스로 다시 번호를 붙이면 안 된다.
+- `source=agent.tools`, `kind=DESTRUCTIVE_ATTEMPT_BLOCKED`,
+  `payload.outcome=DENIED`, `payload.category=bucket_delete`를 함께 확인한다.
+  기록 ID·저장 시각·실행·시도·도구·사유만 허용 목록으로 전달한다.
+  원문 명령, 모델 인자, 임의 payload, 저장소 키와 URL은 반환하지 않는다.
+- 도구 이름은 목록이 아니라 T11 규칙(`[a-z][a-z0-9_.]{0,63}`, T24 `TOOL_NAME`)으로 검사한다.
+  새 T11 도구(`sandbox.exec` 등)는 콘솔 변경 없이 표시되고, 규칙 밖 이름은 그 행만 “도구 확인 불가”다.
+- T10의 실제 계획 조회 권한을 **읽기 전후** 검사한다. 계획은 실행 중 상태가 바뀌므로
+  전후에는 계획 ID·digest와 등록 인증만 다시 대조한다. 중복 origin도 거부한다.
+- 연결 없음·검증 실패·권한 회수는 503/403과 **확인 불가**다. “0건이므로 안전”으로
+  바꾸지 않는다. 계획 전환·권한 회수·읽기 실패 시 화면의 이전 기록을 지운다.
+- 실행에 `agent.tools` 기록이 하나도 없으면 “버킷 삭제 차단 0건”이 아니라 **“도구 기록 확인 불가”**다.
+  T10 스키마 1.0은 아직 도구 이벤트를 전달하지 않으므로, 기록이 없다는 것이 시도가 없었다는 뜻이 아니다.
+- 범위는 등록값이 보증하는 **한 실행의 앞부분**이다(최대 100,000건). 등록 뒤에 추가된 기록은
+  `unregistered_records`로 세기만 하고 보여 주지 않는다. 차단 행은 최근 200건만 보내고 총수는
+  `rows_total`로 따로 낸다. 전체 계획의 모든 실행·이벤트 수집 완료를 뜻하지 않는다.
+- 체인 지문은 무결성 검사이지 신원 인증·위변조 불가능성·보존 기간의 증명이 아니다.
+  이 화면은 `retention_verified=false`만 반환한다. 운영 Object Lock 여부를 추정하지 않는다.
+- 질의 문자열은 받지 않는다(400). 실행·저장 위치를 브라우저가 고를 수 없다.
+
+호스트 연결 지점은 다음과 같다. 기본값은 `audit=None`으로 비활성이다. T24 패키지가
+없으면 `t24_reader` 구성은 실패한다. 대체 검증기나 임시 메모리 기록으로 우회하지 않는다.
+
+```python
+from bravo_console.audit import t24_reader
+
+reader = t24_reader(
+    api,
+    load=host.load_audit_registration,          # -> RegisteredAuditRun
+    authenticate=host.authorize_audit_registration,
+    client=s3_reader_client, bucket=audit_bucket,  # T24 reader 역할(list·get)만
+)
+app = ConsoleApp(api, public_origin=public_origin, audit=reader)
+```
+
+- `load(scope, plan)`는 요청 본문·URL로 저장 경로를 받지 않고, 호스트의 등록 저장소에서
+  `RegisteredAuditRun(plan_id, plan_digest, registration, anchors)`를 읽는다. `registration`은
+  T24 `registration_from_receipt`가 **쓰기 영수증**으로 만든 등록값 v1이다. 버킷 목록으로 만들지 않는다.
+- 호스트는 등록값을 감사 writer가 바꿀 수 없는 곳에 **append-only**로 받는다. 새 등록값의
+  `record_count`가 줄면 받지 않고, 이전에 받은 등록값들을 `anchors`(`(record_count, chain_digest)`)로 넘긴다.
+  콘솔은 각 기준점의 순번 sha256이 지금 체인에서도 같은지 확인한다(덮어쓰기·재작성 거부).
+- 읽기는 T24 `read_run`이다. 기록 키의 다중 버전·삭제 표식, 체인, 등록값 기준점을 T24가 확인한다.
+  `root`(FileSink)는 버전이 없어 덮어쓰기를 잡지 못하므로 시험·데모 전용이다.
+- `authenticate`는 로그인한 주체의 tenant·계획 접근권한과 **신뢰하는 등록부의 실행→계획/digest 결속**을
+  확인해야 한다. 기록과 함께 전달된 자기 주장이나 `return True`만으로 구현하면 안 된다.
+
+#### 검증 상태와 인계
+
+2026-11-07, develop(#480·#547 머지 후)에서 실제 T24 writer·등록값·`read_local_run`으로 다시 확인했다.
+
+- 자동 CI(`tests/test_audit.py`): T24는 콘솔 개발 의존성(경로)이다. T11 형식 이벤트를 실제
+  `from_agent_tool_event`·`RunLedger`·`FileSink`로 쓰고, 영수증 등록값으로 읽는다.
+  `sandbox.exec` 왕복, 규칙 밖 도구, 도구 기록 없음, 실행 성장(기준점), 계획 상태 변화, 부정 18종을 시험한다.
+- 실제 T11 정책 거부 상호운용(명시 실행): `PYTHONPATH=../agent-worker/src python -m pytest tests/interop_audit.py -q`.
+- 실제 모듈 브라우저 시험: 같은 `PYTHONPATH`로
+  `pnpm exec playwright test --config testing/audit.config.js`.
+  시험 서버는 loopback 전용·임시 저장소·가짜 로그인 주체이며 운영 인증 구현이 아니다.
+- **운영 미완료:** T10의 도구 이벤트 전달(스키마 1.0 이후), 호스트 등록 저장소(append-only)와 연결,
+  실제 S3 `read_run`·Object Lock 보존과 재시작·재전송 인수. 해당 항목이 끝나기 전 이 소비자 변경으로
+  T24 또는 T21 전체 완료를 체크하지 않는다.
+
+T24 모듈의 수정은 담당자 범위로 유지한다. 이 변경은 T21 소비자와 검증 코드만 포함한다.

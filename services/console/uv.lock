@@ -43,6 +43,28 @@ wheels = [
 ]
 
 [[package]]
+name = "bravo-audit-log"
+version = "0.1.0"
+source = { directory = "../audit-log" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.35,<2" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+]
+provides-extras = ["aws"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "pytest", specifier = ">=8,<10" },
+    { name = "uvicorn", specifier = ">=0.30,<1" },
+]
+
+[[package]]
 name = "bravo-console"
 version = "0.1.0"
 source = { editable = "." }
@@ -59,6 +81,7 @@ t10 = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "bravo-audit-log" },
     { name = "bravo-control-gate", extra = ["t10"] },
     { name = "bravo-platform-events" },
     { name = "httpx" },
@@ -79,6 +102,7 @@ provides-extras = ["t10"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bravo-audit-log", directory = "../audit-log" },
     { name = "bravo-control-gate", extras = ["t10"], directory = "../control-gate" },
     { name = "bravo-platform-events", directory = "../platform-events" },
     { name = "httpx", specifier = ">=0.28,<1" },

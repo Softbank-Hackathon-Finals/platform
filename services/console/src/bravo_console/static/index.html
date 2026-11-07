@@ -13,6 +13,18 @@
       <div id="connection" role="status">연결 대기</div>
     </header>
     <main>
+      <section class="card" aria-label="에이전트 도구 차단 감사 기록">
+        <h2>에이전트 도구 차단 기록</h2>
+        <p id="audit-status" role="status">
+          감사 기록 확인 불가 — 계획 연결 대기
+        </p>
+        <p class="muted">
+          등록된 실행의 저장 기록입니다. AWS IAM의 버킷 삭제 거부 시험이나 전체
+          실행의 무결성·보존 기간 검증을 뜻하지 않습니다.
+        </p>
+        <p id="audit-digest" class="muted"></p>
+        <ol id="audit-rows"></ol>
+      </section>
       <section class="intro">
         <p class="eyebrow">서비스 이전 · 실행과 근거</p>
         <h1>환경을 옮겨도,<br />확인한 기준을 지키도록.</h1>
