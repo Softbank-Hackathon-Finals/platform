@@ -15,7 +15,7 @@ dependencies = [
 [tool.uv.sources]
 # T36 intake is proposed in #168, not yet on develop. Consume its immutable
 # source without copying the validator or merging another owner's branch.
-bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f", subdirectory = "services/observability" }
+bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63", subdirectory = "services/observability" }
 bravo-rehearsal-runner = { path = "../rehearsal-runner" }
 bravo-agent-worker = { path = "../agent-worker" }
 bravo-iac = { path = "../iac" }

@@ -8,6 +8,7 @@ locals {
     audit_policy   = file("${path.module}/../../../services/control-runner/templates/rke2-audit-policy.yaml")
     metadata_guard = file("${path.module}/metadata-guard.yaml")
     registry       = local.registry
+    public_issuer  = coalesce(var.public_issuer, "-")
   })
 }
 

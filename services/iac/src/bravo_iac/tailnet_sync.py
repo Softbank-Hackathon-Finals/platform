@@ -6,7 +6,10 @@ sections a fragment has, and everything else stays byte-for-byte what the tailne
 
 - tag owners: a missing tag is added; a tag with other owners is a conflict, never overwritten
 - auto approvers, grants, tests: added when the live policy does not already cover them
-- nothing is removed (no prune). Dropping a route from Git leaves the grant for a person to delete
+- prune: an entry the baseline fragment had and this one drops is removed when the live entry is exactly
+  that entry, whoever wrote it: an exact match is the repository's. One a person changed stays and is
+  reported as kept while it still allows (or still asserts) what Git dropped. The baseline is the commit
+  of the last successful develop run (the workflow finds it), so cancelled or refused runs lose nothing
 
 `sync` runs it against the Tailscale API with a short-lived token from GitHub OIDC (workload identity
 federation, no stored secret). Plan: read, merge, `check_policy`, Tailscale validate. Apply: the same,
@@ -48,6 +51,43 @@ def _tested(tests: list, want: dict) -> bool:
     mine = [t for t in tests if t.get("src") == want["src"] and t.get("proto") == want.get("proto")]
     return all(any(a in t.get(kind, []) for t in mine)
                for kind in ("accept", "deny") for a in want.get(kind, []))
+
+
+def _item(key, entry) -> str:
+    if key == "grants":
+        return f"GRANT:{entry['src'][0]}->{entry['dst'][0]}:{entry['ip'][0]}"
+    return f"TEST:{entry['src']}"
+
+
+def prune(live, previous, wanted) -> tuple[dict, list[str], list[str]]:
+    """(pruned policy, removed items, kept items): what Git dropped since the baseline `previous`."""
+    # ponytail: autoApprovers are not pruned; fragment() emits none. Add when a fragment does.
+    pruned, removed, kept = copy.deepcopy(live), [], []
+    owners = pruned.get("tagOwners") or {}
+    for tag, was in (previous.get("tagOwners") or {}).items():
+        if tag in (wanted.get("tagOwners") or {}) or tag not in owners:
+            continue
+        if owners[tag] == was:
+            del owners[tag]
+            removed.append(f"TAG_OWNER:{tag}")
+        else:
+            kept.append(f"TAG_OWNER:{tag}")
+    for key in ("grants", "tests"):
+        keep = {_canonical(e) for e in wanted.get(key) or []}
+        for dropped in [e for e in previous.get(key) or [] if _canonical(e) not in keep]:
+            exact = [e for e in pruned.get(key) or [] if _canonical(e) == _canonical(dropped)]
+            for entry in exact:
+                pruned[key].remove(entry)
+            if exact:
+                removed.append(_item(key, dropped))
+            elif key == "grants" and any(_covers(g, dropped) for g in pruned.get("grants") or []):
+                kept.append(_item(key, dropped))  # a person's grant still allows what Git dropped
+            elif key == "tests" and _tested(pruned.get("tests") or [], dropped):
+                kept.append(_item(key, dropped))
+    for key in ("tagOwners", "grants", "tests"):
+        if key in pruned and not pruned[key] and key in live and live[key]:
+            del pruned[key]  # emptied by the prune: leave no empty section behind
+    return pruned, removed, kept
 
 
 def merge(live, wanted) -> tuple[dict, list[str], list[str]]:
@@ -163,22 +203,26 @@ def github_token(client_id: str, send=None) -> str:
     return token
 
 
-def sync(client: Client, states, tailnet: str, apply: bool) -> dict:
+def sync(client: Client, states, tailnet: str, apply: bool, previous_states=None) -> dict:
     wanted = fragment(states, tailnet)
+    previous = fragment(previous_states, tailnet) if previous_states is not None else {}
     live, etag = client.read()
-    merged, added, conflicts = merge(live, wanted)
-    result = {"tailnet": tailnet, "mode": "apply" if apply else "plan", "added": added, "conflicts": conflicts}
+    # Prune first: a dropped entry must not make merge think the new fragment is already covered.
+    pruned, removed, kept = prune(live, previous, wanted)
+    merged, added, conflicts = merge(pruned, wanted)
+    result = {"tailnet": tailnet, "mode": "apply" if apply else "plan", "added": added, "removed": removed,
+              "kept": kept, "conflicts": conflicts}
     if conflicts:
         return {**result, "status": "REFUSED", "code": "IAC_POLICY_CONFLICT"}
     if check_policy(merged, states, tailnet):
         return {**result, "status": "REFUSED", "code": "IAC_MERGE_INCOMPLETE"}
-    if apply and not added:
+    if apply and not added and not removed:
         return {**result, "status": "NO_CHANGE"}
     result["validate"] = client.validate(merged)
     if result["validate"] == "FAIL" or (apply and result["validate"] != "PASS"):
         return {**result, "status": "REFUSED", "code": "IAC_TAILSCALE_VALIDATE_FAILED"}
     if not apply:
-        return {**result, "status": "PLANNED" if added else "NO_CHANGE"}
+        return {**result, "status": "PLANNED" if added or removed else "NO_CHANGE"}
     try:
         written = client.write(merged, etag)
     except OSError:
@@ -190,7 +234,8 @@ def sync(client: Client, states, tailnet: str, apply: bool) -> dict:
     try:
         back, _ = client.read()
         _, again, still = merge(back, wanted)
-        confirmed = not again and not still and not check_policy(back, states, tailnet)
+        _, left, _ = prune(back, previous, wanted)
+        confirmed = not again and not still and not left and not check_policy(back, states, tailnet)
     except (IacError, OSError):
         confirmed = False
     if not confirmed:

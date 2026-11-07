@@ -13,7 +13,7 @@ from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
-OBSERVABILITY_REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
+OBSERVABILITY_REVISION = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
