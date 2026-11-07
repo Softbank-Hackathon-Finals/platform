@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "environment",
+    "tailnet",
+    "repoURL",
+    "targetRevision",
+    "application"
+  ],
+  "properties": {
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "autoSync", "prune"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "autoSync": {"type": "boolean"},
+        "prune": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"prune": {"const": true}}},
+          "then": {"properties": {"enabled": {"const": true}, "autoSync": {"const": true}}}
+        },
+        {
+          "if": {"properties": {"autoSync": {"const": true}}},
+          "then": {"properties": {"enabled": {"const": true}}}
+        }
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "source-dev",
+        "target-dev"
+      ]
+    },
+    "tailnet": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.ts\\.net$"
+    },
+    "repoURL": {
+      "type": "string",
+      "pattern": "^https://github\\.com/Softbank-Hackathon-Finals/platform\\.git$"
+    },
+    "targetRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}

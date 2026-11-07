@@ -1,0 +1,9 @@
+apiVersion: v2
+name: bravo-iac-gitops
+description: Argo CD installed in each customer cluster; it pulls that cluster's generated IaC chart from Git (T44, ADR-0032)
+type: application
+version: 0.2.0
+dependencies:
+  - name: argo-cd
+    version: 10.14.0
+    repository: https://argoproj.github.io/argo-helm

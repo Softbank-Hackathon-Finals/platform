@@ -445,6 +445,11 @@ def kubeconfig(role, api_hostname, token_file):
     }
 
 
+# Route outputs owned by the tailnet-egress IaC module; one owner per resource. The functions stay
+# for the existing port readback checks.
+MOVED_TO_IAC = {"platform", "network", "collector-platform", "collector-network"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -463,6 +468,9 @@ def main(argv=None):
     p.add_argument("--api-hostname", required=True)
     p.add_argument("--token-file", required=True)
     args = parser.parse_args(argv)
+    if args.command in MOVED_TO_IAC:
+        parser.exit(2, f"{args.command} no longer renders this route: it is declared in infra/iac/environments "
+                       "(tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
     if args.command == "platform":
         result = platform(args.api_hostname, args.credential_secret)
     elif args.command == "network":

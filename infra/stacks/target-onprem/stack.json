@@ -1,0 +1,649 @@
+{
+  "schema_version": 1,
+  "stack": "target-onprem",
+  "description": "T30 · T9 README의 목적지 처음 구축 절차를 정형 단계로 옮긴 첫 스택(T45, ADR-0033). 렌더러 코드는 바꾸지 않는다. 목적지 Argo CD는 T44(ADR-0032) 설치를 함께 쓴다.",
+  "params": {
+    "node_name": {
+      "description": "확인한 노드의 kubernetes.io/hostname",
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
+    },
+    "arch": {
+      "description": "kubectl get nodes가 보고하는 노드 아키텍처",
+      "enum": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "api_service_ip": {
+      "description": "kubernetes Service의 사설 IPv4",
+      "pattern": "^(10|172|192)\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$"
+    },
+    "api_endpoint_ip": {
+      "description": "API server endpoint의 사설 IPv4",
+      "pattern": "^(10|172|192)\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$"
+    },
+    "kube_version": {
+      "description": "helm template --kube-version에 넘길 실제 Kubernetes 버전",
+      "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
+    }
+  },
+  "charts": {
+    "cloudnative-pg": {
+      "file": "cloudnative-pg-0.29.1.tgz",
+      "sha256": "b53d3991fe84bcf38767e7702cae78666265427a127a26fff168ab4207d2b1df",
+      "source": "https://cloudnative-pg.github.io/charts"
+    },
+    "openbao": {
+      "file": "openbao-0.30.6.tgz",
+      "sha256": "76e90c2315a4922b4b0c6c63fd8a00b9f4bdf0cffda160664f8ea5762d59911c",
+      "source": "https://openbao.github.io/openbao-helm (target-secrets/render.py BAO_CHART_SHA256)"
+    },
+    "external-secrets": {
+      "file": "external-secrets-2.14.0.tgz",
+      "sha256": "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34",
+      "source": "https://charts.external-secrets.io (target-secrets/render.py ESO_CHART_SHA256)"
+    },
+    "tailscale-operator": {
+      "file": "tailscale-operator-1.104.4.tgz",
+      "sha256": "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998",
+      "source": "https://pkgs.tailscale.com/helmcharts (target-workloads/network.py CHART_SHA256)"
+    }
+  },
+  "steps": [
+    {
+      "id": "identity",
+      "kind": "probe",
+      "owner": "T30",
+      "description": "노드 Ready, 클러스터 UID, Kubernetes 버전, 새 환경 여부(기존 CNPG · operator · namespace · PV 없음)를 확인한다",
+      "check": "target-identity"
+    },
+    {
+      "id": "host-dirs",
+      "kind": "operator_action",
+      "owner": "T30",
+      "description": "DB · 객체 저장소 · OpenBao 호스트 디렉터리를 사람이 준비한다",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "새 노드에 /var/lib/bravo-target-dev/postgres(UID/GID 26), /var/lib/bravo-target-dev/objects(UID/GID 1000), /var/lib/bravo-target-dev/openbao(UID 100, GID 1000, 0700)를 만든다. 기존 데이터가 있으면 멈추고 재사용하지 않는다.",
+      "confirm": "host-paths"
+    },
+    {
+      "id": "argocd",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 목적지 Argo CD(infra/iac/argocd)가 설치돼 있는지 확인한다. T45는 Argo CD를 설치하지 않는다",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 설치한다(release bravo-iac-gitops, namespace bravo-iac-gitops, 설치 명령 2회). 플랫폼 클러스터에는 설치하지 않는다.",
+      "confirm": "iac-argocd"
+    },
+    {
+      "id": "config-repo-access",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "목적지 Argo CD에 설정 저장소 읽기 전용 자격을 등록한다",
+      "needs": [
+        "argocd"
+      ],
+      "instruction": "조직의 비공개 목적지 설정 저장소에 읽기 전용 deploy key를 만들고, 값은 메모리에서 bravo-iac-gitops namespace의 repository Secret으로만 전달한다. 쓰기 권한 키를 등록하지 않는다.",
+      "confirm": "argocd-repository"
+    },
+    {
+      "id": "base",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "namespace와 서비스 계정을 설정 저장소에 올린다",
+      "needs": [
+        "config-repo-access"
+      ],
+      "path": "base",
+      "renders": [
+        {
+          "name": "target-namespace",
+          "run": "infra/envs/target-workloads/render.py",
+          "args": [
+            "database",
+            "--node-name",
+            "${node_name}"
+          ],
+          "select": {
+            "kinds": [
+              "Namespace"
+            ]
+          }
+        },
+        {
+          "name": "accounts",
+          "run": "infra/envs/target-workloads/render.py",
+          "args": [
+            "accounts"
+          ]
+        },
+        {
+          "name": "openbao-namespace",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "foundation",
+            "--node-name",
+            "${node_name}"
+          ],
+          "select": {
+            "kinds": [
+              "Namespace"
+            ]
+          }
+        },
+        {
+          "name": "eso-namespace",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "eso-namespace"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "base-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 base 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "base"
+      ],
+      "publish": "base",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "db-secrets",
+      "kind": "secret_generate",
+      "owner": "T30",
+      "description": "DB 계정 비밀값을 메모리에서 만들어 Kubernetes에만 넣는다",
+      "needs": [
+        "base-sync"
+      ],
+      "secrets": [
+        {
+          "namespace": "target-dev",
+          "name": "target-app-db",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "chat_app"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        },
+        {
+          "namespace": "target-dev",
+          "name": "target-replication",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "chat_replicator"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "object-secrets",
+      "kind": "operator_action",
+      "owner": "T9",
+      "description": "SeaweedFS s3.json(버킷 한정 bootstrap · client identity)을 사람이 만든다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "object_exposure.py render --state closed로 s3.json을 만들어 target-dev/target-seaweedfs-auth Secret에 메모리에서만 넣는다. client 키는 openbao-init 단계에서 OpenBao KV에 쓸 값이므로 운영자 자격 저장소에 보관한다.",
+      "confirm": "seaweedfs-auth"
+    },
+    {
+      "id": "cnpg",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "CNPG operator chart 0.29.1(operator 1.30.1)을 올린다",
+      "needs": [
+        "base-sync"
+      ],
+      "path": "cnpg",
+      "renders": [
+        {
+          "name": "operator",
+          "chart": "cloudnative-pg",
+          "release": "cnpg",
+          "namespace": "cnpg-system",
+          "values_file": "infra/envs/target-workloads/cnpg-values.yaml",
+          "include_crds": true,
+          "create_namespace": true
+        }
+      ]
+    },
+    {
+      "id": "cnpg-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 cnpg 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "cnpg"
+      ],
+      "publish": "cnpg",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "database",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "목적지 DB(Cluster · PV · 설정)를 올린다",
+      "needs": [
+        "cnpg-sync",
+        "db-secrets",
+        "host-dirs"
+      ],
+      "path": "database",
+      "renders": [
+        {
+          "name": "database",
+          "run": "infra/envs/target-workloads/render.py",
+          "args": [
+            "database",
+            "--node-name",
+            "${node_name}"
+          ],
+          "select": {
+            "exclude_kinds": [
+              "Namespace"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "database-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 database 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "database"
+      ],
+      "publish": "database",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "database-ready",
+      "kind": "wait",
+      "owner": "T30",
+      "description": "target-db가 Ready로 20초 이상 유지될 때까지 기다린다(일회성 마이그레이션 Job이 연결 거부로 끝나지 않게)",
+      "needs": [
+        "database-sync"
+      ],
+      "target": {
+        "kind": "Cluster",
+        "namespace": "target-dev",
+        "name": "target-db"
+      },
+      "condition": "Ready",
+      "timeout_seconds": 900,
+      "stable_seconds": 20
+    },
+    {
+      "id": "migration",
+      "kind": "render_apply",
+      "owner": "T30",
+      "description": "스키마 마이그레이션 Job을 한 번 실행한다(일회성이라 Git에 두지 않는다)",
+      "needs": [
+        "database-ready"
+      ],
+      "renders": [
+        {
+          "name": "migration",
+          "run": "infra/envs/target-workloads/render.py",
+          "args": [
+            "migration"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "migration-complete",
+      "kind": "wait",
+      "owner": "T30",
+      "description": "마이그레이션 Job 성공을 기다린다",
+      "needs": [
+        "migration"
+      ],
+      "target": {
+        "kind": "Job",
+        "namespace": "target-dev",
+        "name": "target-chat-schema-v1"
+      },
+      "condition": "Complete",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "objects",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "SeaweedFS 단일 인스턴스를 올린다",
+      "needs": [
+        "object-secrets",
+        "host-dirs"
+      ],
+      "path": "objects",
+      "renders": [
+        {
+          "name": "objects",
+          "run": "infra/envs/target-workloads/objects.py",
+          "args": [
+            "--node-name",
+            "${node_name}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "objects-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 objects 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "objects"
+      ],
+      "publish": "objects",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "tailscale-oauth",
+      "kind": "operator_action",
+      "owner": "T30",
+      "description": "Tailscale operator용 namespace와 OAuth Secret을 사람이 준비한다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "tailscale-system namespace를 Pod Security privileged로 만들고, 승인된 target 서비스 자격을 메모리에서 operator-oauth Secret(client_id, client_secret)으로만 전달한다. 기존 operator/CRD가 있으면 소유자를 확인하기 전 진행하지 않는다.",
+      "confirm": "tailscale-oauth"
+    },
+    {
+      "id": "tailscale",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "Tailscale operator chart 1.104.4를 올린다",
+      "needs": [
+        "tailscale-oauth"
+      ],
+      "path": "tailscale",
+      "renders": [
+        {
+          "name": "operator",
+          "chart": "tailscale-operator",
+          "release": "tailscale-operator",
+          "namespace": "tailscale-system",
+          "values": {
+            "run": "infra/envs/target-workloads/network.py",
+            "args": [
+              "values",
+              "--side",
+              "target"
+            ]
+          },
+          "include_crds": true
+        }
+      ]
+    },
+    {
+      "id": "tailscale-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "tailscale"
+      ],
+      "publish": "tailscale",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "openbao-image",
+      "kind": "operator_action",
+      "owner": "T9",
+      "description": "OpenBao 오프라인 이미지를 노드 containerd에 반입한다",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "검사한 비공개 OpenBao 이미지를 태그와 localhost/bravo-openbao@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
+      "confirm": "openbao-image"
+    },
+    {
+      "id": "openbao-tls",
+      "kind": "operator_action",
+      "owner": "T9",
+      "description": "OpenBao CA · leaf를 메모리에서 만들고 복구 자료를 보관한다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "CA와 leaf 키를 메모리에서 만들어 Kubernetes TLS Secret으로 직접 넣고, 복구 자료는 운영자 OS 자격 저장소에 보관한다. 공개 CA는 target-openbao-ca ConfigMap(ca.crt)으로 둔다.",
+      "confirm": "openbao-tls"
+    },
+    {
+      "id": "openbao",
+      "kind": "gitops_publish",
+      "owner": "T9",
+      "description": "OpenBao(foundation · chart 0.30.6 + finalize-bao · NetworkPolicy)를 올린다",
+      "needs": [
+        "openbao-image",
+        "openbao-tls",
+        "host-dirs"
+      ],
+      "path": "openbao",
+      "renders": [
+        {
+          "name": "foundation",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "foundation",
+            "--node-name",
+            "${node_name}"
+          ],
+          "select": {
+            "exclude_kinds": [
+              "Namespace"
+            ]
+          }
+        },
+        {
+          "name": "server",
+          "chart": "openbao",
+          "release": "target-openbao",
+          "namespace": "bravo-secrets",
+          "values": {
+            "run": "infra/envs/target-secrets/render.py",
+            "args": [
+              "bao-values"
+            ]
+          },
+          "post": {
+            "run": "infra/envs/target-secrets/render.py",
+            "args": [
+              "finalize-bao"
+            ]
+          }
+        },
+        {
+          "name": "network",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "network",
+            "--api-ip",
+            "${api_service_ip}",
+            "--api-endpoint-ip",
+            "${api_endpoint_ip}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openbao-sync",
+      "kind": "gitops_sync",
+      "owner": "T9",
+      "description": "Argo CD가 openbao 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "openbao"
+      ],
+      "publish": "openbao",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "eso",
+      "kind": "gitops_publish",
+      "owner": "T9",
+      "description": "External Secrets Operator chart와 NetworkPolicy를 올린다",
+      "needs": [
+        "base-sync"
+      ],
+      "path": "eso",
+      "renders": [
+        {
+          "name": "controller",
+          "chart": "external-secrets",
+          "release": "external-secrets",
+          "namespace": "external-secrets",
+          "values": {
+            "run": "infra/envs/target-secrets/render.py",
+            "args": [
+              "eso-values"
+            ]
+          },
+          "include_crds": true
+        },
+        {
+          "name": "network",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "eso-network",
+            "--api-ip",
+            "${api_service_ip}",
+            "--api-endpoint-ip",
+            "${api_endpoint_ip}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "eso-sync",
+      "kind": "gitops_sync",
+      "owner": "T9",
+      "description": "Argo CD가 eso 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "eso"
+      ],
+      "publish": "eso",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "openbao-init",
+      "kind": "operator_action",
+      "owner": "T9",
+      "description": "OpenBao init · unseal, KV · auth · policy, 출발지 값 이관을 사람이 한다",
+      "needs": [
+        "openbao-sync"
+      ],
+      "instruction": "OpenBao를 한 번만 init하고 응답 전체를 즉시 자격 저장소에 보관한다. KV v2(CAS 필수), Kubernetes auth, policy와 리허설 정책을 설정하고, 출발지 Secrets Manager의 VersionId와 AWSCURRENT를 함께 읽어 CAS 0으로 쓴다(target-secrets README 7 · 8).",
+      "confirm": "openbao-ready"
+    },
+    {
+      "id": "delivery",
+      "kind": "gitops_publish",
+      "owner": "T9",
+      "description": "SecretStore · ExternalSecret 전달 경로를 올린다",
+      "needs": [
+        "openbao-init",
+        "eso-sync"
+      ],
+      "path": "delivery",
+      "renders": [
+        {
+          "name": "delivery",
+          "run": "infra/envs/target-secrets/render.py",
+          "args": [
+            "delivery"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "delivery-sync",
+      "kind": "gitops_sync",
+      "owner": "T9",
+      "description": "Argo CD가 delivery 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "delivery"
+      ],
+      "publish": "delivery",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "delivery-ready",
+      "kind": "wait",
+      "owner": "T9",
+      "description": "target-app-credentials ExternalSecret이 Ready인지 기다린다",
+      "needs": [
+        "delivery-sync"
+      ],
+      "target": {
+        "kind": "ExternalSecret",
+        "namespace": "target-dev",
+        "name": "target-app-credentials"
+      },
+      "condition": "Ready",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "app",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "목적지 앱(쓰기 차단 상태로 시작)을 올린다",
+      "needs": [
+        "migration-complete",
+        "objects-sync",
+        "delivery-ready"
+      ],
+      "path": "app",
+      "renders": [
+        {
+          "name": "application",
+          "run": "infra/envs/target-workloads/application.py",
+          "args": [
+            "--arch",
+            "${arch}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "app-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 app 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "app"
+      ],
+      "publish": "app",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "verify",
+      "kind": "probe",
+      "owner": "T30",
+      "description": "구축 결과를 실제로 확인한다(probes.py · verify.py). Synced만으로 완료로 보지 않는다",
+      "needs": [
+        "app-sync",
+        "tailscale-sync"
+      ],
+      "check": "target-checks"
+    }
+  ]
+}

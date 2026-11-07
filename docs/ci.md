@@ -17,7 +17,6 @@
 | workflow·CI 선택기·공통 계약·루트 설정 | 전체 검사 |
 | 알 수 없는 경로·비교 이력 없음·삭제된 manifest | 전체 검사 |
 | local path/workspace dependency가 있는 프로젝트 변경 | 소비자 누락을 피하기 위해 전체 검사 |
-| merge_group | 큐 base부터 group head까지의 모든 PR 변경과 소비자 검사 |
 | main/develop push·주간 예약·수동 실행 | 전체 검사 |
 
 Terraform은 아직 root 간 의존 그래프를 만들지 않는다. 공통 module 소비자를 빠뜨리지 않도록 infra 변경 시 모두 검증한다. 현재 규모에서는 이 보수적 범위가 수작업 의존 목록보다 관리하기 쉽다. 프로젝트가 많아지면 실제 실행 시간을 보고 분할한다.
@@ -40,13 +39,9 @@ python3 -m unittest discover -s scripts/tests -v
 trivy config --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
-## Merge Queue
+## Merge Queue (2026-11-07 제거)
 
-`ci.yml`은 `merge_group: checks_requested`를 별도 수신한다. PR과 같은 필수 검사·읽기 전용 권한을 사용한다. 큐 base/head SHA 형식, checkout HEAD 일치, base의 조상 관계를 먼저 확인한다. 누락·불일치·다른 이력은 실패한다. 스코프는 마지막 PR만이 아니라 base→group head 전체를 사용한다. 증빙 비교 기준도 group base다. 큐 실행은 새 PR push 때문에 취소하지 않는다. 큐가 제거한 그룹의 결과를 다른 SHA의 성공으로 재사용하지 않는다.
-
-실제 GitHub 설정과 전환·복구 절차는 [Merge Queue 운영](merge-queue.md)을 따른다. 큐의 성공은 실제 클라우드 배포나 데이터 복구 성공을 뜻하지 않는다.
-
-T41의 [등록 봇](merge-queue-bot.md)은 CI 자체와 별도 workflow다. 기존 PROJECT_TOKEN을 신뢰된 workflow revision에서만 사용해 현재 PR을 조회하고 exact-head 큐 등록을 요청한다. PR 검사에는 이 토큰을 주입하지 않는다. `merge_group` 결과의 실제 통과 판정과 병합은 GitHub 기본 큐가 계속 맡는다.
+2026-11-07 11:52 KST부터 develop·main ruleset에 Merge Queue와 리뷰 승인 조건이 없다. PR, 필수 검사 `secrets`·`infra`·`platform`, 삭제·강제 푸시 금지만 남는다. 필수 검사가 통과하면 직접 병합한다. `ci.yml`의 `merge_group` 처리는 남아 있지만 큐가 없어 실행되지 않는다.
 
 ## 보안·권한·절차
 
@@ -66,7 +61,7 @@ PR 검사는 `contents: read`만 쓴다. 클라우드 배포/모델 키를 PR에
 
 Trivy 예외는 `.trivyignore.yaml`의 정확한 파일 경로에 한정한다. 기존 리허설 Role의 KSV-0053/0056 예외도 저장소 전역에서 해당 Role 파일로 좁혔다. 임시 AWS 검증 호스트의 외부 HTTPS(AWS-0104)는 bootstrap·SSM을 위한 예외이며 2026-11-10 만료다. 이 호스트는 인바운드 0·90분 종료·운영 네트워크 미연결이며, Pod는 별도 default-deny 시험을 통과해야 한다. 부하 생성기 호스트의 외부 HTTPS(AWS-0104)는 바뀌는 Edge·SSM 주소에 닿기 위한 예외이며 2026-11-30 만료다. 인바운드 0과 443 외 차단을 시험으로 고정했다. [Trivy 경로·만료일 필터](https://trivy.dev/docs/latest/configuration/filtering/)
 
-보드 동기화는 CI와 다른 workflow다. 상태가 같으면 쓰지 않으며, 이슈 체크와 PR 승인을 혼동하지 않는다. 이벤트 병합으로 누락된 상태는 주기적 대조로 복구하고 개별 API·job 시간을 제한한다. develop은 T40 전환 후 사람 승인을 필수로 요구하지 않고 GitHub 기본 Merge Queue에서 합쳐진 결과의 필수 CI를 확인한다. 알려진 결함은 수정하거나 큐에서 제외한다. main의 기존 승인 규칙은 유지한다. `demo-chat`의 승인 요건은 자체 문서·실제 보호 규칙에서 별도로 확인한다([저장소별 적용 범위](development.md)). 고객 앱을 실행하는 제품 CI의 승인·실행 권한은 아래 T10/T15/T31 계약을 따른다.
+보드 동기화는 CI와 다른 workflow다. 상태가 같으면 쓰지 않으며, 이슈 체크와 PR 승인을 혼동하지 않는다. 이벤트 병합으로 누락된 상태는 주기적 대조로 복구하고 개별 API·job 시간을 제한한다. develop·main은 필수 CI 통과 후 직접 병합한다(2026-11-07). 알려진 결함은 수정한 뒤 병합한다. `demo-chat`의 승인 요건은 자체 문서·실제 보호 규칙에서 별도로 확인한다([저장소별 적용 범위](development.md)). 고객 앱을 실행하는 제품 CI의 승인·실행 권한은 아래 T10/T15/T31 계약을 따른다.
 
 ## 플랫폼 CI와 S2의 접점
 

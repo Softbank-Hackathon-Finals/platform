@@ -1,0 +1,387 @@
+[
+ {
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+   "labels": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/managed-by": "Helm",
+    "app.kubernetes.io/name": "openbao",
+    "helm.sh/chart": "openbao-0.30.6"
+   },
+   "name": "target-openbao",
+   "namespace": "bravo-secrets"
+  }
+ },
+ {
+  "apiVersion": "v1",
+  "data": {
+   "extraconfig-from-values.hcl": "\nui = false\ndisable_mlock = true\napi_addr = \"https://target-openbao.bravo-secrets.svc:8200\"\nlistener \"tcp\" {\n  address = \"0.0.0.0:8200\"\n  cluster_address = \"127.0.0.1:8201\"\n  tls_cert_file = \"/openbao/tls/tls.crt\"\n  tls_key_file = \"/openbao/tls/tls.key\"\n  tls_min_version = \"tls12\"\n}\nstorage \"pebbledb\" { path = \"/openbao/data/pebbledb\" }"
+  },
+  "kind": "ConfigMap",
+  "metadata": {
+   "labels": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/managed-by": "Helm",
+    "app.kubernetes.io/name": "openbao",
+    "helm.sh/chart": "openbao-0.30.6"
+   },
+   "name": "target-openbao-config",
+   "namespace": "bravo-secrets"
+  }
+ },
+ {
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+   "labels": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/managed-by": "Helm",
+    "app.kubernetes.io/name": "openbao",
+    "helm.sh/chart": "openbao-0.30.6",
+    "openbao-internal": "true"
+   },
+   "name": "target-openbao-internal",
+   "namespace": "bravo-secrets"
+  },
+  "spec": {
+   "clusterIP": "None",
+   "ports": [
+    {
+     "appProtocol": "HTTPS",
+     "name": "https",
+     "port": 8200,
+     "targetPort": 8200
+    },
+    {
+     "name": "https-internal",
+     "port": 8201,
+     "targetPort": 8201
+    }
+   ],
+   "publishNotReadyAddresses": true,
+   "selector": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/name": "openbao",
+    "component": "server"
+   }
+  }
+ },
+ {
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+   "labels": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/managed-by": "Helm",
+    "app.kubernetes.io/name": "openbao",
+    "helm.sh/chart": "openbao-0.30.6"
+   },
+   "name": "target-openbao",
+   "namespace": "bravo-secrets"
+  },
+  "spec": {
+   "ports": [
+    {
+     "appProtocol": "HTTPS",
+     "name": "https",
+     "port": 8200,
+     "targetPort": 8200
+    },
+    {
+     "name": "https-internal",
+     "port": 8201,
+     "targetPort": 8201
+    }
+   ],
+   "publishNotReadyAddresses": true,
+   "selector": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/name": "openbao",
+    "component": "server"
+   }
+  }
+ },
+ {
+  "apiVersion": "apps/v1",
+  "kind": "StatefulSet",
+  "metadata": {
+   "labels": {
+    "app.kubernetes.io/instance": "target-openbao",
+    "app.kubernetes.io/managed-by": "Helm",
+    "app.kubernetes.io/name": "openbao"
+   },
+   "name": "target-openbao",
+   "namespace": "bravo-secrets"
+  },
+  "spec": {
+   "persistentVolumeClaimRetentionPolicy": {
+    "whenDeleted": "Retain",
+    "whenScaled": "Retain"
+   },
+   "podManagementPolicy": "OrderedReady",
+   "replicas": 1,
+   "selector": {
+    "matchLabels": {
+     "app.kubernetes.io/instance": "target-openbao",
+     "app.kubernetes.io/name": "openbao",
+     "component": "server"
+    }
+   },
+   "serviceName": "target-openbao-internal",
+   "template": {
+    "metadata": {
+     "labels": {
+      "app.kubernetes.io/instance": "target-openbao",
+      "app.kubernetes.io/name": "openbao",
+      "app.kubernetes.io/part-of": "bravo-target-secrets",
+      "bravo-component": "target",
+      "component": "server",
+      "helm.sh/chart": "openbao-0.30.6"
+     }
+    },
+    "spec": {
+     "affinity": {
+      "podAntiAffinity": {
+       "requiredDuringSchedulingIgnoredDuringExecution": [
+        {
+         "labelSelector": {
+          "matchLabels": {
+           "app.kubernetes.io/instance": "target-openbao",
+           "app.kubernetes.io/name": "openbao",
+           "component": "server"
+          }
+         },
+         "topologyKey": "kubernetes.io/hostname"
+        }
+       ]
+      }
+     },
+     "containers": [
+      {
+       "args": [
+        "cp /openbao/config/extraconfig-from-values.hcl /tmp/storageconfig.hcl;\n[ -n \"${HOST_IP}\" ] && sed -Ei \"s|HOST_IP|${HOST_IP?}|g\" /tmp/storageconfig.hcl;\n[ -n \"${POD_IP}\" ] && sed -Ei \"s|POD_IP|${POD_IP?}|g\" /tmp/storageconfig.hcl;\n[ -n \"${HOSTNAME}\" ] && sed -Ei \"s|HOSTNAME|${HOSTNAME?}|g\" /tmp/storageconfig.hcl;\n[ -n \"${API_ADDR}\" ] && sed -Ei \"s|API_ADDR|${API_ADDR?}|g\" /tmp/storageconfig.hcl;\n[ -n \"${TRANSIT_ADDR}\" ] && sed -Ei \"s|TRANSIT_ADDR|${TRANSIT_ADDR?}|g\" /tmp/storageconfig.hcl;\n[ -n \"${RAFT_ADDR}\" ] && sed -Ei \"s|RAFT_ADDR|${RAFT_ADDR?}|g\" /tmp/storageconfig.hcl;\n/usr/local/bin/docker-entrypoint.sh bao server -config=/tmp/storageconfig.hcl \n"
+       ],
+       "command": [
+        "/bin/sh",
+        "-ec"
+       ],
+       "env": [
+        {
+         "name": "HOST_IP",
+         "valueFrom": {
+          "fieldRef": {
+           "fieldPath": "status.hostIP"
+          }
+         }
+        },
+        {
+         "name": "POD_IP",
+         "valueFrom": {
+          "fieldRef": {
+           "fieldPath": "status.podIP"
+          }
+         }
+        },
+        {
+         "name": "BAO_K8S_POD_NAME",
+         "valueFrom": {
+          "fieldRef": {
+           "fieldPath": "metadata.name"
+          }
+         }
+        },
+        {
+         "name": "BAO_K8S_NAMESPACE",
+         "valueFrom": {
+          "fieldRef": {
+           "fieldPath": "metadata.namespace"
+          }
+         }
+        },
+        {
+         "name": "BAO_ADDR",
+         "value": "https://127.0.0.1:8200"
+        },
+        {
+         "name": "BAO_API_ADDR",
+         "value": "https://target-openbao.bravo-secrets.svc:8200"
+        },
+        {
+         "name": "SKIP_CHOWN",
+         "value": "true"
+        },
+        {
+         "name": "SKIP_SETCAP",
+         "value": "true"
+        },
+        {
+         "name": "HOSTNAME",
+         "valueFrom": {
+          "fieldRef": {
+           "fieldPath": "metadata.name"
+          }
+         }
+        },
+        {
+         "name": "BAO_CLUSTER_ADDR",
+         "value": "https://$(HOSTNAME).target-openbao-internal:8201"
+        },
+        {
+         "name": "HOME",
+         "value": "/openbao/home"
+        },
+        {
+         "name": "BAO_CACERT",
+         "value": "/openbao/tls/ca.crt"
+        }
+       ],
+       "image": "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75",
+       "imagePullPolicy": "IfNotPresent",
+       "lifecycle": {
+        "preStop": {
+         "exec": {
+          "command": [
+           "/bin/sh",
+           "-c",
+           "sleep 5 && kill -SIGTERM $(pidof bao)"
+          ]
+         }
+        }
+       },
+       "name": "openbao",
+       "ports": [
+        {
+         "containerPort": 8200,
+         "name": "https"
+        },
+        {
+         "containerPort": 8201,
+         "name": "https-internal"
+        },
+        {
+         "containerPort": 8202,
+         "name": "https-rep"
+        }
+       ],
+       "readinessProbe": {
+        "exec": {
+         "command": [
+          "/bin/sh",
+          "-ec",
+          "bao status -tls-skip-verify"
+         ]
+        },
+        "failureThreshold": 3,
+        "initialDelaySeconds": 5,
+        "periodSeconds": 10,
+        "successThreshold": 1,
+        "timeoutSeconds": 10
+       },
+       "resources": {
+        "limits": {
+         "cpu": "1",
+         "memory": "512Mi"
+        },
+        "requests": {
+         "cpu": "250m",
+         "memory": "128Mi"
+        }
+       },
+       "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "capabilities": {
+         "drop": [
+          "ALL"
+         ]
+        },
+        "readOnlyRootFilesystem": true
+       },
+       "volumeMounts": [
+        {
+         "mountPath": "/openbao/data",
+         "name": "data"
+        },
+        {
+         "mountPath": "/openbao/config",
+         "name": "config"
+        },
+        {
+         "mountPath": "/openbao/tls",
+         "name": "tls",
+         "readOnly": true
+        },
+        {
+         "mountPath": "/tmp",
+         "name": "private-tmp"
+        },
+        {
+         "mountPath": "/openbao/home",
+         "name": "home"
+        }
+       ]
+      }
+     ],
+     "hostNetwork": false,
+     "securityContext": {
+      "fsGroup": 1000,
+      "runAsGroup": 1000,
+      "runAsNonRoot": true,
+      "runAsUser": 100,
+      "seccompProfile": {
+       "type": "RuntimeDefault"
+      }
+     },
+     "serviceAccountName": "target-openbao",
+     "terminationGracePeriodSeconds": 10,
+     "volumes": [
+      {
+       "configMap": {
+        "name": "target-openbao-config"
+       },
+       "name": "config"
+      },
+      {
+       "name": "tls",
+       "secret": {
+        "defaultMode": 288,
+        "secretName": "target-openbao-tls"
+       }
+      },
+      {
+       "emptyDir": {},
+       "name": "private-tmp"
+      },
+      {
+       "emptyDir": {},
+       "name": "home"
+      }
+     ]
+    }
+   },
+   "updateStrategy": {
+    "type": "OnDelete"
+   },
+   "volumeClaimTemplates": [
+    {
+     "apiVersion": "v1",
+     "kind": "PersistentVolumeClaim",
+     "metadata": {
+      "name": "data"
+     },
+     "spec": {
+      "accessModes": [
+       "ReadWriteOnce"
+      ],
+      "resources": {
+       "requests": {
+        "storage": "3Gi"
+       }
+      },
+      "storageClassName": ""
+     }
+    }
+   ]
+  }
+ }
+]

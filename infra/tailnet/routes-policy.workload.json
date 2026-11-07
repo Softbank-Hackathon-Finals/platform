@@ -1,0 +1,77 @@
+{
+  "tagOwners": {
+    "tag:bravo-apply": [
+      "tag:bravo-platform-operator"
+    ],
+    "tag:bravo-collector": [
+      "tag:bravo-platform-operator"
+    ],
+    "tag:bravo-rehearsal": [
+      "tag:bravo-platform-operator"
+    ]
+  },
+  "grants": [
+    {
+      "src": [
+        "tag:bravo-apply"
+      ],
+      "dst": [
+        "tag:bravo-target-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "tag:bravo-collector"
+      ],
+      "dst": [
+        "tag:bravo-target-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "tag:bravo-rehearsal"
+      ],
+      "dst": [
+        "tag:bravo-target-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "src": "tag:bravo-apply",
+      "accept": [
+        "tag:bravo-target-api:443"
+      ],
+      "deny": [
+        "tag:bravo-target-api:22"
+      ]
+    },
+    {
+      "src": "tag:bravo-collector",
+      "accept": [
+        "tag:bravo-target-api:443"
+      ],
+      "deny": [
+        "tag:bravo-target-api:22"
+      ]
+    },
+    {
+      "src": "tag:bravo-rehearsal",
+      "accept": [
+        "tag:bravo-target-api:443"
+      ],
+      "deny": [
+        "tag:bravo-target-api:22"
+      ]
+    }
+  ]
+}

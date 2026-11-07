@@ -122,8 +122,9 @@ recorded by bootstrap, and its ConfigMap content hash is recorded in the Pod.
 The Argo Application is managed by this bootstrap release; editing it directly
 is not a durable configuration change. Secret values never enter that release.
 Registry rotation replaces only `platform-ghcr-reader` through the protected
-operator transport, verifies an uncached pull, and then revokes the previous
-credential. Record the credential expiry without recording its value.
+operator transport, in `platform-state` and in `bravo-initial` (the initial-proposal
+Job's account references it; bootstrap refuses to turn that path on without it),
+verifies an uncached pull, and then revokes the previous credential. Record the credential expiry without recording its value.
 
 ## Product Reader 인수
 
