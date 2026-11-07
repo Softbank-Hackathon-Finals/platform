@@ -142,3 +142,101 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
+---
+# AWS GuardDuty 주기 수집(읽기 전용). 플랫폼 웹 신원으로 역할(infra/envs/platform-security main.tf)을 받는다.
+# 계정 ID와 역할 ARN은 Git 밖 ConfigMap bravo-findings-aws(account_id, role_arn)에 둔다. API와 같은 SQLite를 쓴다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels: {app: bravo-findings-pull, component: platform}
+        spec:
+          serviceAccountName: bravo-findings-pull
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          imagePullSecrets: [{name: platform-ghcr-reader}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: pull
+              image: bravo-findings
+              command: [python, -m, bravo_findings.aws_pull]
+              args: [--database, /data/findings.db, --environment-id, env-aws, --region, ap-northeast-2,
+                     --account-id, $(AWS_ACCOUNT_ID)]
+              env:
+                - name: AWS_ACCOUNT_ID
+                  valueFrom: {configMapKeyRef: {name: bravo-findings-aws, key: account_id}}
+                - name: AWS_ROLE_ARN
+                  valueFrom: {configMapKeyRef: {name: bravo-findings-aws, key: role_arn}}
+                - {name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/aws/token}
+                - {name: AWS_REGION, value: ap-northeast-2}
+                - {name: AWS_STS_REGIONAL_ENDPOINTS, value: regional}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 20m, memory: 96Mi}
+                limits: {memory: 192Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: aws-token, mountPath: /var/run/secrets/aws, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: bravo-findings-data}
+            - name: aws-token
+              projected:
+                sources:
+                  - serviceAccountToken: {audience: sts.amazonaws.com, expirationSeconds: 3600, path: token}
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings-pull}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # STS와 GuardDuty API(GuardDuty 제어 API에는 인터페이스 엔드포인트가 없다). 이 Pod는 GuardDuty 읽기 자격만 가진다
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {port: 443, protocol: TCP}

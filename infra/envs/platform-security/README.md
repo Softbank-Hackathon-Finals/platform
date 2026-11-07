@@ -17,4 +17,26 @@ python3 infra/envs/platform-security/render.py --node "$PLATFORM_NODE" > "$PRIVA
 kubectl apply --dry-run=server -f "$PRIVATE/platform-security.json" && kubectl apply -f "$PRIVATE/platform-security.json"
 ```
 
-위가 갖춰지고 이미지 digest가 고정된 뒤(`publish-security-findings-image` → 고정 PR), 개발 값에서 `securityFindings.enabled`를 켠다. 아직 하지 않은 것: AWS GuardDuty 주기 수집(플랫폼 OIDC → 읽기 전용 IAM 역할)과 온프렘 수집 경로(T44 tailnet-ingress · egress).
+위가 갖춰지고 이미지 digest가 고정된 뒤(`publish-security-findings-image` → 고정 PR), 개발 값에서 `securityFindings.enabled`를 켠다.
+
+## AWS GuardDuty 주기 수집 (CronJob `bravo-findings-pull`, 5분)
+
+플랫폼 웹 신원으로 읽기 전용 역할을 받는다. 장기 키를 만들지 않는다.
+
+| 무엇 | 어디서 | 비고 |
+|---|---|---|
+| IAM 역할 `bravo-findings-pull` | 이 폴더의 terraform(`main.tf`) | 신뢰: 플랫폼 발급자의 `system:serviceaccount:bravo-security:bravo-findings-pull` · `aud=sts.amazonaws.com` 하나. 권한: `guardduty:ListDetectors` · `GetDetector` · `ListFindings` · `GetFindings`만, 한 리전 |
+| 플랫폼 발급자 OIDC provider | `infra/envs/platform-gate-signer`(먼저 적용) | 계정에 발급자 URL마다 하나뿐이라 이 스택은 읽기만 한다 |
+| ConfigMap `bravo-findings-aws` | 운영자(Git 밖) | `account_id`, `role_arn`(terraform 출력). 비밀은 아니지만 계정 식별자라 Git에 두지 않는다 |
+
+```sh
+terraform -chdir=infra/envs/platform-security init -backend-config="$PRIVATE/platform-security.backend.hcl"
+terraform -chdir=infra/envs/platform-security plan -var-file="$PRIVATE/platform-security.tfvars" -out="$PRIVATE/platform-security.plan"
+terraform -chdir=infra/envs/platform-security apply "$PRIVATE/platform-security.plan"     # 역할 1 · 인라인 정책 1
+kubectl -n bravo-security create configmap bravo-findings-aws \
+  --from-literal=account_id="$ACCOUNT_ID" --from-literal=role_arn="$(terraform -chdir=infra/envs/platform-security output -raw role_arn)"
+```
+
+GuardDuty 제어 API에는 인터페이스 엔드포인트가 없어서 수집 Pod만 443 바깥 방향을 연다(GuardDuty 읽기 자격만 가진다). 수집이 실패하면 출처가 `FAILED`가 되고 화면 칸은 "확인 불가"다.
+
+아직 하지 않은 것: 온프렘 수집 경로(T44 tailnet-ingress · egress).
