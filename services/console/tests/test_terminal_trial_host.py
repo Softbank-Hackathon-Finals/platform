@@ -55,6 +55,7 @@ def test_explicit_local_auth_and_current_csrf_are_required(local):
     assert client.post("/__trial/control", json=body, headers=headers).status_code == 202
     assert len(calls) == 1
     access[0] = False
+    assert client.get("/__trial/client.js").status_code == 200
     assert client.get("/__trial/status").status_code == 403
     assert client.get("/__trial/feed").status_code == 403
     assert client.post("/__trial/control", json=body, headers=headers).status_code == 403

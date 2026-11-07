@@ -135,12 +135,14 @@ class TerminalTrialHost:
             or scope.get("query_string")
         ):
             return await answer(403, {"error": "trial_origin_denied"})
-        if await call(self.authorize, scope) is not True:
-            return await answer(403, {"error": "trial_session_required"})
         path = scope["path"]
+        # Static code carries no session, scope, key or control nonce. Like the
+        # original shell assets it must load before bootstrap exchanges a cookie.
         if request.method == "GET" and path in self.assets:
             body, mime = self.assets[path]
             return await Response(body, media_type=mime, headers=HEADERS)(scope, receive, send)
+        if await call(self.authorize, scope) is not True:
+            return await answer(403, {"error": "trial_session_required"})
         try:
             if request.method == "GET" and path in {"/__trial/status", "/__trial/feed"}:
                 value = await asyncio.wait_for(
