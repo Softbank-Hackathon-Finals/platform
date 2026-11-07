@@ -6,6 +6,8 @@ from the existing runtime-database policy (bravo.dev/db-client=runtime). This ad
 - GitHub over TCP 443 to the published api/git/web IPv4 ranges (GitHub App writer, T7 run reads,
   demo-chat object fetch, the relay's public fence re-check). No other internet egress.
 - the Executor's ingress from this host only.
+- with --aws-endpoints (ADR-0038, T19 platform signer): TCP 443 to the private IPs of the platform VPC's
+  STS and KMS interface endpoints only (infra/envs/platform-gate-signer output `endpoint_ips`).
 
 The T31 apply route (host -> bravo-apply-egress proxies -> target API) and the proxies' ingress from
 this host are declared in infra/iac/environments/platform.json (tailnet-egress, T44), not here.
@@ -36,7 +38,15 @@ def github_ranges(meta):
     return ranges
 
 
-def render(meta):
+def endpoint_ips(ips):
+    """The STS/KMS interface endpoint ENIs: private IPv4 /32s only, never a public range."""
+    out = sorted({str(ipaddress.ip_address(ip)) for ip in ips})
+    if not out or len(out) > 12 or not all(ipaddress.ip_address(ip).is_private for ip in out):
+        raise ValueError("aws_endpoint_ips_unexpected")
+    return out
+
+
+def render(meta, aws_endpoints=None):
     labels = {"app.kubernetes.io/name": "t10-workflow-host", "component": "platform"}
     egress = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
               "metadata": {"name": "t10-workflow-host-egress", "namespace": "platform-state", "labels": labels},
@@ -47,6 +57,9 @@ def render(meta):
                    "ports": [{"port": 8080, "protocol": "TCP"}]},
                   {"to": [{"ipBlock": {"cidr": r}} for r in github_ranges(meta)],
                    "ports": [{"port": 443, "protocol": "TCP"}]}]}}
+    if aws_endpoints is not None:
+        egress["spec"]["egress"].append({"to": [{"ipBlock": {"cidr": ip + "/32"}} for ip in endpoint_ips(aws_endpoints)],
+                                         "ports": [{"port": 443, "protocol": "TCP"}]})
     ingress = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
                "metadata": {"name": "cutover-executor-from-workflow-host", "namespace": "bravo-platform",
                             "labels": labels},
@@ -69,6 +82,15 @@ def _check():
         raise AssertionError("empty meta accepted")
     except ValueError:
         pass
+    signer = render({"api": ["140.82.112.0/20"]}, ["10.81.0.37", "10.81.0.12", "10.81.0.37"])["items"][0]["spec"]["egress"]
+    assert signer[3] == {"to": [{"ipBlock": {"cidr": "10.81.0.12/32"}}, {"ipBlock": {"cidr": "10.81.0.37/32"}}],
+                         "ports": [{"port": 443, "protocol": "TCP"}]}  # deduped /32s, nothing wider
+    for bad in ([], ["52.95.1.1"]):
+        try:
+            render({"api": ["140.82.112.0/20"]}, bad)
+            raise AssertionError("public or empty endpoint accepted")
+        except ValueError:
+            pass
 
 
 if __name__ == "__main__":
@@ -78,6 +100,11 @@ if __name__ == "__main__":
     else:
         parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
         parser.add_argument("--github-meta", required=True)
+        parser.add_argument("--aws-endpoints", help="JSON list: platform-gate-signer output endpoint_ips")
         args = parser.parse_args()
+        endpoints = None
+        if args.aws_endpoints:
+            with open(args.aws_endpoints) as stream:
+                endpoints = json.load(stream)
         with open(args.github_meta) as stream:
-            json.dump(render(json.load(stream)), sys.stdout, indent=1)
+            json.dump(render(json.load(stream), endpoints), sys.stdout, indent=1)

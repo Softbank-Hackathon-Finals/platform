@@ -126,6 +126,22 @@
                 "target_port": 5432
               }
             ]
+          },
+          {
+            "service": "target-objects-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-objects",
+            "tag": "tag:bravo-target-objects",
+            "selector": {
+              "app.kubernetes.io/name": "target-seaweedfs"
+            },
+            "ports": [
+              {
+                "name": "s3",
+                "port": 8333,
+                "target_port": 8333
+              }
+            ]
           }
         ]
       }

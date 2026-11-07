@@ -256,7 +256,7 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 | `target-dev` | T45 base 단계(PSA restricted) | — |
 | `source-dev` | — | 출발지 렌더러(`infra/envs/source-workloads`) |
 | `tailscale-system` | T45 tailscale-oauth 단계(PSA privileged) | 기존 Tailscale operator 설치 |
-| `bravo-observability` | T45 base 단계(추가 요청 중, #632), T37 Collector와 같은 라벨(`component: platform`, PSA restricted) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+| `bravo-observability` | T45 base 단계(`observability-namespace`), T37 Collector와 같은 라벨(`component: platform`, PSA restricted). T37 `collector-target`도 같은 Namespace를 선언한다(레이블 같음, 주인 단일화는 T37과 합의) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
 
 그래서 이 Application은 표의 namespace와 Tailscale CRD가 생긴 **뒤에** 켠다(새 목적지는 T45 base · tailscale 단계가 Synced · Healthy가 된 뒤, 아래 2단계). 그 뒤의 실패는 순서 문제가 아니므로 재시도는 유한하다(`retry.limit: 5`, 약 5분). 무제한 재시도는 실패한 operation을 Running으로 남겨, `targetRevision`을 고친 SHA로 올려도 새 동기화가 시작되지 않는다. 재시도가 끝나 Failed가 되면 원인을 고친 커밋을 승격하거나 수동으로 sync한다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
@@ -281,6 +281,22 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 명시한다. 스키마 검사를 건너뛰어도 같은 검사를 하며, 생략을 기본 false로 해석하지 않는다.
 `autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
 초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
+
+### 클러스터의 Tailscale operator (`operator.enabled`, 차트 0.3.0, T48)
+
+operator도 Git에서 반영한다. 사람이 helm이나 kubectl로 값을 바꾸지 않는다.
+
+- **원본:** `infra/iac/operators/<환경>/operator.yaml`이다. `infra/iac/operators/render.py <환경>`이 고정 chart(1.104.4, `network.py`의 `CHART_SHA256`로 확인)를 `network.py values`로 렌더한 것이다. CRD와 namespace는 클러스터를 세우는 쪽 몫이라 넣지 않는다. 시험이 파일을 `network.py` 값과 대조하고, Secret이 없는지 확인한다.
+- **Application:** `bravo-iac-<환경>-operator`다. 환경 Application과 같은 `targetRevision`을 쓴다. 전용 Project `bravo-iac-operator`는 `tailscale-system`과 그 파일에 든 종류만 허용한다(시험이 일치를 고정). prune은 하지 않는다. `operator-oauth` Secret과 namespace는 지우지 않는다.
+- **켜는 법:** 기본은 꺼짐이고, `application.enabled`와 따로 켠다. 사람이 적용한 operator가 이미 있는 클러스터는 환경 Application을 끈 채 operator만 넘겨받는다. 그러면 경로(Service·ProxyGroup)는 그대로 두고 operator만 Git을 따른다.
+
+```sh
+helm upgrade --install bravo-iac infra/iac/argocd -n bravo-iac-gitops --create-namespace \
+  --set environment=<환경> --set tailnet=<tailnet>.ts.net --set targetRevision=<검토한 SHA> \
+  --set application.enabled=false --set operator.enabled=true --set operator.autoSync=true
+```
+
+- **넘겨받기 전 확인:** `kubectl diff --server-side --force-conflicts -f infra/iac/operators/<환경>/operator.yaml`로 실제 값과의 차이를 본다. 이미지·태그가 바뀌면 그 operator가 관리하는 모든 프록시가 다시 뜬다. 그래서 의도한 차이만 남았을 때 켠다. source-dev는 2026-11-08에 API 프록시 모드(`true` → `noauth`) 하나만 달랐다.
 
 ### 고객 GitOps 상태의 읽기 전용 인수
 

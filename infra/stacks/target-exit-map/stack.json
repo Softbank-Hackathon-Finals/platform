@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "stack": "target-exit-map",
+  "description": "S5 잔존 의존성 지도(ADR-0049, 데모 범위: 차단 시험 없이 지도까지). 대조군 Pod를 목적지 설정 저장소로 올리고 Ready를 확인한다. 지도는 그 뒤 플랫폼 진행기가 T27 render·map으로 만든다. Argo prune이 꺼져 있어 대조군은 4시간 뒤 스스로 끝난다.",
+  "params": {
+    "node_name": {
+      "description": "확인한 노드의 kubernetes.io/hostname",
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
+    },
+    "arch": {
+      "description": "kubectl get nodes가 보고하는 노드 아키텍처",
+      "enum": [
+        "amd64",
+        "arm64"
+      ]
+    }
+  },
+  "charts": {},
+  "steps": [
+    {
+      "id": "target-identity",
+      "kind": "probe",
+      "owner": "T27",
+      "description": "계획을 만든 그 클러스터·노드인지 확인한다",
+      "check": "target-identity"
+    },
+    {
+      "id": "control-pod",
+      "kind": "gitops_publish",
+      "owner": "T27",
+      "description": "비밀·계정 없이 잠만 자는 T27 대조군 Pod를 올린다(앱 고정 이미지, pull 없음)",
+      "needs": [
+        "target-identity"
+      ],
+      "path": "exit-drill",
+      "renders": [
+        {
+          "name": "control",
+          "run": "infra/envs/target-workloads/exit_drill.py",
+          "args": [
+            "control-pod",
+            "--arch",
+            "${arch}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "control-sync",
+      "kind": "gitops_sync",
+      "owner": "T27",
+      "description": "Argo CD가 대조군 커밋으로 Synced인지 확인한다",
+      "needs": [
+        "control-pod"
+      ],
+      "publish": "control-pod",
+      "timeout_seconds": 300,
+      "health": [
+        "Healthy",
+        "Progressing"
+      ]
+    },
+    {
+      "id": "control-ready",
+      "kind": "probe",
+      "owner": "T27",
+      "description": "대조군 Pod가 Ready다(render가 control 선택자를 찾는다)",
+      "needs": [
+        "control-sync"
+      ],
+      "check": "exit-drill-control-ready"
+    }
+  ]
+}
