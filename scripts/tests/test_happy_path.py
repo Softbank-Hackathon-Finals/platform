@@ -26,7 +26,7 @@ class Driver(unittest.TestCase):
         if argv[:len(hp.INITIAL)] == list(hp.INITIAL):
             self.calls.append("initial:" + argv[len(hp.INITIAL)])
         else:
-            self.calls.append(argv[1].rsplit("/", 1)[-1] + ":" + (argv[2] if argv[2] in ("check", "inject", "clear", "prepare-change")
+            self.calls.append(argv[1].rsplit("/", 1)[-1] + ":" + (argv[2] if argv[2] in ("check", "inject", "clear", "prepare-change", "prepare-cutover")
                                                                   else "-"))
         code = self.codes.get(self.calls[-1], 0)
         if code == "lost":
@@ -38,7 +38,7 @@ class Driver(unittest.TestCase):
             plan_id="plan-1", record=str(self.record), profile="mock", plan_state_command=None, kubeconfig="/k",
             application_id="app-1", receipts="/r", fault_record="/f", wait=0, interval=1, step_timeout=5,
             initial_args=["--from", "/i.json"], platform_context="platform", patch_preflight="/patch.json",
-            demo_budget=270)
+            patch_postflight="/post.json", migration_preflight="/migration.json", demo_budget=270)
         for k, v in extra:
             setattr(args, k, v)
         reader = (lambda _p: self.state) if read_state == "default" else read_state
@@ -155,6 +155,47 @@ class Driver(unittest.TestCase):
         code, line = self.run_driver(("demo_budget", 270), wall_clock=lambda: 271)
         self.assertEqual((code, line["reason"], line["budget_seconds"]),
                          (1, "demo_budget_exceeded", 270))
+        # #939 review 3: the real plan state is read once (read-only) and kept in the record
+        self.assertEqual(line["plan_state_at_budget"], "COLLECT")
+        last = json.loads(self.record.read_text().splitlines()[-1])
+        self.assertEqual((last["reason"], last["plan_state_at_budget"]), ("demo_budget_exceeded", "COLLECT"))
+
+    def test_budget_overrun_after_every_step_still_records_the_real_plan_state(self):
+        self.run_driver()
+        for step in hp.STEPS:
+            hp.append(self.record, {"step": step.id, "status": "done"})
+        self.state = "DONE_ROLLED_BACK"
+        code, line = self.run_driver(wall_clock=lambda: 271)
+        self.assertEqual((code, line["reason"], line["plan_state_at_budget"]),
+                         (1, "demo_budget_exceeded", "DONE_ROLLED_BACK"))
+        last = json.loads(self.record.read_text().splitlines()[-1])
+        self.assertEqual((last["step"], last["plan_state_at_budget"]), ("demo-budget", "DONE_ROLLED_BACK"))
+
+    def test_an_unreadable_plan_at_the_budget_is_reported_not_assumed(self):
+        def broken(_plan):
+            raise RuntimeError("plan read failed")
+        self.run_driver()
+        code, line = self.run_driver(wall_clock=lambda: 271, read_state=broken)
+        self.assertEqual((code, line["plan_state_at_budget"]), (1, "unconfirmed"))
+
+    def test_cutover_security_is_prepared_before_the_cutover_approval(self):
+        # #939 review 2: the cutover authority needs patch/postflight and migration/preflight registrations
+        ids = [step.id for step in hp.STEPS]
+        self.assertLess(ids.index("s3-shift-approval"), ids.index("s3-security-prepare"))
+        self.assertLess(ids.index("s3-security-prepare"), ids.index("s3-cutover-approval"))
+        self.assertIn("s3-security-prepare", [step.id for step in hp.selected_steps("migration")])
+        step = hp.STEPS[ids.index("s3-security-prepare")]
+        args = hp.main.__globals__["argparse"].Namespace(
+            plan_id="plan-1", kubeconfig="/k", application_id="app-1", receipts="/r", fault_record="/f",
+            platform_context="platform", patch_preflight="/patch.json", patch_postflight=None,
+            migration_preflight="/migration.json", step_timeout=5, initial_args=None)
+        code, detail = hp.run_step(step, args, None, self.fake_run, lambda _s: None, lambda: 0)
+        self.assertEqual((code, detail["reason"], detail["missing"]),
+                         (3, "security_program_unwired", ["patch_postflight"]))
+        self.assertEqual(self.calls, [])
+        args.patch_postflight = "/post.json"
+        code, _ = hp.run_step(step, args, None, self.fake_run, lambda _s: None, lambda: 0)
+        self.assertEqual((code, self.calls), (0, ["run.py:prepare-cutover"]))
 
     def test_each_command_timeout_is_capped_by_remaining_demo_budget(self):
         self.run_driver(("demo_budget", 3), wall_clock=lambda: 0)

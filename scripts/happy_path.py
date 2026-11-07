@@ -35,6 +35,12 @@ STOP = {"SAFE_HOLD", "NEEDS_HUMAN"}
 WORKLOADS = "infra/envs/target-workloads"
 INITIAL = ("uv", "run", "--directory", "services/platform-events", "python", "../../operations/initial-proposal/run.py")
 SECURITY = ("python3", "operations/security-program/run.py")
+# Security Program documents each prepare command needs (operator_ports: change needs patch/preflight,
+# cutover needs patch/postflight and migration/preflight).
+SECURITY_INPUTS = {"prepare-change": ("patch_preflight",),
+                   "prepare-cutover": ("patch_postflight", "migration_preflight")}
+# After the budget runs out, one bounded read-only plan read records where the real plan stopped.
+BUDGET_READ_SECONDS = 10
 PLAN_STATE = ("kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
               "-c", "host", "--", "python", "-m", "bravo_platform_events.plan_state")
 
@@ -77,6 +83,13 @@ STEPS = (
          "업로드 중지 → 첨부 복사 Job(attachment_job.py job) → 판정 SUCCEEDED"),
     Step("s3-shift-approval", "S3", "human", "승인자",
          "현재 T13 캡처·서명 확인 후 SHIFT 승인(approval_kind: shift)"),
+    # The cutover authority requires current patch/postflight and migration/preflight registrations and a
+    # remote Security Review PASS (operator_ports); without them the cutover approval holds (#939 review 2).
+    Step("s3-security-prepare", "S3", "operator", "T15/T31",
+         "컷오버용 patch/postflight · migration/preflight 등록과 원격 Security Review PASS",
+         SECURITY + ("prepare-cutover", "--context", "{platform_context}", "--plan-id", "{plan_id}",
+                     "--patch-postflight", "{patch_postflight}", "--migration-preflight", "{migration_preflight}",
+                     "--budget-seconds", "45")),
     Step("s3-cutover-approval", "S3", "human", "승인자",
          "최신 GATE·T13 확인 후 콘솔에서 컷오버 승인·실행 요청(SHIFT 상태)"),
     Step("s3-shifted", "S3", "observe", "T17", "가중치 10 → 50 → 100%", reach="CUTOVER"),
@@ -172,6 +185,17 @@ def read_plan_state(read_state, plan_id, timeout_seconds=None):
     return read_state(plan_id)
 
 
+def budget_snapshot(read_state, plan_id):
+    """One bounded read-only plan read once the budget is gone: the record shows where the real plan stopped.
+    Nothing is run or retried; an unread state is reported as such, never assumed."""
+    if read_state is None:
+        return {"plan_state_at_budget": "unread"}
+    try:
+        return {"plan_state_at_budget": read_plan_state(read_state, plan_id, BUDGET_READ_SECONDS)}
+    except Exception:  # noqa: BLE001 - an unconfirmed read stays unconfirmed
+        return {"plan_state_at_budget": "unconfirmed"}
+
+
 def reached(state, goal):
     if state == "DONE":
         return goal in ORDER[:ORDER.index("WATCH") + 1]
@@ -211,13 +235,17 @@ def run_step(step, args, read_state, run, sleep, clock, remaining_seconds=None):
             sleep(min(args.interval, max(0, deadline - clock())))
     if step.command is None:
         return UNKNOWN, {"reason": "unwired", "owner": step.owner}
-    if step.command[:len(SECURITY)] == SECURITY and (not getattr(args, "platform_context", None)
-                                                     or not getattr(args, "patch_preflight", None)):
-        return UNKNOWN, {"reason": "security_program_unwired", "owner": step.owner}
+    if step.command[:len(SECURITY)] == SECURITY:
+        needed = ("platform_context", *SECURITY_INPUTS[step.command[len(SECURITY)]])
+        missing = [name for name in needed if not getattr(args, name, None)]
+        if missing:
+            return UNKNOWN, {"reason": "security_program_unwired", "owner": step.owner, "missing": missing}
     values = {"kubeconfig": args.kubeconfig or "", "fault_record": args.fault_record,
               "application_id": args.application_id or "", "receipts": args.receipts or "",
               "platform_context": args.platform_context or "", "plan_id": args.plan_id,
-              "patch_preflight": args.patch_preflight or ""}
+              "patch_preflight": getattr(args, "patch_preflight", None) or "",
+              "patch_postflight": getattr(args, "patch_postflight", None) or "",
+              "migration_preflight": getattr(args, "migration_preflight", None) or ""}
     argv = [part.format(**values) for part in step.command]
     if step.command[:len(INITIAL)] == INITIAL:
         if not getattr(args, "initial_args", None):
@@ -279,7 +307,8 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
             print(json.dumps({"result": "input_error", "reason": "invalid_demo_budget_record"}))
             return 2
         if remaining is not None and remaining <= 0:
-            detail = {"reason": "demo_budget_exceeded", "budget_seconds": head["demo_budget_seconds"]}
+            detail = {"reason": "demo_budget_exceeded", "budget_seconds": head["demo_budget_seconds"],
+                      **budget_snapshot(read_state, args.plan_id)}
             append(path, {"step": step.id, "scene": step.scene, "status": "failed", "at": now(), **detail})
             print(json.dumps({"result": "failed", "step": step.id, **detail}))
             return FAILED
@@ -294,7 +323,11 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
         if code != DONE:
             return code
     if (remaining := budget_remaining(head, wall_clock)) is not None and remaining <= 0:
-        print(json.dumps({"result": "failed", "reason": "demo_budget_exceeded"}))
+        # Every step ran but the visible demo took too long: still record the real plan state once.
+        detail = {"reason": "demo_budget_exceeded", "budget_seconds": head["demo_budget_seconds"],
+                  **budget_snapshot(read_state, args.plan_id)}
+        append(path, {"step": "demo-budget", "scene": "-", "status": "failed", "at": now(), **detail})
+        print(json.dumps({"result": "failed", **detail}))
         return FAILED
     try:
         final_timeout = None if remaining is None else max(0, remaining)
@@ -353,6 +386,8 @@ def main(argv=None):
     r.add_argument("--application-id")
     r.add_argument("--receipts")
     r.add_argument("--patch-preflight", help="current patch/preflight Security Program document")
+    r.add_argument("--patch-postflight", help="current patch/postflight Security Program document (cutover)")
+    r.add_argument("--migration-preflight", help="current migration/preflight Security Program document (cutover)")
     r.add_argument("--fault-record", default="demo-fault.json")
     r.add_argument("--wait", type=int, default=0, help="seconds to wait for a plan state")
     r.add_argument("--interval", type=int, default=10)

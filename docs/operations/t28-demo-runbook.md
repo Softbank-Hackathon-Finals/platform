@@ -52,6 +52,7 @@ python3 scripts/happy_path.py run --plan-id <plan> --record <run.jsonl> --profil
   --scenario recovery \
   --plan-state-command <plan 상태를 {"state": ...}로 출력하는 읽기 전용 명령> \
   --platform-context <platform> --patch-preflight <patch-preflight.json> \
+  --patch-postflight <patch-postflight.json> --migration-preflight <migration-preflight.json> \
   --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> \
   --wait 30 --step-timeout 60 --demo-budget 270
 python3 scripts/happy_path.py confirm --record <run.jsonl> --step s2-change-approval --by <이름>
@@ -72,6 +73,10 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 기본값 `recovery`는 기존 S4 포함 각본을 유지한다.
 
 두 시나리오 모두 부하 측정과 첨부 복사 확인을 SHIFT·컷오버 승인보다 먼저 요구한다.
+컷오버 승인 앞에는 `s3-security-prepare`(`prepare-cutover`)가 `patch/postflight`·`migration/preflight`
+등록과 원격 Security Review PASS를 만든다. 컷오버 authority가 이 두 등록을 요구하므로, 이 단계 없이는
+컷오버 승인이 보안 HOLD로 멈춘다. 데모는 사람 승인 경로를 쓴다. 사전 위임 경로(T49)는 보안 조건을
+확인하지 않으므로(#924) 이 각본에서는 쓰지 않는다.
 승인 직전에는 현재 T13 관찰·서명을 확인하고, 컷오버 승인 뒤에는 실제 실행 요청도
 보내야 한다. 이 실행기는 승인을 만들거나 T13 자료를 추정하지 않는다.
 
@@ -91,6 +96,21 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 - 이 데모 실행기에는 시간 제한 해제 옵션이 없다. `--demo-budget`은 1~270초만 허용한다.
 - 버짓을 맞추려고 보안 검사, 사람 승인, T15 검증 또는 실패 대조군을 건너뛰지 않는다. 라이브
   입력이 시간 안에 끝나지 않으면 아래 대체 장면으로 전환하고 범위를 그대로 밝힌다.
+- 버짓을 넘기면(단계 전이든, 모든 단계를 마친 뒤든) 실행기가 plan 상태를 읽기 전용으로 한 번
+  읽어 `plan_state_at_budget`으로 기록에 남긴다. 읽지 못하면 `unconfirmed`이고, 추정하지 않는다.
+- **버짓 실패 뒤에는 같은 plan으로 새 기록을 만들지 않는다.** 마감 시각은 첫 기록에 고정돼 있어서
+  `resolve`를 해도 다음 단계가 다시 버짓 실패로 끝난다. 새 기록을 만들면 `s2-ai-start` 같은 명령이
+  같은 plan에 다시 실행될 수 있다. 다시 시연하려면 새 plan으로 처음부터 한다.
+
+### 선행 조건: S2 반영 승인이 claim에서 `approval_stale`이 되는 문제(#939 리뷰 1)
+
+지금 develop에서는 이 각본이 S2를 넘지 못한다. 콘솔 승인 경로(`operator_ports.py`, `trusted_rehearsal.py`)는
+변경 승인 authority를 `SecurityReviewAuthority`로 감싸 승인 context revision이 `security-governance.v1`
+지문을 담는다. 반면 T31 claim 경로(`workflow_application.py`의 `ChangeApprovalService`)는 감싸지 않은
+`access.change_authority(ChangeIntake.current)`로 현재 context를 만든다. 그래서 `change.py`의 승인 context
+대조가 늘 달라 claim이 `approval_stale`로 거부되고, application ID가 생기지 않아 `s2-open-writes`에서 멈춘다.
+보안 우회는 아니다(실패 쪽으로 닫힌다). 수정 방법은 T31·T10 담당과 정한다. 그 수정이 develop에 들어가기 전에는
+실제 환경 S2 이후를 이 각본으로 인수하지 않는다.
 
 - **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
 - **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.
