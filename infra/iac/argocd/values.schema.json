@@ -33,7 +33,9 @@
       "type": "string",
       "enum": [
         "source-dev",
-        "target-dev"
+        "target-dev",
+        "target-gce",
+        "target-gke"
       ]
     },
     "tailnet": {

@@ -24,6 +24,12 @@
     "tag:bravo-target-db": [
       "tag:bravo-target-operator"
     ],
+    "tag:bravo-target-gce-operator": [
+      "autogroup:admin"
+    ],
+    "tag:bravo-target-gke-operator": [
+      "autogroup:admin"
+    ],
     "tag:bravo-target-pooler": [
       "tag:bravo-target-operator"
     ],
