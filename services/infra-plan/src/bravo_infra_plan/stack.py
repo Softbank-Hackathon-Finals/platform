@@ -56,6 +56,7 @@ class Stack:
                 params[name]["pattern"] = spec["pattern"]
             if "enum" in spec:
                 params[name]["enum"] = spec["enum"]
+        required = sorted(n for n, spec in self.document["params"].items() if "default" not in spec)
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
@@ -65,7 +66,7 @@ class Stack:
                 "stack": {"const": self.name},
                 "environment_id": {"type": "string", "pattern": IDENTIFIER},
                 "params": {"type": "object", "additionalProperties": False,
-                           "required": sorted(params), "properties": params},
+                           "required": required, "properties": params},
             },
         }
 
@@ -74,7 +75,16 @@ class Stack:
             jsonschema.Draft202012Validator(self.request_schema()).validate(request)
         except jsonschema.ValidationError as error:
             raise StackError("invalid_plan_request") from error
-        return json.loads(canonical(request))
+        request = json.loads(canonical(request))
+        # Defaults are written into the request, so the plan (and its digest) names every value it used.
+        for name, spec in self.document["params"].items():
+            if "default" in spec:
+                request["params"].setdefault(name, spec["default"])
+        return request
+
+    def applies(self, step_id, params) -> bool:
+        when = self.steps[step_id].get("when")
+        return when is None or params[when["param"]] in when["in"]
 
 
 def load_stack(path) -> Stack:
@@ -86,7 +96,17 @@ def parse_stack(document) -> Stack:
         jsonschema.Draft202012Validator(_schema()).validate(document)
     except jsonschema.ValidationError as error:
         raise StackError("invalid_stack") from error
+    for spec in document["params"].values():
+        if "default" in spec and "enum" in spec and spec["default"] not in spec["enum"]:
+            raise StackError("invalid_parameter_default")
     steps = document["steps"]
+    for step in steps:
+        when = step.get("when")
+        if when is not None:
+            spec = document["params"].get(when["param"])
+            # Only a closed set of values can decide which steps exist; a free-form value cannot.
+            if spec is None or "enum" not in spec or not set(when["in"]) <= set(spec["enum"]):
+                raise StackError("invalid_step_condition")
     ids = [step["id"] for step in steps]
     if len(set(ids)) != len(ids):
         raise StackError("duplicate_step")

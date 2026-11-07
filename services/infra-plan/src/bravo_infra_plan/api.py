@@ -40,9 +40,10 @@ def plan_view(plan_id, document, requested_by, stack):
         "stack": document["stack"], "stack_revision": document["stack_revision"],
         "base_commit": document["base_commit"], "target": document["target"], "levels": document["levels"],
         "steps": [{k: s[k] for k in ("id", "kind", "owner", "needs", "digest")} | (
-            {"files": s["files"]} if "files" in s else {}) for s in document["steps"]],
+            {"files": s["files"]} if "files" in s else {}) | ({"omitted": True} if s.get("omitted") else {})
+            for s in document["steps"]],
         "operator_actions": [{"id": s["id"], "instruction": steps[s["id"]]["instruction"]}
-                             for s in document["steps"] if s["kind"] == "operator_action"],
+                             for s in document["steps"] if s["kind"] == "operator_action" and not s.get("omitted")],
         "binding": {"infra_plan_id": plan_id, "plan_digest": document["plan_digest"], "requested_by": requested_by},
     }
 
