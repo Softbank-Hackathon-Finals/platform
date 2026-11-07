@@ -19,7 +19,7 @@ from idp import ISSUER, LocalIdp
 from source_fixture import Source
 
 from bravo_migration.destination import Destination, DestinationError
-from bravo_migration.host import LocalVmHost
+from bravo_migration.host import site_host
 from bravo_migration.vault import PlatformVault
 
 
@@ -35,6 +35,8 @@ def t10_approve(cfg: dict, idp: LocalIdp, binding: dict) -> str:
 
 
 def ensure_config_repo(cfg: dict) -> None:
+    if cfg["config_repo"].get("github_repo"):
+        return  # a hosted repository (GitHub) already exists; only the local bare repository is made here
     remote = Path(cfg["config_repo"]["remote"])
     if remote.exists():
         return
@@ -58,7 +60,7 @@ def main():
     idp = LocalIdp(cfg["idp_state"])
     ensure_config_repo(cfg)
     vault = PlatformVault(cfg["vault_dir"])
-    host = LocalVmHost(cfg["host"]["generator"], cfg["host"]["state"])
+    host = site_host(cfg["host"])
 
     def source_values():
         # The source DB credential as the source holds it (Secrets Manager stand-in), read at the step:

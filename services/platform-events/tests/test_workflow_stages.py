@@ -197,9 +197,12 @@ def test_entry_point_builds_one_host_from_deployment_ports(backend, tmp_path):
 
     producers = Producers(tmp_path / "remote.db")
     collect(backend.store)
+    rest = ["PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", "CUTOVER", "WATCH"]
+    with pytest.raises(ValueError, match="workflow_state_unwired:AWAIT_APPROVAL,CUTOVER,GATE,PROPOSE,REHEARSE,WATCH"):
+        build(backend.store, lambda store: {"cutover": service(store, None), "readers": {"ANALYZE": producers.read}})
     host = build(backend.store, lambda store: {"cutover": service(store, None),
-                                               "readers": {"ANALYZE": producers.read}})
-    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE not wired in these ports
+                                               "readers": {"ANALYZE": producers.read}, "deferred": rest})
+    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE declared deferred: a named gap
     with pytest.raises(ValueError):
         build(backend.store, lambda store: {"cutover": service(store, None), "other": 1})
 
@@ -250,6 +253,10 @@ class _Delegations:
 
     def __init__(self, delegated, store=None):
         self.delegated, self.store, self.calls = delegated, store, []
+
+    def live(self, c, plan_id):
+        return {"gates": ["change", "shift", "cutover", "failback", "rehearsal"], "approver": "fixture"} \
+            if self.delegated else None
 
     def principal_for(self, plan_id, gate, *, binding, version):
         if not self.delegated:

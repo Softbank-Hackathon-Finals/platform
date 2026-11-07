@@ -39,7 +39,8 @@ dev = [
 trusted-host = ["bravo-rehearsal-runner"]
 product-inputs = ["bravo-agent-worker", "bravo-inventory", "bravo-iac", {include-group = "trusted-host"}]
 application-host = ["bravo-apply-path", "bravo-control-gate==0.1.0"]
-gate-records = ["bravo-control-gate==0.1.0"]
+# boto3: the T19 platform signer calls AWS KMS with the pod web identity (ADR-0038).
+gate-records = ["bravo-control-gate==0.1.0", "boto3>=1.35,<2"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

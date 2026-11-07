@@ -182,7 +182,21 @@ def proposal_result(result, value, snapshot, expected):
             "input": bundle.model_dump(), "input_digest": digest(bundle),
             "task": task.model_dump(), "task_digest": digest(task),
             "snapshot_digest": digest(value.manifest), "proposal": proposal.model_dump(),
-            "proposal_digest": digest(proposal), "tool_events_status": "UNAVAILABLE"}
+            "proposal_digest": digest(proposal), "tool_events_status": "UNAVAILABLE",
+            **({"infra_plans": plans} if (plans := _infra_plan_documents(result)) else {})}
+
+
+def _infra_plan_documents(result):
+    """The T44 iac-plan.v1 documents the model asked for in its one attempt (ADR-0044), unchanged."""
+    from .coordinator import _infra_plans
+
+    attempts = result.get("attempts") if type(result.get("attempts")) is list else []
+    found = attempts[-1].get("infra_plans") if attempts and type(attempts[-1]) is dict else None
+    if found is None:
+        return []
+    if not _infra_plans(found):
+        raise ValueError("unbounded infra plans")
+    return [entry["plan"] for entry in found]
 
 
 @dataclass
@@ -316,7 +330,10 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     args = SimpleNamespace(model=settings["model"], bundle=root / "bundle.json",
                            manifest=root / "manifest.json", snapshot=snapshot.root, output=output,
                            reasoning_effort=effort(settings.get("reasoning_effort")),
-                           sandbox_image=settings.get("sandbox_image"), docker=sandbox_docker(settings))
+                           sandbox_image=settings.get("sandbox_image"), docker=sandbox_docker(settings),
+                           # T44 desired state of the destination from this installed checkout (ADR-0044):
+                           # the infra_plan tool is offered only with it.
+                           iac_state=Path(settings["iac_state"]) if settings.get("iac_state") else None)
     code = _run_provider(settings, access, provider, args)
     if code != 0:
         raise ValueError("worker outcome unconfirmed")

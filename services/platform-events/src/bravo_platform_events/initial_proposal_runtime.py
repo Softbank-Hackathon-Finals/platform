@@ -138,7 +138,8 @@ class InitialProposalService:
                     result = InitialResult(request_id=request.intent.request_id,
                         input_digest=request.intent.input_digest, runtime_source_sha=self.runtime_source_sha,
                         execution_receipt_id=f"github-{request.github_run_id}-1", proposal=checked["proposal"],
-                        proposal_digest=checked["proposal_digest"], schema_valid=True, lint_passed=True)
+                        proposal_digest=checked["proposal_digest"], schema_valid=True, lint_passed=True,
+                        infra_plans=checked.get("infra_plans", []))
                     response = checked_result(result.model_dump(), request, value, snapshot)
                 except Exception:
                     response = stopped("INITIAL_RUNTIME_UNCONFIRMED")

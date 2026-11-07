@@ -46,6 +46,10 @@ class HostChart(unittest.TestCase):
         self.assertCountEqual([d["kind"] for d in docs], ["ServiceAccount", "Service", "Deployment"])
         sa = next(d for d in docs if d["kind"] == "ServiceAccount")
         self.assertFalse(sa["automountServiceAccountToken"])
+        svc = next(d for d in docs if d["kind"] == "Service")
+        # Fixed approval entry on the platform tailnet under the existing operator grant (tcp:443).
+        self.assertEqual(svc["metadata"]["annotations"]["tailscale.com/hostname"], "bravo-approval")
+        self.assertEqual({(p["port"], p["targetPort"]) for p in svc["spec"]["ports"]}, {(8443, "https"), (443, "https")})
         dep = next(d for d in docs if d["kind"] == "Deployment")
         self.assertEqual((dep["spec"]["replicas"], dep["spec"]["strategy"]["type"]), (1, "Recreate"))
         self.assertEqual(dep["spec"]["template"]["spec"]["hostAliases"], RUNTIME["hostAliases"])

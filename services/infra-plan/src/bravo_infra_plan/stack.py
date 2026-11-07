@@ -56,7 +56,21 @@ class Stack:
                 params[name]["pattern"] = spec["pattern"]
             if "enum" in spec:
                 params[name]["enum"] = spec["enum"]
-        required = sorted(n for n, spec in self.document["params"].items() if "default" not in spec)
+        specs = self.document["params"]
+        required = sorted(n for n, spec in specs.items() if "default" not in spec and "required_when" not in spec)
+        conditional = []
+        for name, spec in sorted(specs.items()):
+            if "required_when" not in spec:
+                continue
+            when = spec["required_when"]
+            # The condition holds when the parameter has one of the values, or is omitted and defaults to one.
+            holds = [{"required": [when["param"]], "properties": {when["param"]: {"enum": when["in"]}}}]
+            if specs[when["param"]].get("default") in when["in"]:
+                holds.append({"not": {"required": [when["param"]]}})
+            conditional.append({"if": {"anyOf": holds}, "then": {"required": [name]}})
+        params_schema = {"type": "object", "additionalProperties": False, "required": required, "properties": params}
+        if conditional:
+            params_schema["allOf"] = conditional
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
@@ -65,8 +79,7 @@ class Stack:
             "properties": {
                 "stack": {"const": self.name},
                 "environment_id": {"type": "string", "pattern": IDENTIFIER},
-                "params": {"type": "object", "additionalProperties": False,
-                           "required": required, "properties": params},
+                "params": params_schema,
             },
         }
 
@@ -99,6 +112,13 @@ def parse_stack(document) -> Stack:
     for spec in document["params"].values():
         if "default" in spec and "enum" in spec and spec["default"] not in spec["enum"]:
             raise StackError("invalid_parameter_default")
+        when = spec.get("required_when")
+        if when is not None:
+            decider = document["params"].get(when["param"])
+            # Like a step condition: a closed set decides it, and an optional value has no default.
+            if decider is None or "enum" not in decider or not set(when["in"]) <= set(decider["enum"]) \
+                    or "default" in spec or "required_when" in decider:
+                raise StackError("invalid_parameter_condition")
     steps = document["steps"]
     for step in steps:
         when = step.get("when")
@@ -135,6 +155,12 @@ def parse_stack(document) -> Stack:
         for name in PLACEHOLDER.findall(json.dumps(step)):
             if name not in document["params"]:
                 raise StackError("unknown_parameter")
+            # A conditionally required value is only substituted in steps planned under that condition.
+            needed = document["params"][name].get("required_when")
+            when = step.get("when")
+            if needed is not None and (when is None or when["param"] != needed["param"]
+                                       or not set(when["in"]) <= set(needed["in"])):
+                raise StackError("conditional_parameter_outside_condition")
     return Stack(document, sha256_text(canonical(document)), _levels(steps))
 
 

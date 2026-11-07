@@ -5,6 +5,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --disable-pip-version-check --no-cache-dir --require-hashes --only-binary=:all: -r requirements.txt
 COPY src /usr/local/lib/python3.12/site-packages
 COPY image-import-closure.py /app/image-import-closure.py
+# T36 contract.validate reads the packaged schema; an image without it fails every judgement at run time.
+RUN --network=none python -c "from bravo_observability.contract import schema; schema()"
 RUN --network=none python /app/image-import-closure.py --src /usr/local/lib/python3.12/site-packages --site /usr/local/lib/python3.12/site-packages bravo_platform_events.rehearsal_server bravo_platform_events.credential_host
 COPY infra /app/infra
 COPY templates /usr/local/lib/python3.12/templates

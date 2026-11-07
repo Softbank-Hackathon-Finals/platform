@@ -10,6 +10,11 @@ CHART_SHA256 = "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998
 # them, so the operator could not start on an arm64 node ("exec format error", T49 bravo-t49, 11/8).
 OPERATOR_DIGEST = "sha256:68fc0aa4e1c3d7ba19ca41c0bc27f17b2a5a8dca6c10efcdd18020a6bf97768d"
 PROXY_DIGEST = "sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c"
+# Source (EKS, amd64) runs the amd64 images of the same v1.104.4 indexes (checked 2026-11-08). Its operator is
+# taken over by GitOps as it runs: another image string rolls every source proxy (DB exposure, replication),
+# so moving it to the index digests is its own reviewed change.
+SOURCE_DIGESTS = {"operator": "sha256:48d373932bae9b65f5ded6480276b2290f16b8d43794ec9dcc3faf50137802eb",
+                  "proxy": "sha256:519bf6f2c386992052216ea7e9391d5ace3a859d458f4f61bc8db8c58377eb7d"}
 
 
 ENV = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
@@ -45,16 +50,21 @@ def values(side, env=None, auth="join", client_id="", audience=""):
         "operatorConfig": {
             "defaultTags": [f"tag:bravo-{env}-operator"],
             "hostname": f"bravo-{env}-operator",
-            "image": {"repository": "tailscale/k8s-operator", "digest": OPERATOR_DIGEST,
+            "image": {"repository": "tailscale/k8s-operator",
+                      "digest": SOURCE_DIGESTS["operator"] if side == "source" else OPERATOR_DIGEST,
                       "pullPolicy": "IfNotPresent"},
             "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
                           "limits": {"cpu": "1", "memory": "512Mi"}},
         },
         "proxyConfig": {
-            "image": {"repository": "tailscale/tailscale", "digest": PROXY_DIGEST},
+            "image": {"repository": "tailscale/tailscale",
+                      "digest": SOURCE_DIGESTS["proxy"] if side == "source" else PROXY_DIGEST},
             "defaultTags": f"tag:bravo-{env}-db",
         },
-        "apiServerProxyConfig": {"mode": "false", "allowImpersonation": "false"},
+        # Source: a transport proxy (source-dev `api-transport-access`). It passes the caller's own credential
+        # (an EKS IAM token) through and never impersonates, so no new RBAC is made. Target: no API proxy here
+        # (an auth proxy for people is `operator-access`, applied separately).
+        "apiServerProxyConfig": {"mode": "noauth" if side == "source" else "false", "allowImpersonation": "false"},
         "ingressClass": {"enabled": False, "name": "bravo-t8-unused"},
     }
 

@@ -257,6 +257,18 @@ class AccessTests(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(ValueError):
                 access.network(case)
 
+    def test_a_pull_secret_adds_only_that_one_secret_and_its_empty_placeholder(self):
+        items = access.target_apply("target-fixture", "demo-chat", "bravo-ghcr-reader")
+        role = next(x for x in items if x["kind"] == "Role")
+        for verb in ["get", "update"]:
+            self.assertTrue(allowed(role, verb, "secrets", "", "bravo-ghcr-reader"))
+            self.assertFalse(allowed(role, verb, "secrets", "", "target-app-credentials"))
+        self.assertFalse(allowed(role, "create", "secrets", "", "bravo-ghcr-reader"))
+        [secret] = [x for x in items if x["kind"] == "Secret"]
+        self.assertEqual(secret["metadata"]["namespace"], "target-fixture")
+        self.assertEqual(secret["stringData"], {".dockerconfigjson": '{"auths":{}}'})
+        self.assertFalse([x for x in access.target_apply("target-fixture", "demo-chat") if x["kind"] == "Secret"])
+
     def test_apply_identity_has_only_named_deployment_and_pod_observation(self):
         items = access.target_apply("target-fixture", "demo-chat")
         role = next(x for x in items if x["kind"] == "Role")

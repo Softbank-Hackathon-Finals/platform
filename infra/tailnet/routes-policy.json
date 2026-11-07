@@ -1,5 +1,8 @@
 {
   "tagOwners": {
+    "tag:bravo-apply-objects": [
+      "tag:bravo-platform-operator"
+    ],
     "tag:bravo-cutover-control": [
       "tag:bravo-platform-operator"
     ],
@@ -32,6 +35,9 @@
     ],
     "tag:bravo-target-gke-operator": [
       "autogroup:admin"
+    ],
+    "tag:bravo-target-objects": [
+      "tag:bravo-target-operator"
     ],
     "tag:bravo-target-pooler": [
       "tag:bravo-target-operator"
@@ -197,6 +203,17 @@
     },
     {
       "src": [
+        "tag:bravo-apply-objects"
+      ],
+      "dst": [
+        "tag:bravo-target-objects"
+      ],
+      "ip": [
+        "tcp:8333"
+      ]
+    },
+    {
+      "src": [
         "tag:bravo-cutover-control"
       ],
       "dst": [
@@ -319,6 +336,22 @@
   ],
   "tests": [
     {
+      "src": "tag:bravo-apply-objects",
+      "accept": [
+        "tag:bravo-target-objects:8333"
+      ],
+      "deny": [
+        "tag:bravo-metrics:22",
+        "tag:bravo-source-control-pooler:22",
+        "tag:bravo-source-db:22",
+        "tag:bravo-source-operator:22",
+        "tag:bravo-target-control-pooler:22",
+        "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
+        "tag:bravo-target-operator:22"
+      ]
+    },
+    {
       "src": "tag:bravo-cutover-control",
       "accept": [
         "tag:bravo-source-control-pooler:6432",
@@ -335,6 +368,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -350,6 +384,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -365,6 +400,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -380,6 +416,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -395,6 +432,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -410,6 +448,7 @@
         "tag:bravo-source-operator:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
+        "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22"
       ]
     },
@@ -423,6 +462,7 @@
         "tag:bravo-source-operator:443",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
         "tag:bravo-target-operator:443"
       ]
     },
@@ -436,6 +476,7 @@
         "tag:bravo-source-operator:443",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
         "tag:bravo-target-operator:443"
       ]
     },
@@ -449,6 +490,7 @@
         "tag:bravo-source-operator:443",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
         "tag:bravo-target-operator:443"
       ]
     }
