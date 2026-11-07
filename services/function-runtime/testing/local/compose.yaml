@@ -1,0 +1,40 @@
+# T46 로컬 증명(spec 커밋 3). 로컬 전용이며 비밀번호 · 토큰 · 자격 값은 모두 시험용 고정값이다.
+name: t46-local
+
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_DB: chat, POSTGRES_PASSWORD: local-only-admin }
+    volumes: ["./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro"]
+    ports: ["15432:5432"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "postgres", "-d", "chat"], interval: 2s, retries: 20 }
+
+  elasticmq:
+    image: softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+    volumes: ["./elasticmq.conf:/opt/elasticmq.conf:ro", "queue-data:/data"]
+    ports: ["19324:9324"]
+
+  runtime-base:
+    image: t46-function-runtime:local
+    build: { context: ../.., dockerfile: Dockerfile }
+    entrypoint: ["true"]
+
+  function:
+    image: t46-function-pii-check:local
+    build: { context: ./function, args: { RUNTIME_IMAGE: "t46-function-runtime:local" } }
+    depends_on:
+      db: { condition: service_healthy }
+      elasticmq: { condition: service_started }
+      runtime-base: { condition: service_completed_successfully }
+    environment:
+      AWS_ENDPOINT_URL_SQS: http://elasticmq:9324
+      AWS_ACCESS_KEY_ID: t46-local-access
+      AWS_SECRET_ACCESS_KEY: t46-local-secret
+      ADMIN_TOKEN: t46-local-admin
+      DB_DSN: postgresql://chat_app:local-only@db:5432/chat
+    volumes: ["./runtime.json:/etc/function-runtime/config.json:ro"]
+    ports: ["18080:8080"]
+    restart: unless-stopped
+
+volumes:
+  queue-data:

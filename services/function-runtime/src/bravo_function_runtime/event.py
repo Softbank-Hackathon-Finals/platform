@@ -56,7 +56,7 @@ def context(binding: Binding, region: str, account_id: str, deadline_ms: int) ->
         "aws_request_id": str(uuid.uuid4()),
         "function_name": binding.function_name,
         "function_version": "$LATEST",
-        "invoked_function_arn": f"arn:aws:lambda:{region}:{account_id}:function:{binding.function_name}",
+        "invoked_function_arn": ":".join(("arn", "aws", "lambda", region, account_id, "function", binding.function_name)),
         "memory_limit_in_mb": str(binding.memory_mb),
         "log_group_name": f"/aws/lambda/{binding.function_name}",
         "log_stream_name": "bravo-function-runtime",
