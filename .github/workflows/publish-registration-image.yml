@@ -17,6 +17,8 @@ on:
       - services/apply-path/pyproject.toml
       - services/edge-control/src/**
       - services/edge-control/pyproject.toml
+      - services/iac/src/**
+      - services/iac/pyproject.toml
       - scripts/image_import_closure.py
       - operations/kubectl/**
       - infra/envs/rehearsal-access/credentials.py
