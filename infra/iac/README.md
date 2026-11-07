@@ -132,6 +132,11 @@ kubectl auth whoami                                      # Groups에 bravo:opera
 3. TLS 검증을 켠 채로 접속한다(`insecure-skip-tls-verify` 없이 등록 CA와 서버 이름).
 
 이 모듈과 `operator-access`의 사람 그룹은 멤버 목록을 Git에서 알 수 없으므로 태그 장치용 정책 tests를 만들지 않는다.
+특히 플랫폼 `operator-access`의 `group:bravo-operators`는 멤버 전원에게 플랫폼 `cluster-admin` 경로를 준다. 멤버 추가는
+PR 없이 정책 편집만으로 일어나고 `tailnet-check`는 멤버를 볼 수 없으므로 다음을 지킨다.
+1. 기존 멤버가 모두 운영자인지 비공개 원장에서 확인한다.
+2. 멤버를 바꿀 때는 `operator-access` 변경과 같은 수준의 승인을 받고 감사 기록을 남긴다.
+3. 정책을 바꾸거나 이 저장소의 변경을 병합한 직후 실제 정책에 `tailnet-check`를 돌린다.
 생성 조각은 전체 정책을 대체하는 파일이 아니다. 현재 정책을 비공개로 보존하고 필요한 grant만 중복 없이 합친 뒤
 Tailscale의 정책 검증과 실제 조회를 수행한다. 다른 사람이 정책을 변경했다면 이전 복사본으로 덮어쓰지 않는다.
 
