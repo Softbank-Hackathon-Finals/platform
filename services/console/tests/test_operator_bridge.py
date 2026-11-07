@@ -7,6 +7,12 @@ from starlette.testclient import TestClient
 from bravo_console.operator_bridge import OperatorBridge
 
 ORIGIN = "http://127.0.0.1:18123"
+# A browser marks this origin's own fetches and EventSource as same-origin.
+OWN = {"Sec-Fetch-Site": "same-origin"}
+
+
+def client(app):
+    return TestClient(app, base_url=ORIGIN, headers=OWN)
 
 
 def case(handler=None, clock=None):
@@ -28,14 +34,17 @@ def case(handler=None, clock=None):
 
 
 def login(c, app):
-    r = c.get("/_operator/" + app.bootstrap, follow_redirects=False)
+    # the operator opens the one-use URL from the CLI: a top-level navigation with no initiator
+    r = c.get(
+        "/_operator/" + app.bootstrap, follow_redirects=False, headers={"Sec-Fetch-Site": "none"}
+    )
     assert r.status_code == 303
     assert "HttpOnly" in r.headers["set-cookie"] and "SameSite=strict" in r.headers["set-cookie"]
 
 
 def test_proof_stays_upstream_and_bootstrap_is_one_time():
     app, seen = case()
-    with TestClient(app, base_url=ORIGIN) as c:
+    with client(app) as c:
         assert c.get("/v1/plans/plan-demo").status_code == 401
         login(c, app)
         assert c.get("/_operator/" + app.bootstrap).status_code == 403
@@ -47,42 +56,76 @@ def test_proof_stays_upstream_and_bootstrap_is_one_time():
 
 def test_origin_token_substitution_cross_site_and_arbitrary_routes_are_denied():
     app, seen = case()
-    with TestClient(app, base_url=ORIGIN) as c:
+    with client(app) as c:
         login(c, app)
-        for headers in (
-            {"Origin": "https://evil.invalid", "X-Bravo-Console": "1"},
-            {"Origin": ORIGIN},
-            {"Origin": ORIGIN, "X-Bravo-Console": "1", "Authorization": "Bearer other"},
-        ):
-            assert (
-                c.post("/v1/plans/plan-demo/approvals", json={}, headers=headers).status_code == 403
-            )
+        assert c.get("/console/", headers={"Authorization": "Bearer other"}).status_code == 403
         assert c.get("/console/", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
         assert c.get("/other-service/secret").status_code == 404
         assert c.get("/console/", headers={"Host": "evil.invalid"}).status_code == 403
     assert not seen
 
 
-def test_post_is_forwarded_once_with_the_same_key_even_after_response_loss():
-    def failure(request):
-        raise httpx.ReadError("private-upstream-do-not-display", request=request)
+WRITES = [
+    "/v1/plans/plan-demo/approvals",
+    "/v1/plans/plan-demo/cutover",
+    "/v1/plans/plan-demo/failback",
+    "/v1/plans/plan-demo/delegations",
+    "/v1/plans/plan-demo/infra-approvals/approval-1/claims",
+    "/v1/plans/plan-demo/iac/plans/iac-1/pull-request",
+    "/v1/environments",
+]
 
-    app, seen = case(failure)
-    with TestClient(app, base_url=ORIGIN) as c:
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_no_write_reaches_the_platform_even_with_console_headers(method):
+    app, seen = case()
+    with client(app) as c:
         login(c, app)
-        r = c.post(
-            "/v1/plans/plan-demo/approvals",
-            json={"approval_kind": "infra"},
-            headers={"Origin": ORIGIN, "X-Bravo-Console": "1", "Idempotency-Key": "same-command"},
+        for path in WRITES:
+            r = c.request(
+                method,
+                path,
+                json={"approval_kind": "infra"},
+                headers={"Origin": ORIGIN, "X-Bravo-Console": "1", "Idempotency-Key": "k"},
+            )
+            assert r.status_code == 403 and r.json()["detail"]["code"] == "operator_bridge_boundary"
+    assert not seen
+
+
+@pytest.mark.parametrize("site", [None, "same-site", "cross-site", "unexpected"])
+def test_only_this_origin_or_an_operator_navigation_uses_the_session(site):
+    # Another 127.0.0.1 port is same-site and the cookie is not port-scoped.
+    app, seen = case()
+    with client(app) as c:
+        login(c, app)
+        if site is None:
+            c.headers.pop("Sec-Fetch-Site")
+            assert c.get("/v1/plans/plan-demo").status_code == 403
+        else:
+            r = c.get("/v1/plans/plan-demo", headers={"Sec-Fetch-Site": site})
+            assert r.status_code == 403
+    assert not seen
+
+
+def test_a_read_with_a_body_is_refused_and_only_read_headers_are_forwarded():
+    app, seen = case()
+    with client(app) as c:
+        login(c, app)
+        assert c.request("GET", "/v1/plans/plan-demo", content=b"{}").status_code == 400
+        r = c.get(
+            "/v1/plans/plan-demo/events",
+            headers={"Origin": ORIGIN, "X-Bravo-Console": "1", "Last-Event-ID": "plan-demo:3"},
         )
-    assert r.status_code == 503 and "private-upstream" not in r.text
-    assert len(seen) == 1 and seen[0].headers["idempotency-key"] == "same-command"
+        assert r.status_code == 200
+    assert len(seen) == 1 and seen[0].method == "GET" and seen[0].content == b""
+    assert seen[0].headers["last-event-id"] == "plan-demo:3"
+    assert "x-bravo-console" not in seen[0].headers and "origin" not in seen[0].headers
 
 
 def test_expired_local_session_does_not_mint_a_cloud_proof():
     now = [1000]
     app, seen = case(clock=lambda: now[0])
-    with TestClient(app, base_url=ORIGIN) as c:
+    with client(app) as c:
         login(c, app)
         now[0] += 900
         assert c.get("/console/").status_code == 401
@@ -111,7 +154,7 @@ def test_unverified_transports_fail_before_startup(change):
 
 def test_upstream_redirect_is_not_followed():
     app, seen = case(lambda r: httpx.Response(302, headers={"Location": "https://evil.invalid"}))
-    with TestClient(app, base_url=ORIGIN) as c:
+    with client(app) as c:
         login(c, app)
         assert c.get("/console/").status_code == 502
     assert len(seen) == 1
@@ -119,8 +162,8 @@ def test_upstream_redirect_is_not_followed():
 
 def test_invalid_non_ascii_cookie_is_rejected_without_forwarding():
     app, seen = case()
-    with TestClient(app, base_url=ORIGIN) as client:
-        response = client.get("/console/", headers=[(b"cookie", b"sova-operator=\xff")])
+    with client(app) as c:
+        response = c.get("/console/", headers=[(b"cookie", b"sova-operator=\xff")])
         assert response.status_code == 401
     assert not seen
 
@@ -140,11 +183,10 @@ def test_server_name_is_fixed_by_operator_not_browser_headers():
         proof=lambda: "fixture-proof",
         transport=httpx.MockTransport(upstream),
     )
-    with TestClient(app, base_url=ORIGIN) as client:
-        login(client, app)
+    with client(app) as c:
+        login(c, app)
         assert (
-            client.get("/console/", headers={"X-Forwarded-Host": "untrusted.invalid"}).status_code
-            == 200
+            c.get("/console/", headers={"X-Forwarded-Host": "untrusted.invalid"}).status_code == 200
         )
     assert seen[0].extensions["sni_hostname"] == "host.platform-state.svc"
     assert "x-forwarded-host" not in seen[0].headers

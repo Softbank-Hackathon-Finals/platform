@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 RUNTIME_SOURCE = Path("/app/runtime-source.json")
@@ -13,19 +14,27 @@ CUSTOMER_PRODUCER = Path("/app/infra/iac/customer_status.py")
 
 def customer_producer():
     metadata = json.loads(RUNTIME_SOURCE.read_text())
+    source = CUSTOMER_PRODUCER.read_bytes()  # hash and run these same bytes, never a second read
     if (
         type(metadata) is not dict
         or set(metadata) != {"source_revision", "customer_status_sha256"}
         or not isinstance(metadata["source_revision"], str)
         or not re.fullmatch(r"[0-9a-f]{40}", metadata["source_revision"])
         or not isinstance(metadata["customer_status_sha256"], str)
-        or hashlib.sha256(CUSTOMER_PRODUCER.read_bytes()).hexdigest()
-        != metadata["customer_status_sha256"]
+        or hashlib.sha256(source).hexdigest() != metadata["customer_status_sha256"]
     ):
         raise ValueError("customer_producer_source_mismatch")
-    spec = importlib.util.spec_from_file_location("sova_customer_status", CUSTOMER_PRODUCER)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    name = "sova_customer_status"
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader(name, loader=None, origin=str(CUSTOMER_PRODUCER))
+    )
+    module.__file__ = str(CUSTOMER_PRODUCER)
+    sys.modules[name] = module  # dataclasses resolve their module while the code runs
+    try:
+        exec(compile(source, str(CUSTOMER_PRODUCER), "exec"), module.__dict__)  # noqa: S102
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return module, metadata["source_revision"]
 
 
@@ -53,6 +62,7 @@ def configured(store, host_config, console_config):
         inspect_customer=module.inspect,
         reader=module.reader,
         producer_revision=producer_revision,
+        tenant_of=store.tenant_for,
     )
     host = load_host(store, host_config, create)
     return assemble(host, store, verifier, config, source)

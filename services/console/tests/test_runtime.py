@@ -31,6 +31,7 @@ def runtime(tmp_path):
 
     registered = [
         dict(
+            tenant_id="tenant-real",
             environment_id="env-target",
             environment="target-dev",
             cluster_uid="fixture-customer",
@@ -38,49 +39,64 @@ def runtime(tmp_path):
             kubeconfig="/registered/fixture.kubeconfig",
         )
     ]
+    store = PlanStore(tmp_path / "runtime.db")
     source = NativeCustomerSource(
         registered,
         inspect_customer=customer.inspect,
         reader=lambda path: get,
         producer_revision="c" * 40,
+        tenant_of=store.tenant_for,
     )
     source.collect(source.targets[0])
-    store = PlanStore(tmp_path / "runtime.db")
     now = datetime.now(UTC)
-    store.register_plan(
-        PlanSpec(
-            "plan-real", "tenant-real", "chat", "env-source", "env-target", "a" * 64, "b" * 64
-        ),
-        run_id="register",
-        occurred_at=now.isoformat(),
-    )
-    actor = OperatorPrincipal(
-        "operator-real",
-        "tenant-real",
-        int(now.timestamp()),
-        int((now + timedelta(hours=1)).timestamp()),
-        int(now.timestamp()),
-        "fixture-session",
-    )
+    # plan-real: the registered target's plan. plan-sibling: same tenant, no grant.
+    # plan-elsewhere: same tenant and grant, another environment pair. plan-foreign: another
+    # tenant whose plan reuses the environment ID "env-target" (unique only per tenant).
+    for plan_id, tenant, pair in (
+        ("plan-real", "tenant-real", ("env-source", "env-target")),
+        ("plan-sibling", "tenant-real", ("env-source", "env-target")),
+        ("plan-elsewhere", "tenant-real", ("env-a", "env-b")),
+        ("plan-foreign", "tenant-other", ("env-source", "env-target")),
+    ):
+        store.register_plan(
+            PlanSpec(plan_id, tenant, "chat", *pair, "a" * 64, "b" * 64),
+            run_id="register-" + plan_id,
+            occurred_at=now.isoformat(),
+        )
+
+    def principal(subject, tenant):
+        return OperatorPrincipal(
+            subject,
+            tenant,
+            int(now.timestamp()),
+            int((now + timedelta(hours=1)).timestamp()),
+            int(now.timestamp()),
+            "fixture-session-" + subject,
+        )
+
+    actor = principal("operator-real", "tenant-real")
+    other = principal("operator-other", "tenant-other")
     access = OperatorAccess(store)
-    access.set_permissions(
-        "plan-real",
-        actor,
-        permissions=["read", "gate:read"],
-        valid_after=(now - timedelta(seconds=1)).isoformat(),
-        expires_at=(now + timedelta(hours=1)).isoformat(),
-        expected_revision=0,
-        administration_ref="fixture-admin",
-        command_key="grant-read",
-    )
+    for plan_id, who in (
+        ("plan-real", actor),
+        ("plan-elsewhere", actor),
+        ("plan-foreign", other),
+    ):
+        access.set_permissions(
+            plan_id,
+            who,
+            permissions=["read", "gate:read"],
+            valid_after=(now - timedelta(seconds=1)).isoformat(),
+            expires_at=(now + timedelta(hours=1)).isoformat(),
+            expected_revision=0,
+            administration_ref="fixture-admin",
+            command_key="grant-read-" + plan_id,
+        )
     state = {"valid": True, "actor": actor, "access": access}
+    proofs = {"Bearer fixture-proof": actor, "Bearer other-tenant-proof": other}
 
     def verifier(request):
-        return (
-            actor
-            if state["valid"] and request.headers.get("authorization") == "Bearer fixture-proof"
-            else None
-        )
+        return proofs.get(request.headers.get("authorization")) if state["valid"] else None
 
     api = create_operator_cutover_app(
         store,
@@ -128,6 +144,44 @@ def test_matching_hash_alone_never_authenticates_an_arbitrary_registration(runti
     assert not source.authenticate({}, plan, target, item)
 
 
+def test_same_tenant_plan_without_a_read_grant_is_forbidden(runtime):
+    app, *_ = runtime
+    with TestClient(
+        app, base_url=app.origin, headers={"Authorization": "Bearer fixture-proof"}
+    ) as c:
+        r = c.get("/v1/plans/plan-sibling/delivery")
+        assert r.status_code == 403 and "fixture-customer" not in r.text
+
+
+def test_another_tenant_reusing_the_environment_id_never_reads_this_customer(runtime):
+    app, source, store, _, _ = runtime
+    with TestClient(
+        app, base_url=app.origin, headers={"Authorization": "Bearer other-tenant-proof"}
+    ) as c:
+        r = c.get("/v1/plans/plan-foreign/delivery")
+        assert r.status_code == 200, r.text
+        assert [x["status"] for x in r.json()["customers"]] == ["UNKNOWN"]
+        assert "fixture-customer" not in r.text
+        assert c.get("/v1/plans/plan-real/delivery").status_code == 403
+    plan, target = store.snapshot("plan-foreign"), source.targets[0]
+    with pytest.raises(ValueError, match="customer_registration_outside_plan"):
+        source.load({}, plan, target)
+    issued = source.load({}, store.snapshot("plan-real"), target)
+    assert not source.authenticate({}, plan, target, issued)
+
+
+def test_a_registered_environment_outside_the_plan_pair_is_not_served(runtime):
+    app, source, store, _, _ = runtime
+    with TestClient(
+        app, base_url=app.origin, headers={"Authorization": "Bearer fixture-proof"}
+    ) as c:
+        r = c.get("/v1/plans/plan-elsewhere/delivery")
+        assert r.status_code == 200, r.text
+        assert r.json()["customers"] == [] and "fixture-customer" not in r.text
+    with pytest.raises(ValueError, match="customer_registration_outside_plan"):
+        source.load({}, store.snapshot("plan-elsewhere"), source.targets[0])
+
+
 def test_missing_operator_proof_returns_no_customer_data(runtime):
     app, *_ = runtime
     with TestClient(app, base_url=app.origin) as c:
@@ -157,7 +211,7 @@ def test_revoking_native_plan_grant_removes_delivery_data(runtime):
         assert "fixture-customer" not in response.text
 
 
-def test_customer_failures_clear_observation_and_issued_authority(runtime, monkeypatch):
+def test_customer_failures_clear_observation_and_issued_authority(runtime, monkeypatch, caplog):
     import asyncio
 
     _, source, store, _, _ = runtime
@@ -173,11 +227,36 @@ def test_customer_failures_clear_observation_and_issued_authority(runtime, monke
 
     monkeypatch.setattr(source, "reader", failure)
     monkeypatch.setattr(asyncio, "sleep", stop)
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(source.poll())
+    with caplog.at_level("WARNING", logger="bravo_console.runtime"):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(source.poll())
     assert not source.authenticate({}, plan, target, issued)
     with pytest.raises(ValueError, match="customer_collection_pending"):
         source.load({}, plan, target)
+    assert "environment_id=env-target reason=RuntimeError" in caplog.text
+    assert "private-transport-error" not in caplog.text
+
+
+def test_a_collector_refusal_logs_its_fixed_code(runtime, monkeypatch, caplog):
+    import asyncio
+
+    _, source, _, _, _ = runtime
+
+    class IntakeError(Exception):
+        pass
+
+    def refused(*_args):
+        raise IntakeError("CLUSTER_IDENTITY_MISMATCH")
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(source, "reader", refused)
+    monkeypatch.setattr(asyncio, "sleep", stop)
+    with caplog.at_level("WARNING", logger="bravo_console.runtime"):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(source.poll())
+    assert "reason=CLUSTER_IDENTITY_MISMATCH" in caplog.text
 
 
 def test_image_bound_customer_producer_refuses_tampered_bytes(tmp_path, monkeypatch):
@@ -205,3 +284,37 @@ def test_image_bound_customer_producer_refuses_tampered_bytes(tmp_path, monkeypa
     )
     module, revision = server.customer_producer()
     assert callable(module.inspect) and callable(module.reader) and revision == "a" * 40
+
+
+def test_customer_producer_runs_the_bytes_it_hashed(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    from bravo_console import server
+
+    verified = b"def inspect(): return 'verified'\ndef reader(): pass\n"
+    producer = tmp_path / "customer_status.py"
+    producer.write_bytes(verified)
+    metadata = tmp_path / "runtime-source.json"
+    metadata.write_text(
+        json.dumps(
+            dict(
+                source_revision="a" * 40,
+                customer_status_sha256=hashlib.sha256(verified).hexdigest(),
+            )
+        )
+    )
+    monkeypatch.setattr(server, "RUNTIME_SOURCE", metadata)
+    monkeypatch.setattr(server, "CUSTOMER_PRODUCER", producer)
+    reads = []
+    original = type(producer).read_bytes
+
+    def swap_after_first_read(self):
+        data = original(self)
+        reads.append(self)
+        producer.write_text("raise RuntimeError('swapped after the hash check')")
+        return data
+
+    monkeypatch.setattr(type(producer), "read_bytes", swap_after_first_read)
+    module, _ = server.customer_producer()
+    assert module.inspect() == "verified" and len(reads) == 1

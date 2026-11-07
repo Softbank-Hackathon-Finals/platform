@@ -2,6 +2,9 @@
 
 This is an internal CLI access path, not a public web identity provider. The
 platform still verifies each short proof and current plan permissions itself.
+It is read-only: only GET (including SSE) reaches the platform. Approval,
+cutover, failback and IaC writes stay closed here until T21 shows each decision
+with its binding and T10 decides which routes may open (#727 review).
 """
 
 import asyncio
@@ -92,20 +95,24 @@ class OperatorBridge:
                 scope, receive, send
             )
 
+        # Cookies are not isolated by port, so another 127.0.0.1 origin is "same-site" and
+        # would carry this session. Only this origin's own requests or a top-level
+        # navigation the operator opened (the one-use URL) may use it.
         if (
             request.headers.getlist("host") != [self.host]
-            or request.headers.get("sec-fetch-site") == "cross-site"
+            or request.headers.getlist("sec-fetch-site") not in (["same-origin"], ["none"])
             or "authorization" in request.headers
-            or request.method not in ("GET", "POST")
+            or request.method != "GET"
         ):
             return await reject(403, "operator_bridge_boundary")
+        if (
+            request.headers.getlist("content-length") not in ([], ["0"])
+            or "transfer-encoding" in request.headers
+        ):
+            return await reject(400, "request_body_not_allowed")
         if scope["path"] == "/_operator/" + self.bootstrap:
             async with self.lock:
-                if (
-                    self.bootstrap_used
-                    or request.method != "GET"
-                    or not 0 <= self.clock() - self.started < 300
-                ):
+                if self.bootstrap_used or not 0 <= self.clock() - self.started < 300:
                     return await reject(403, "operator_bootstrap_expired")
                 self.bootstrap_used = True
             response = RedirectResponse("/console/", status_code=303, headers=safe)
@@ -132,25 +139,8 @@ class OperatorBridge:
             or path in ("/v1/plans", "/v1/environments", "/v1/workloads")
         ):
             return await reject(404, "not_found")
-        if request.method == "POST" and (
-            request.headers.getlist("origin") != [self.origin]
-            or request.headers.getlist("x-bravo-console") != ["1"]
-        ):
-            return await reject(403, "browser_change_boundary")
-        body = bytearray()
-        async for chunk in request.stream():
-            body.extend(chunk)
-            if len(body) > 65536:
-                return await reject(413, "request_too_large")
         headers = {"Host": self.host}
-        for name in (
-            "accept",
-            "content-type",
-            "origin",
-            "x-bravo-console",
-            "idempotency-key",
-            "last-event-id",
-        ):
+        for name in ("accept", "last-event-id"):
             values = request.headers.getlist(name)
             if len(values) > 1:
                 return await reject(400, "duplicate_header")
@@ -171,10 +161,9 @@ class OperatorBridge:
             url = self.upstream + path + ("?" + query if query else "")
             upstream = await client.send(
                 client.build_request(
-                    request.method,
+                    "GET",
                     url,
                     headers=headers,
-                    content=bytes(body),
                     extensions={"sni_hostname": self.tls_server_name},
                 ),
                 stream=True,

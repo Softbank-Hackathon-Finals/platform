@@ -30,8 +30,10 @@
 ```
 
 `modules`는 기존 PlanDelivery의 등록 형식이며 `environment_id`, `environment`, `module`, `params`를 가진다.
-`customers`에는 운영자가 검토한 `environment_id`, `environment`, `cluster_uid`, `reviewed_revision`,
+`customers`에는 운영자가 검토한 `tenant_id`, `environment_id`, `environment`, `cluster_uid`, `reviewed_revision`,
 절대경로 `kubeconfig`만 등록한다. 실제 등록 원문을 사용하며 예시 UID를 실제 대상으로 채택하지 않는다.
+환경 ID는 tenant 안에서만 고유하다. 그래서 관측은 계획의 tenant(`tenant_for`)가 등록 `tenant_id`와 같고,
+그 환경이 계획의 출발지·목적지 쌍에 있을 때만 내준다. 아니면 그 고객은 UNKNOWN으로 보인다.
 권한은 이 파일에서 부여하지 않는다. 데이터 출처용 source SHA와 코드 hash도 이미지 빌드 입력으로 고정해야 한다.
 
 ```sh
@@ -40,7 +42,8 @@ python -m bravo_console.server --config <기존-host.json> --console-config <보
 ```
 
 공식 이미지에 콘솔과 고정 고객 수집기, `/app/runtime-source.json`이 포함되어야 한다.
-진입점은 이 manifest의 source SHA 형식과 수집기 바이트 hash를 검사한 뒤에만 해당 파일을 import한다.
+진입점은 이 manifest의 source SHA 형식과 수집기 바이트 hash를 검사한 뒤에만, hash를 계산한 그 바이트를 실행한다
+(파일을 다시 읽지 않는다).
 빌드/차트 연결은 T43 담당 범위 합의 뒤 진행한다. 기존 호스트는 단일 writer·Recreate를 유지하고,
 실행 중인 작업과 전환 시간을 확인하기 전에는 변경하지 않는다.
 
@@ -60,8 +63,13 @@ python -m bravo_console.operator_bridge --config <보호된-접속설정.json> \
 
 - 접속 URL은 5분 내 1회만 사용한다. 브라우저에는 HttpOnly·SameSite=Strict 로컬 쿠키만 전달하고 세션은 프로세스 시작부터 최대 15분이다.
 - proof는 메모리에서 고정 upstream에만 전달한다. 브라우저·URL·localStorage·접속 로그에 넣지 않는다.
-- Host/Origin과 변경 요청 헤더를 검사하고 브라우저의 Authorization 대체·외부 경로·리다이렉트를 거부한다.
-- POST를 자동 재시도하지 않고 원래 멱등 키를 유지한다. 응답 유실은 성공으로 바꾸지 않는다.
+- **읽기 전용이다.** GET(SSE 포함)만 플랫폼에 보낸다. 승인·컷오버·failback·위임·IaC 요청 같은 쓰기는
+  콘솔 헤더를 갖춰도 브리지에서 403으로 막는다. 쓰기는 T21이 결정을 결속 값과 함께 보여 주고 T10이 열 경로를
+  정한 뒤에 경로별 허용 목록으로 연다. 본문이 있는 요청은 거부하고, `Accept`·`Last-Event-ID`만 전달한다.
+- 쿠키는 포트로 나뉘지 않아 같은 PC의 다른 `127.0.0.1` 서버도 same-site다. 그래서 모든 요청에
+  `Sec-Fetch-Site`가 `same-origin`(이 origin의 요청) 또는 `none`(운영자가 연 접속 URL)이기를 요구한다.
+  헤더가 없거나 그 밖의 값이면 거부한다.
+- Host를 검사하고 브라우저의 Authorization 대체·외부 경로·리다이렉트를 거부한다.
 - SSE는 proof 만료 전에 정상 종료하고 재접속 때 새 proof를 사용한다. WebSocket 공급자는 미연결로 거부한다.
 - 접속 파일을 Git·채팅·공개 문서에 공유하지 않는다. 종료하면 로컬 접속 경로도 중단된다.
 
@@ -69,6 +77,8 @@ python -m bravo_console.operator_bridge --config <보호된-접속설정.json> \
 
 30초마다 고정 대상의 GET 관측을 갱신한다. 서비스가 캐시를 읽는 시각으로 수집 시각을 바꾸지 않는다.
 수집 실패 시 기존 관측과 발급된 읽기 참조를 지우며, 재시작 후 새 관측이 없으면 UNKNOWN이다.
+실패는 `customer_collection_failed environment_id=… reason=…`로 로그에 남긴다. 사유는 수집기의 고정 코드
+(예: `CLUSTER_IDENTITY_MISMATCH`)이고, 그 밖의 오류는 예외 종류만 적는다. 오류 메시지는 남기지 않는다.
 이는 영속 감사 원장이나 실행 승인 근거를 대체하지 않는다.
 
 운영 수집에는 개인 관리자 토큰 대신 기존 T7 단기·회수 가능한 자격 경로에 전용 읽기 계정을 등록해야 한다.

@@ -91,8 +91,12 @@ def test_cloud_proof_is_not_delivered_before_real_tls_verification(tls_upstream,
         tls_server_name=TLS_NAME if boundary != "wrong-name" else "other.test.invalid",
         proof=lambda: "fixture-proof-not-a-real-credential",
     )
-    with TestClient(app, base_url=ORIGIN) as client:
-        response = client.get("/_operator/" + app.bootstrap, follow_redirects=False)
+    with TestClient(app, base_url=ORIGIN, headers={"Sec-Fetch-Site": "same-origin"}) as client:
+        response = client.get(
+            "/_operator/" + app.bootstrap,
+            follow_redirects=False,
+            headers={"Sec-Fetch-Site": "none"},
+        )
         assert response.status_code == 303
         response = client.get("/console/")
     if boundary == "verified":
