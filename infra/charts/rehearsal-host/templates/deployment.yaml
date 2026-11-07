@@ -87,8 +87,10 @@ spec:
             - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
             - {name: tls, mountPath: /tls, readOnly: true}
             - {name: executor, mountPath: /executor, readOnly: true}
+            {{- if .Values.secrets.securityReview }}
             - {name: security-review-ca, mountPath: /security-review, readOnly: true}
             - {name: security-review-token, mountPath: /var/run/secrets/security-review, readOnly: true}
+            {{- end }}
             {{- if .Values.secrets.edge }}
             - {name: edge, mountPath: /edge, readOnly: true}
             {{- end }}
@@ -156,6 +158,8 @@ spec:
               - {key: ca.crt, path: ca.crt}
               - {key: read-token, path: read-token}
               - {key: command-token, path: command-token}
+        {{- if .Values.secrets.securityReview }}
+        # T31 security review (#924): only once the review service and its CA Secret exist.
         - name: security-review-ca
           secret:
             secretName: {{ .Values.secrets.securityReview }}
@@ -170,6 +174,7 @@ spec:
                   audience: registered-security-review-audience
                   expirationSeconds: 600
                   path: token
+        {{- end }}
         {{- if .Values.secrets.edge }}
         # T17 Cloudflare token for FailbackEdge and the in-Pod SHIFT CLI (one LB journal under /records).
         - name: edge

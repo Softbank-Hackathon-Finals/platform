@@ -44,7 +44,7 @@ def verify_rehearsal_host(get, host):
     get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
     for claim in (runtime["reader"]["catalogClaim"], runtime["recordsClaim"]):
         get("pvc", claim, "platform-state")
-    for name in set(runtime["secrets"].values()):
+    for name in {v for v in runtime["secrets"].values() if v}:  # securityReview and edge are optional
         get("secret", name, "platform-state")
     image = json.loads((ROOT / "infra/gitops/environments/development/rehearsal-host-image.json").read_text())
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):

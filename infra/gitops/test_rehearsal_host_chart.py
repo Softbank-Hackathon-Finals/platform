@@ -168,6 +168,53 @@ class EdgeToken(unittest.TestCase):
             pod = next(d for d in yaml.safe_load_all(result.stdout) if d and d["kind"] == "Deployment")["spec"]["template"]["spec"]
             self.assertEqual(any(v["name"] == "edge" for v in pod["volumes"]), mounted)
 
+
+class SecurityReview(unittest.TestCase):
+    """11/8 07:56 KST: #924 made the Secret name required, the live runtime had none, and Argo stopped rendering
+    the approval host. It is mounted only when named; when named it must still be a valid Secret name."""
+
+    def test_security_review_is_mounted_only_when_named(self):
+        import yaml
+
+        names = {"security-review-ca", "security-review-token"}
+        for secrets, mounted in (({"securityReview": ""}, False), ({}, False),
+                                 ({"securityReview": "security-review-ca"}, True)):
+            base = {k: v for k, v in VALUES["secrets"].items() if k != "securityReview"}
+            values = {**VALUES, "secrets": {**base, **secrets}}
+            with self.subTest(secrets=secrets):
+                result = render(values)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                pod = next(d for d in yaml.safe_load_all(result.stdout)
+                           if d and d["kind"] == "Deployment")["spec"]["template"]["spec"]
+                volumes = {v["name"] for v in pod["volumes"]}
+                mounts = {m["name"] for m in pod["containers"][0]["volumeMounts"]}
+                self.assertEqual(names <= volumes, mounted)
+                self.assertEqual(names <= mounts, mounted)
+                self.assertFalse(names & volumes and not names <= volumes)  # both or neither
+
+    def test_a_named_security_review_must_be_a_valid_secret_name(self):
+        values = {**VALUES, "secrets": {**VALUES["secrets"], "securityReview": "Not_A_Name"}}
+        result = render(values)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("securityReview", result.stderr)
+
+    def test_bootstrap_does_not_look_up_an_unnamed_secret(self):
+        seen = []
+
+        def get(kind, name, namespace):
+            seen.append((kind, name))
+            return {"metadata": {"name": name}}
+
+        runtime = deepcopy(RUNTIME)
+        runtime["secrets"]["securityReview"] = ""
+        with patch.object(bootstrap, "pinned_sts_address", lambda: "43.202.75.96"), \
+                patch.object(bootstrap, "pinned_rehearsal_host_digest", lambda: "sha256:" + "d" * 64, create=True):
+            try:
+                verify_rehearsal_host(get, {"enabled": True, "runtime": runtime})
+            except ValueError:
+                pass  # the image pin of this checkout may be empty; only the Secret lookups matter here
+        self.assertNotIn(("secret", ""), seen)
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--render"]:
         result = render(VALUES)
