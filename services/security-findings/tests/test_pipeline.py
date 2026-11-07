@@ -538,12 +538,26 @@ def test_agent_reports_unhealthy_falco_and_unreadable_kyverno():
     def healthy(path):
         if "daemonsets" in path:
             return {"status": {"desiredNumberScheduled": 1, "numberReady": 1}}
+        if "/deployments/" in path:
+            return {"spec": {"replicas": 1}, "status": {"readyReplicas": 1}}
         return {"items": []}
 
     assert collect(healthy, now) == [
         {"source": "kyverno", "events": []},
         {"source": "falco", "events": []},
     ]
+
+    # falcosidekick carries every alert, and reports-controller writes every report: either down is not "0 findings".
+    def stopped(name):
+        def get(path):
+            if path.endswith("/deployments/" + name):
+                return {"spec": {"replicas": 1}, "status": {}}
+            return healthy(path)
+
+        return {b["source"]: b.get("agent_error") for b in collect(get, now)}
+
+    assert stopped("falco-falcosidekick") == {"kyverno": None, "falco": "SOURCE_UNHEALTHY"}
+    assert stopped("kyverno-reports-controller") == {"kyverno": "SOURCE_UNHEALTHY", "falco": None}
 
     def broken(path):
         if "daemonsets" in path:
