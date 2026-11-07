@@ -1,6 +1,6 @@
 # Image is pinned by digest from publish-sova-mcp-image; a tag is not accepted.
 image:
-  repository: ghcr.io/softbank-hackathon-finals/sova-mcp
+  repository: ghcr.io/softbank-hackathon-finals/platform-sova-mcp
   digest: ""
 # Protected operator inputs (created outside this chart; names only).
 runtime:
