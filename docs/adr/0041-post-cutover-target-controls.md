@@ -42,7 +42,8 @@ SA `demo-chat`과 `t14-other`로 Pod를 하나씩 돌린다. 각 Pod는 자기 p
 
 * **옵션 1을 선택한다.** 생산자는 `bravo_platform_events.target_controls`이고, `ports.json`의 `watch.target_controls`로 켠다. 켜지 않으면 WATCH는 지금처럼 운영자의 기록을 기다린다.
 * **옵션 2는 채택하지 않는다.** 권한 범위가 같거나 더 넓다.
-* **ENC-01.1(`pooler-tls`)은 이 PR에 넣지 않는다.** 이 수집기는 앱 DB 비밀번호(SCRAM 로그인)와 psql 18이 필요하다. 플랫폼 신원에 앱 DB Secret 읽기를 줄지, 접속 전용 DB 역할을 둘지 정한 뒤 붙인다. 그때까지 `apply-recheck:1` 맥락의 재시험은 ENC-01.1이 NOT_RUN이므로 UNKNOWN이다. 가짜 PASS를 만들지 않는다.
+* **ENC-01.1(`pooler-tls`, #758 등록 규약)도 잰다.** `target-pgbouncer`로 port-forward한 loopback에서 verify-full로 접속한다. 증거의 client는 `port-forward`로 남는다. SCRAM 로그인에 쓰는 앱 DB 자격은 SEC-01.1과 같은 짧은 수명 TokenRequest로 받은 **앱 자신의 OpenBao 로그인**으로 앱 경로(`credentials_json`)에서 읽는다. 메모리에만 두고, Secret 읽기나 DB 관리자 권한은 쓰지 않는다. psql은 이미지에 고정한 PGDG `postgresql-client-18`을 쓴다. 그 sha256과 버전은 수집할 때 이미지 안 바이너리에서 읽고, 이미지 digest가 바이너리를 고정한다.
+* **AUD-01.1(`pod-log`)은 넣지 않는다.** CNPG primary에 postgres로 exec하는 것은 DB 관리자 접속이다. 재대조·재시험 프로필은 `apply-recheck:1`(SEC·IAM·ENC)이라 필요하지 않다.
 
 **목적지 쪽 플랫폼 신원의 권한(이름으로 한정)**
 
@@ -50,7 +51,7 @@ SA `demo-chat`과 `t14-other`로 Pod를 하나씩 돌린다. 각 Pod는 자기 p
 |---|---|---|---|
 | `target-dev` | `serviceaccounts/token` (`demo-chat`, `t14-other`) | create | SEC-01.1 두 신원 |
 | `target-dev` | `secrets` (`target-object-client`) | get | IAM-01.1 앱 client 키 |
-| `target-dev`, `bravo-secrets` | `services` (`seaweedfs`, `target-openbao`) | get | port-forward 대상 해석 |
+| `target-dev`, `bravo-secrets` | `services` (`seaweedfs`, `target-pgbouncer`, `target-openbao`) | get | port-forward 대상 해석 |
 | `target-dev`, `bravo-secrets` | `pods` | list, get | port-forward 대상 Pod |
 | `target-dev`, `bravo-secrets` | `pods/portforward` | create | 클러스터 안 서비스 접근. `bravo-secrets`는 `target-openbao-0`만. `target-dev`의 Deployment Pod는 이름이 바뀌어 이름으로 좁힐 수 없다 |
 

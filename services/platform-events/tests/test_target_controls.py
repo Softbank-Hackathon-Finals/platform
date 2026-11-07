@@ -141,7 +141,7 @@ def test_tokens_are_minted_from_outside_with_a_fixed_audience_and_lifetime(tmp_p
 def test_configuration_accepts_only_wired_adapters(tmp_path):
     config = tmp_path / "target-controls.json"
     base = {"kubeconfig": "/k", "evidence_dir": str(tmp_path), "environment_ref": "target/onprem"}
-    config.write_text(json.dumps(base | {"tests": {"ENC-01.1": {"adapter": "pooler-tls"}}}))
+    config.write_text(json.dumps(base | {"tests": {"AUD-01.1": {"adapter": "pod-log"}}}))  # no DB-admin collector
     with pytest.raises(ValueError, match="target_controls_configuration_invalid"):
         target_controls.create(None, config)
 
@@ -171,3 +171,21 @@ def test_the_collector_credential_must_be_short_lived(tmp_path, claims, ok):
     else:
         with pytest.raises(RuntimeError, match="collector_credential_unbounded"):
             target_controls.bounded_credential(path, now=lambda: 1000)
+
+
+def test_psql_must_be_the_image_s_own_18_x(tmp_path):
+    good = _fake_kubectl(tmp_path, 'echo "psql (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+2)"\n')
+    sha, version = target_controls.psql_qualification(good)
+    assert sha.startswith("sha256:") and len(sha) == 71 and version == "18.6 (Debian 18.6-1.pgdg13+2)"
+    (tmp_path / "old").mkdir()
+    old = _fake_kubectl(tmp_path / "old", 'echo "psql (PostgreSQL) 17.2"\n')
+    with pytest.raises(RuntimeError, match="psql_18_required"):
+        target_controls.psql_qualification(old)
+
+
+def test_enc_is_a_wired_adapter_and_reads_its_login_through_the_openbao_entry(tmp_path):
+    config = tmp_path / "target-controls.json"
+    base = {"kubeconfig": "/k", "evidence_dir": str(tmp_path), "environment_ref": "target/onprem"}
+    config.write_text(json.dumps(base | {"tests": {"ENC-01.1": {"adapter": "pooler-tls"}}}))
+    assert target_controls.create(None, config).measure is not None
+    assert target_controls.ADAPTERS["ENC-01.1"] == "pooler-tls" and target_controls.POOLER_CLIENT == "port-forward"

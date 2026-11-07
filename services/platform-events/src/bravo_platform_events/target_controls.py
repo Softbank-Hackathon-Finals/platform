@@ -35,7 +35,8 @@ log = logging.getLogger(__name__)
 TOKEN_AUDIENCE = "openbao"
 TOKEN_SECONDS = 600
 RETRY_SECONDS = 300  # ponytail: per-process attempt window; a stored attempt record if hosts multiply
-ADAPTERS = {"SEC-01.1": "openbao", "IAM-01.1": "s3-endpoint"}  # ENC-01.1 pooler-tls: not wired yet
+ADAPTERS = {"SEC-01.1": "openbao", "IAM-01.1": "s3-endpoint", "ENC-01.1": "pooler-tls"}
+POOLER_CLIENT = "port-forward"  # ENC-01.1 runs outside the namespace; the evidence records the client as such
 _NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 
 
@@ -167,10 +168,69 @@ class _OpenBaoRun:
                     _bao_revoke(self.origin, self.ca_pem, name, client.token)
 
 
-def _probe(test_id, entry, *, kube, stack, app, environment, sink):
+def _app_database_credential(bao, kube, stack):
+    """ENC-01.1's login: the app's own DB credential, read with the app identity's short-lived OpenBao
+    login (the same TokenRequest path as SEC-01.1). No Secret read, no DB administrator access."""
+    port = stack.enter_context(kube.forward(bao["namespace"], bao["service"], bao["port"]))
+    origin, ca_pem, name, app = f"https://127.0.0.1:{port}", Path(bao["ca_file"]).read_text(), bao["server_hostname"], bao["app"]
+    token, _ = _bao_login(origin, ca_pem, name, bao["auth_mount"], app["role"],
+                          kube.token(app["namespace"], app["service_account"]))
+    try:
+        connection = _bao_connection(origin, ca_pem, name)
+        try:
+            connection.request("GET", f"/v1/{bao['mount']}/data/{bao['path']}", headers={"X-Vault-Token": token})
+            response = connection.getresponse()
+            body = response.read(65536)
+        finally:
+            connection.close()
+    finally:
+        with contextlib.suppress(Exception):
+            _bao_revoke(origin, ca_pem, name, token)
+    try:
+        credential = json.loads(json.loads(body)["data"]["data"]["credentials_json"]) if response.status == 200 else {}
+    except (KeyError, TypeError, ValueError):
+        credential = {}
+    if not isinstance(credential.get("username"), str) or not isinstance(credential.get("password"), str):
+        raise PermissionError("app_database_credential_unavailable")
+    return credential["username"], credential["password"]
+
+
+def psql_qualification(executable):
+    """(sha256, version) of the image's own psql; the image digest pins the binary."""
+    import hashlib
+
+    raw = Path(executable).read_bytes()
+    out = subprocess.run([str(executable), "--version"], capture_output=True, text=True, timeout=10, check=True).stdout
+    match = re.fullmatch(r"psql \(PostgreSQL\) (18\.[0-9]{1,2}(?: \(Debian [A-Za-z0-9.+~_-]{1,48}\))?)\s*", out)
+    if match is None:
+        raise RuntimeError("psql_18_required")
+    return "sha256:" + hashlib.sha256(raw).hexdigest(), match.group(1)
+
+
+def _pooler_probe(entry, port, *, registration, kube, stack, app, environment, sink):
+    import hashlib
+
+    from bravo_controls.postgres_tls import PoolerTarget, PoolerTLSProbe
+
+    username, password = _app_database_credential(registration["tests"][entry["credentials_from"]], kube, stack)
+    if username != entry["username"]:
+        raise PermissionError("app_database_identity_changed")
+    sha, version = psql_qualification(entry["psql"])
+    target = PoolerTarget(app, environment, entry["namespace"], POOLER_CLIENT, entry["pooler_uid"],
+                          "sha256:" + hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest(),
+                          entry["hostname"], "127.0.0.1", port, entry["database"], username,
+                          Path(entry["ca_file"]).read_bytes(), Path(entry["wrong_ca_file"]).read_bytes())
+    return PoolerTLSProbe(target, executable=Path(entry["psql"]), executable_sha256=sha, psql_version=version,
+                          credential_provider=lambda _context: password, evidence_sink=sink)
+
+
+def _probe(test_id, entry, *, registration, kube, stack, app, environment, sink):
     if ADAPTERS.get(test_id) != entry.get("adapter"):
         raise ValueError(f"unknown_adapter:{test_id}")
     port = stack.enter_context(kube.forward(entry["namespace"], entry["service"], entry["port"]))
+    if entry["adapter"] == "pooler-tls":
+        return _pooler_probe(entry, port, registration=registration, kube=kube, stack=stack, app=app,
+                             environment=environment, sink=sink)
     if entry["adapter"] == "openbao":
         from bravo_controls.openbao import BaoTarget
 
@@ -211,7 +271,8 @@ def collect(registration, kube, *, profile, app, environment_id, clock=lambda: d
         return write
 
     with contextlib.ExitStack() as stack:
-        probes = {test_id: _probe(test_id, entry, kube=kube, stack=stack, app=app, environment=environment,
+        probes = {test_id: _probe(test_id, entry, registration=registration, kube=kube, stack=stack, app=app,
+                                  environment=environment,
                                   sink=sink(test_id))
                   for test_id, entry in sorted(registration["tests"].items())}
         return Runner(Catalog(contract.catalog, contract.schema), probes, clock=clock,
