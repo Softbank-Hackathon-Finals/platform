@@ -67,6 +67,8 @@ SA `demo-chat`과 `t14-other`로 Pod를 하나씩 돌린다. 각 Pod는 자기 p
 * #666 리뷰가 막으려던 것은 클러스터 안의 발급자다. 이 결정은 그 경계를 지킨다. 발급자는 클러스터 밖의 플랫폼 하나이고, 요청 내용은 코드가 고정한다.
 * 재시험은 실제 수집 결과로만 PASS가 된다. 수집하지 못한 시험은 NOT_RUN → UNKNOWN이다.
 
+**플랫폼 쪽 권한:** 기록 주체 `workflow-host`에 계획별 `gate:record`가 필요하다. 주는 방법과 주의는 [운영 사전 점검 · 권한](../operations/happy-path-preflight.md#권한-operatoraccess)을 따른다.
+
 ## 4. 결과
 
 * 실서버 롤아웃과 실측은 아직이다. 목적지 RBAC 적용, 플랫폼 kubeconfig, workflow host 이미지(`bravo_controls` 포함)가 남았다. 결과는 이 절에 기록한다.
