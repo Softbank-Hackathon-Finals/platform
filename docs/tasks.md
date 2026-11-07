@@ -895,7 +895,11 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
 - [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
 - [ ] 비밀 값이 필요한 모듈(버킷 계정)의 GitOps 적용과 적용 뒤 IAM-01.1 재대조
-- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, targetRevision 고정, 모듈별 prune 승인
+- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인
+- [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
+- [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
+- [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
+- [ ] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
 
 **완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용 → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 

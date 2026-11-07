@@ -44,9 +44,10 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 않는다는 뜻이며 경로 실패가 아니다. 전체 확인은 tailnet 장치 목록이 보이는 운영 기기에서 한다.
 `bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON>`은 현재 정책에 빠진 태그 소유·grant·tests를 코드로 낸다.
 
-2026-11-07 이 맥에서 실행한 결과: 목적지 API 장치 `bravo-target-operator`의 실제 태그가 `tag:bravo-target-operator`라
-선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 플랫폼 → 목적지 API grant가 실제 장치와 맞지
-않는다는 뜻이다. API proxy에 전용 태그를 줄지 grant 대상을 바꿀지는 목적지 담당이 정한다. 나머지 11개는 NOT_VISIBLE.
+2026-11-07 이 맥에서 처음 실행했을 때 목적지 API 장치 `bravo-target-operator`의 실제 태그(`tag:bravo-target-operator`)가
+당시 선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 선언을 실제 태그로 맞추고 정책 조각을 다시 생성해
+지금은 OK다. API proxy에 전용 태그를 줄지는 목적지 담당이 정하고, 그때 같은 선언에서 바꾼다(`bravo-team-api-0`도 같은 태그).
+나머지 11개는 이 기기 grant로 NOT_VISIBLE.
 
 ## 적용: 고객 클러스터마다 Argo CD (pull GitOps)
 
@@ -65,8 +66,19 @@ cd services/iac && uv run bravo-iac chart ../../infra/iac/environments/target-de
 # 고객 클러스터에 한 번 설치(운영자). tailnet 접미사는 이 명령의 값으로만 들어가고 Git에 남지 않는다
 helm dependency update infra/iac/argocd
 helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace \
-  --set environment=target-dev --set tailnet=<이름>.ts.net
+  --set environment=target-dev --set tailnet=<이름>.ts.net --set targetRevision=<검토한 커밋의 전체 SHA>
 ```
+
+**적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
+클러스터에 닿지 않는다(develop은 승인 0이다). 승격은 검토한 커밋 SHA로 이 값 한 줄을 바꾸는 것이다.
+
+**플랫폼 클러스터에는 이 차트를 설치하지 않는다.** 이미 T43 Argo가 있으므로 `charts/platform`은 그 Argo의 Application으로
+붙인다(한 클러스터에 Argo 두 벌을 두지 않는다). `infra/iac/argocd`(CRD 설치 포함)는 고객 클러스터(`source-dev`, `target-dev`) 전용이다.
+
+**같은 자원의 주인은 하나다.** 이 모듈을 적용하는 클러스터에서는 같은 이름의 경로를 만드는 기존 렌더러를 쓰지 않는다:
+`infra/envs/rehearsal-access/access.py`(리허설·반영·Collector → 목적지 API), `infra/envs/executor-network`(컷오버 경로),
+`infra/envs/collector-network`(Collector → 지표 저장소). 두 쪽이 함께 적용하면 NetworkPolicy 규칙(관찰한 포트 대 10000–10999)이
+서로 되돌린다. 렌더러의 경로 출력은 담당 합의로 이 모듈로 옮긴다(T44 할 일: T15·T12·T37).
 
 이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal, 없는 namespace 생성)
 한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
@@ -87,7 +99,7 @@ Argo는 클러스터 범위 권한으로 돈다. 해피패스가 안정되면 �
 1. `destinations`를 원하는 상태에 나오는 namespace로, `clusterResourceWhitelist`를 `ProxyGroup`으로, `namespaceResourceWhitelist`를
    `Service`·`NetworkPolicy`(+ 모듈이 늘면 그 종류)로 줄인다.
 2. Argo controller의 ClusterRole을 같은 종류로 줄인다(플랫폼 Argo처럼 `createClusterRoles: false` + 전용 Role).
-3. `targetRevision`을 브랜치 대신 서명·검증된 커밋으로 고정하고, 승격은 PR로 한다.
+3. (적용됨) `targetRevision`은 검토한 커밋 SHA 필수. 다음 단계는 서명 검증(Argo GnuPG)과 승격 PR 자동화.
 4. `prune`은 모듈별로 켜고, 삭제 전 plan의 `delete` 변경을 사람이 승인한다.
 
 ## 흐름

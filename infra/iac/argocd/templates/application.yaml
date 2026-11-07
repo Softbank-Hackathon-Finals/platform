@@ -2,6 +2,7 @@
 {{- if .Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" }}
 {{- $environment := required "environment is required" .Values.environment }}
 {{- $tailnet := required "tailnet (<name>.ts.net) is required" .Values.tailnet }}
+{{- $revision := required "targetRevision (the reviewed full commit SHA) is required" .Values.targetRevision }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -11,7 +12,7 @@ spec:
   project: bravo-iac
   source:
     repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.targetRevision | quote }}
+    targetRevision: {{ $revision | quote }}
     path: infra/iac/charts/{{ $environment }}
     helm:
       releaseName: bravo-iac-{{ $environment }}

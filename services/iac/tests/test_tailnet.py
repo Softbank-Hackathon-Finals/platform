@@ -95,7 +95,7 @@ def peers_json(peers, running=True):
 
 
 def test_verify_judges_what_this_device_sees_through_tailscale():
-    seen = status(peers_json([("bravo-target-operator", ["tag:bravo-target-operator"], True),
+    seen = status(peers_json([("bravo-target-operator", ["tag:bravo-target-api"], True),
                               ("bravo-cutover-control-0", ["tag:bravo-cutover-control"], True),
                               ("bravo-source-db", ["tag:bravo-source-db"], False)]))
     rows = {(r["kind"], r["host"]): r["result"] for r in verify(STATES, seen)}
@@ -114,6 +114,6 @@ def test_cli_renders_checks_and_verifies(tmp_path, capsys):
     assert main(["tailnet-check", "--policy", str(REPO / "infra/tailnet/routes-policy.json"), *paths]) == 0
     capsys.readouterr()
     saved = tmp_path / "status.json"
-    saved.write_text(peers_json([("bravo-target-operator", ["tag:bravo-target-api"], True)]))
+    saved.write_text(peers_json([("bravo-target-operator", ["tag:bravo-target-operator"], True)]))
     assert main(["tailnet-verify", "--status-json", str(saved), *paths]) == 0
     assert json.loads(capsys.readouterr().out)["ok"] is True

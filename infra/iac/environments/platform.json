@@ -32,7 +32,7 @@
                 "service": "target-api",
                 "namespace": "bravo-rehearsal-control",
                 "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-api",
+                "destination_tag": "tag:bravo-target-operator",
                 "port": 443,
                 "port_name": "https"
               }
@@ -55,7 +55,7 @@
                 "service": "target-api",
                 "namespace": "bravo-apply-control",
                 "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-api",
+                "destination_tag": "tag:bravo-target-operator",
                 "port": 443,
                 "port_name": "https"
               }
@@ -79,7 +79,7 @@
                 "service": "collector-target-api",
                 "namespace": "platform-state",
                 "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-api",
+                "destination_tag": "tag:bravo-target-operator",
                 "port": 443,
                 "port_name": "https"
               }

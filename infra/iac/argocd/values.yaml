@@ -3,7 +3,9 @@ environment: ""
 # The <name>.ts.net suffix of the tailnet. Protected operator input, never committed.
 tailnet: ""
 repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
-targetRevision: develop
+# The exact reviewed commit (full 40-hex SHA) this cluster applies. Required at install, no branch default:
+# a merge alone must never reach a customer cluster. Promotion = changing this one value.
+targetRevision: ""
 
 argo-cd:
   fullnameOverride: bravo-iac-gitops

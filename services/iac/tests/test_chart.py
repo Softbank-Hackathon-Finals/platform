@@ -52,9 +52,14 @@ def test_objects_are_complete_kubernetes_manifests():
 
 def test_the_argo_chart_accepts_exactly_the_committed_environments():
     schema = json.loads((ARGO / "values.schema.json").read_text())
-    assert sorted(schema["properties"]["environment"]["enum"]) == sorted(ENVIRONMENTS)
+    # Customer clusters only: the platform cluster attaches charts/platform to its existing T43 Argo.
+    assert sorted(schema["properties"]["environment"]["enum"]) == sorted(set(ENVIRONMENTS) - {"platform"})
+    # A merge alone never reaches a customer cluster: the reviewed commit is a required install value.
+    assert schema["properties"]["targetRevision"]["pattern"] == "^[0-9a-f]{40}$"
+    assert 'targetRevision: ""' in (ARGO / "values.yaml").read_text()
     application = (ARGO / "templates/application.yaml").read_text()
     assert "path: infra/iac/charts/{{ $environment }}" in application and "tailnet: {{ $tailnet | quote }}" in application
+    assert "targetRevision: {{ $revision | quote }}" in application
     values = (ARGO / "values.yaml").read_text()
     assert 'tailnet: ""' in values and "server:\n    enabled: false" in values
 
