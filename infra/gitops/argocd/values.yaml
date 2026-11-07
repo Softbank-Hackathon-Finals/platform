@@ -20,6 +20,11 @@ rehearsalHost:
   # Protected operator input: existing config/claim/Secret references only.
   runtime: {}
 
+securityReview:
+  enabled: false
+  # Protected operator input: existing Secret/ConfigMap names and explicit API/DB network endpoints.
+  runtime: {}
+
 iacNetwork:
   # T44 platform tailnet routes (infra/iac/charts/platform). Needs the reviewed commit SHA and the
   # tailnet suffixes (never committed) and the controller permissions noted in the template.

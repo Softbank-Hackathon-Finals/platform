@@ -96,7 +96,9 @@ PRODUCT_READER = Service("product-reader", "Product Reader")
 REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (
     "operations/kubectl", "services/rehearsal-runner/templates", "infra/envs/rehearsal-access",
     "infra/envs/target-secrets"))
-SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST)}
+SECURITY_REVIEW = Service("security-review", "Security Review", (
+    "services/platform-events/deploy/security-review",))
+SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST, SECURITY_REVIEW)}
 
 
 def run(args, *, check=True):
