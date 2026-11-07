@@ -49,6 +49,15 @@ def test_configuration_names_only_and_builds_rehearse(backend, tmp_path):
         workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
 
 
+def test_the_platform_signer_is_never_wired_without_the_delegation_check(backend, tmp_path):
+    path = tmp_path / "application.json"
+    path.write_text(json.dumps({"receipts_dir": str(tmp_path), "kubeconfig": "/t31/kubeconfig", "target": TARGET}))
+    relay = {"tenant_id": "t", "admin": "a", "issuer": "i", "operator": "o"}
+    with pytest.raises(ValueError, match="workflow_platform_signer_needs_delegations"):
+        workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64),
+                                    signer=(relay, {}))
+
+
 def test_post_apply_prepare_binds_only_a_target_run_after_the_application(records):  # noqa: F811
     from dataclasses import replace as _replace
     from datetime import timedelta

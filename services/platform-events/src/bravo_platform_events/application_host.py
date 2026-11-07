@@ -146,12 +146,16 @@ class GateRecheck:
     or turn the requested control IDs into PASS. No default provider is supplied.
     """
 
-    def __init__(self, records, *, prepare, service_factory):
+    def __init__(self, records, *, prepare, service_factory, sign=None):
         from .gate_records import GateRecords
 
-        if not isinstance(records, GateRecords) or not all(map(callable, (prepare, service_factory))):
+        if (not isinstance(records, GateRecords) or not all(map(callable, (prepare, service_factory)))
+                or not (sign is None or callable(sign))):
             raise ValueError("trusted_gate_ports_required")
         self.records, self.prepare, self.service_factory = records, prepare, service_factory
+        # ADR-0038: sign(principal, plan_id, outcome) signs the bound post-apply context's evidence with the
+        # platform keys under the plan's live delegation. None: the operator signs (operations/gate/run.py).
+        self.sign = sign
 
     def evaluate(self, principal, plan_id, outcome):
         if (not isinstance(outcome, ApplyOutcome) or outcome.plan_id != plan_id
@@ -164,6 +168,8 @@ class GateRecheck:
             raise EventError("gate_recheck_request_mismatch")
         self.records.recheck_profile(principal, plan_id, outcome.application_id)
         self.prepare(principal, plan_id, outcome)
+        if self.sign is not None:
+            self.sign(principal, plan_id, outcome)  # refuses before signing anything without a live delegation
         def checked_factory(view):
             if view.plan["state"] != "GATE":
                 raise EventError("gate_stage_required")

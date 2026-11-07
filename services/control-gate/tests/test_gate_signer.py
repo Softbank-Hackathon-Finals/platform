@@ -101,3 +101,81 @@ def test_config_names_one_distinct_kms_key_per_purpose(tmp_path):
         path.write_text(json.dumps({"relay": relay_config, "keys": bad}))
         with pytest.raises(ValueError):
             gate_signer.load(path, client=FakeKms())
+
+
+# ADR-0038 GATE stage: the platform signs only under the plan's live `evidence` delegation (#716).
+def bound_with_platform_keys(f, kms):
+    keys = platform_keys(kms)
+    gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at)
+    f.clock.at = f.state["now"]
+    f.base = f.state["context"]
+    bind_through_the_relay(f, run_doc(f, "source"), run_doc(f, "target"))
+    return keys
+
+
+def delegations(f):
+    from bravo_platform_events.approval_delegation import ApprovalDelegations
+
+    return ApprovalDelegations(f.store, f.access, clock=lambda: f.clock.at.isoformat())
+
+
+def version(f):
+    with f.store._transaction(plan_id=f.plan.plan_id) as c:
+        return c.execute("SELECT version FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone()["version"]
+
+
+def issuer(f):
+    """The issuer as the relay authenticates it now (the fixture's own principal predates its grant)."""
+    from bravo_platform_events.gate_relay import _principal
+
+    return _principal("gate-issuer", f.plan.tenant_id, lambda: f.clock.at)
+
+
+def delegate(f, d, *, minutes=60, gates=("evidence",)):
+    return d.delegate(issuer(f), f.plan.plan_id, gates=list(gates), bounds={},
+                      expires_at=(f.clock.at + timedelta(minutes=minutes)).isoformat(),
+                      command_key="dlg-evidence-" + str(minutes))
+
+
+def test_a_live_evidence_delegation_signs_and_names_itself_in_every_record(relay):  # noqa: F811
+    from bravo_platform_events.store import EventError
+
+    f, kms, records = relay, FakeKms(), {}
+    keys = bound_with_platform_keys(f, kms)
+    d = delegations(f)
+    granted = delegate(f, d)
+    check = gate_signer.delegated(d, f.plan.plan_id, version(f))
+    signed = gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, lambda _plan, key, value: records.setdefault(key, value), delegation=check)
+    assert set(signed) == set(gate_signer.PURPOSES) - {"gate-result"}
+    assert {v["delegation_id"] for v in records.values()} == {granted["delegation_id"]}
+    assert f.call({"op": "evaluate", "plan_id": f.plan.plan_id})["evaluated"]["decision"] == "PASS"
+    with pytest.raises(EventError, match="delegation_unavailable"):
+        check("0" * 64)  # one decision per version: another context in the same version is refused
+
+
+@pytest.mark.parametrize("case", ["none", "expired", "revoked", "other_gate"])
+def test_without_a_live_evidence_delegation_nothing_is_recorded_or_signed(relay, case):  # noqa: F811
+    from bravo_platform_events.store import EventError
+
+    f, kms, records = relay, FakeKms(), {}
+    keys = bound_with_platform_keys(f, kms)
+    d = delegations(f)
+    if case == "expired":
+        delegate(f, d, minutes=1)
+        f.clock.at += timedelta(minutes=2)
+    elif case == "revoked":
+        delegate(f, d)
+        d.revoke(issuer(f), f.plan.plan_id)
+    elif case == "other_gate":
+        f.access.set_permissions(f.plan.plan_id, issuer(f), permissions=["read", "gate:read", "gate:publish-provenance",
+                                                                        "approve_change"],
+                                 valid_after=(f.clock.at - timedelta(hours=1)).isoformat(),
+                                 expires_at=(f.clock.at + timedelta(hours=1)).isoformat(), expected_revision=1,
+                                 administration_ref="test-admin", command_key="grant-issuer-change")
+        delegate(f, d, gates=("change",))  # an approval delegation does not cover the T19 evidence
+    with pytest.raises(EventError, match="delegation_unavailable"):
+        gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, lambda _plan, key, value: records.setdefault(key, value),
+                         delegation=gate_signer.delegated(d, f.plan.plan_id, version(f)))
+    assert records == {} and kms.signed == []
+    assert f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]["published"] == []
+

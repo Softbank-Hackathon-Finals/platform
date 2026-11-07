@@ -24,7 +24,10 @@ GATES = {"change": "approve_change", "shift": "approve_shift", "cutover": "appro
          "failback": "approve_failback",
          # T49: start the plan's one registered T15 rehearsal at REHEARSE (its verified candidate is what "change"
          # then approves); a separate gate so the two decisions of one version never collide.
-         "rehearsal": "start_rehearsal"}
+         "rehearsal": "start_rehearsal",
+         # ADR-0038: the platform signs a gate context's T19 evidence in the issuer's name. Only someone who
+         # may publish that provenance themselves can delegate it.
+         "evidence": "gate:publish-provenance"}
 MAX_DELEGATION = timedelta(hours=24)
 HOST_PRINCIPAL_SECONDS = 60
 KEY = "approval-delegation"

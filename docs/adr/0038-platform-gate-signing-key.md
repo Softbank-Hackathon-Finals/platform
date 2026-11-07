@@ -64,7 +64,7 @@ KMS는 `ECC_NIST_EDWARDS25519` 키로 순수 Ed25519(`ED25519_SHA_512`, RAW 메�
   * 경로: STS·KMS는 플랫폼 VPC interface endpoint로만 닿는다. workflow host NetworkPolicy는 그 ENI 사설 IP만 연다(`network.py --aws-endpoints`).
 * **같은 검증기, 다른 발급자.** 플랫폼 키는 계획마다 `platform-<용도>` 발급자로 등록(enroll)한다. 경로는 운영자 키와 같은 relay 연산이다(`gate_signer`가 `gate_relay.handle`을 부른다). 운영자 키 경로(`operations/gate/run.py`)는 지우지 않는다. 검증기는 등록된 키 중 실제로 서명한 키를 받는다.
 * **플랫폼 서명기의 주체는 운영자와 따로다.** `/workflow/gate-signer.json`의 relay 주체(admin·issuer·operator)에 별도 T10 권한을 준다. 권한과 기록을 운영자와 섞지 않는다.
-* **`sign`은 아직 위임을 확인하지 않는다(운영자가 workflow host에서 직접 실행하는 단계).** 게시하기 전에 용도·subject마다 `platform-signature-*` 기록(KMS 키 ARN, 서명 시각)을 먼저 남긴다. 위임 ID는 기록하지 않는다. 확인하지 않은 ID가 감사 원장(T24)에 증거처럼 남지 않게 하기 위해서다. GATE 자동 연결 PR이 `sign` 전에 `ApprovalDelegations`의 현재 위임(계획 · 회수 · 만료 · 대상 게이트, 필요하면 T19 전용 게이트)을 대조하고, 맞지 않으면 기록 전에 `delegation_unavailable`로 멈춘다. 그때 "없는 ID · 만료 · 회수 · 다른 계획이면 서명 0건" 시험을 함께 넣는다.
+* **위임 확인(GATE 연결):** 사람의 결정은 #716 사전 위임의 T19 전용 범위 `evidence`로 남는다. 이 범위는 `gate:publish-provenance`(직접 서명할 수 있는 발급자 권한)를 가진 사람만 기록할 수 있다. workflow host의 GATE 단계(`GateRecheck.sign`)는 적용 뒤 맥락을 묶은 다음, 평가하기 전에 서명한다. `sign`은 맥락을 읽은 직후, 아무것도 기록하거나 서명하기 전에 `ApprovalDelegations.principal_for(evidence)`로 계획·회수·만료·범위를 대조하고, 같은 버전의 다른 맥락이면 거부한다. 맞지 않으면 `delegation_unavailable`로 멈추고 서명은 0건이다. 확인된 위임 ID만 `platform-signature-*` 기록에 남는다. 운영자가 workflow host에서 직접 돌리는 `sign` CLI는 위임 없이 그대로 두고, 그때는 위임 ID를 기록하지 않는다(확인하지 않은 ID가 감사 원장 T24에 증거처럼 남지 않게). 서명 설정이 있는데 위임 서비스가 없으면 workflow host는 시작하지 않는다.
 * **등록 시점:** T19는 키 등록보다 먼저 시작한 측정을 거부한다(`SUBJECT_PREDATES_AUTHORITY_ENROLLMENT`). 그래서 계획 시작 때, T14 실행보다 먼저 `enroll`한다. 등록 창은 48시간이다. 그보다 늦게 GATE에 닿은 계획은 HOLD한다(실패 쪽으로 닫힘).
 
 ## 4. 결과

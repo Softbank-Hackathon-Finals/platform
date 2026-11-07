@@ -107,10 +107,15 @@ def enroll(call, keys, plan_id, now):
     return out, reused
 
 
-def sign(call, keys, plan_id, now, put_record):
-    """Sign and publish what `subjects` shows and is not yet published; record each signature first."""
+def sign(call, keys, plan_id, now, put_record, *, delegation=None):
+    """Sign and publish what `subjects` shows and is not yet published; record each signature first.
+
+    `delegation(context_digest) -> delegation_id` (the GATE stage, ADR-0038) checks the plan's current
+    pre-delegation before anything is recorded or signed; it raises and nothing is signed. Without it this is
+    the operator-run step, and no delegation is recorded."""
     subjects = call({"op": "subjects", "plan_id": plan_id})["subjects"]
     context = subjects["context"]["digest"]
+    delegation_id = delegation(context) if delegation is not None else None
     published = []
     for purpose in PURPOSES:
         subject = context if purpose == "context" else subjects.get(purpose)
@@ -124,12 +129,31 @@ def sign(call, keys, plan_id, now, put_record):
         put_record(plan_id, f"platform-signature-{purpose}-{subject[:16]}",
                    {"kind": "t19-platform-signature.v1", "purpose": purpose, "context_digest": context,
                     "subject_digest": subject, "issuer_id": signed.issuer_id, "key_id": key.key_id,
-                    "kms_key_arn": key.arn, "signed_at": now.isoformat()})
+                    "kms_key_arn": key.arn, "signed_at": now.isoformat()}
+                   | ({"delegation_id": delegation_id} if delegation_id else {}))
         call({"op": "publish", "plan_id": plan_id, "envelope": {
             k: getattr(signed, k) for k in ("issuer_id", "key_id", "purpose", "context_digest", "subject_digest",
                                             "issued_at", "expires_at", "signature_hex")}})
         published.append(purpose)
     return published
+
+
+def delegated(delegations, plan_id, version):
+    """`sign`'s delegation check: the plan's live `evidence` delegation for this version and context.
+
+    ApprovalDelegations.principal_for checks the plan, revocation, expiry and gate, and records one use per
+    version (a different context in the same version is refused). Every refusal is delegation_unavailable."""
+    from .store import EventError
+
+    def check(context_digest):
+        try:
+            principal = delegations.principal_for(plan_id, "evidence", binding={"context_digest": context_digest},
+                                                  version=version)
+        except EventError:
+            raise EventError("delegation_unavailable") from None
+        return principal.session_id.removeprefix("delegation:")
+
+    return check
 
 
 def main(argv=None):
