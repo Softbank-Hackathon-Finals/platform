@@ -10,16 +10,22 @@ import re
 
 import psycopg
 
+# 긴 형식부터 찾고, 찾은 부분은 지운 뒤 다음 형식을 찾는다. 카드번호 안의 숫자 묶음이 계좌번호로 또 세지지 않게 한다.
 PATTERNS = {
-    "rrn": re.compile(r"\b\d{6}-?[1-4]\d{6}\b"),  # 주민등록번호
     "card": re.compile(r"\b(?:\d{4}[- ]?){3}\d{4}\b"),  # 카드번호
+    "rrn": re.compile(r"\b\d{6}-?[1-4]\d{6}\b"),  # 주민등록번호
     "account": re.compile(r"\b\d{3,6}-\d{2,6}-\d{2,8}\b"),  # 계좌번호
 }
 
 
 def detect(text):
     """종류별 개수만 돌려준다. 일치한 값은 밖으로 내보내지 않는다."""
-    return {k: n for k, p in PATTERNS.items() if (n := len(p.findall(text)))}
+    counts = {}
+    for kind, pattern in PATTERNS.items():
+        text, n = pattern.subn(" ", text)
+        if n:
+            counts[kind] = n
+    return counts
 
 
 # 한 이벤트의 트랜잭션을 200ms 안에 끝낸다(T46 spec D11, Executor의 긴 트랜잭션 기준과 같다).
