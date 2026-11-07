@@ -52,7 +52,7 @@ T30 워크로드는 각자 전용 계정으로 돌고, 어느 것도 Kubernetes 
 | `target-chat-schema` | `render.py migration` |
 | `target-probe` | `probes.py`의 모든 단계 |
 | `attachment-copy` | `attachment_job.py` |
-| `target-identity` | `identity.py` |
+| `target-login` | `identity.py` |
 
 kube-bench `rke2-cis-1.9`는 namespace의 `default` 계정이 토큰을 끄지 않으면 5.1.5를, Pod가 토큰을 꺼도 그 계정이 설정을 비워 두면 5.1.6을 실패로 센다(2026-11-06 데모 노드 80 PASS / 2 FAIL).
 그래서 Pod와 계정 양쪽에 `automountServiceAccountToken: false`를 둔다.
@@ -235,29 +235,33 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
 
 ## 목적지 로그인 서버 (Cognito 대체)
 
-출발지 demo-chat이 Cognito로 로그인하면([source-identity](../source-identity/README.md)), 목적지에서는 `identity.py`가 렌더하는 Keycloak으로 바꾼다.
+출발지 demo-chat이 Cognito로 로그인하면([source-identity](../source-identity/README.md)), 목적지에서는 `identity.py`가 렌더하는 Keycloak(`target-login`)으로 바꾼다.
 앱은 표준 OIDC만 알기 때문에([demo-app #28](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/28)) 바꾸는 것은 앱 설정 `AUTH_ISSUER` · `AUTH_CLIENT_ID`뿐이다.
 
 | 항목 | 값 | 이유 |
 | --- | --- | --- |
 | 이미지 | Keycloak 26.0.7 index digest | arm64 · amd64 노드가 각자 자기 이미지를 받는다(SeaweedFS와 같은 방식) |
-| 저장 | `dev-file` 한 대, local PV `/var/lib/bravo-target-dev/identity` 1Gi Retain | 옮겨 온 업무 DB 옆에 DB를 하나 더 두지 않는다. HA는 주장하지 않는다 |
-| realm | `bravo`, 공개 클라이언트 `demo-chat` 하나(PKCE S256, 비밀번호 직접 받기·implicit 끔), 사용자 없음, 가입 끔 | 렌더에 비밀번호가 없다. 계정은 운영자가 만든다 |
+| 저장 | `dev-file`(H2) 한 대, local PV `/var/lib/bravo-target-dev/login` 1Gi Retain | 옮겨 온 업무 DB 옆에 DB를 하나 더 두지 않는다. HA는 주장하지 않는다 |
+| 저장 손상 | Pod가 강제 종료되면 H2 파일이 깨질 수 있다. 그러면 계정과 서명 키를 잃는다 | 데모 범위에서 받아들인다. 복구: Deployment를 0으로 내리고 PV의 H2 파일을 지운 뒤 다시 올리면 realm이 다시 import된다. 계정은 아래 "사용자 옮기기"로 다시 만들고, 서명 키가 바뀌므로 모두 다시 로그인한다 |
+| realm | `bravo`, 공개 클라이언트 `demo-chat` 하나(PKCE S256, 비밀번호 직접 받기 · implicit · 서비스 계정 끔), 사용자 없음, 가입 끔, 이름 변경 끔, 이메일로 로그인 끔 | 렌더에 비밀번호가 없다. 계정은 운영자가 만든다. 앱은 이름으로 작성자를 정하므로 이름은 관리자만 바꾼다 |
+| 사용자 정보 | 사용자 이름 · 이메일 · 이름 · 성은 필수가 아니고 사용자가 고칠 수 없다(user profile, 관리자만 편집). `cognito_sub`는 관리자만 본다 | Keycloak 26 기본값은 이메일 · 이름 · 성이 필수라 옮긴 계정이 VERIFY_PROFILE에서 멈추고, 검증 안 된 주소를 먼저 차지할 수 있다. `cognito_sub`는 추적용이고 토큰에 넣지 않는다(앱은 쓰지 않는다) |
+| 토큰 | ID 토큰 3600초 · `aud=demo-chat`. 갱신 수명은 Cognito와 다르다 | 앱(`auth.js`)은 갱신 토큰을 쓰지 않고 만료되면 다시 로그인한다. 그래서 갱신 수명 차이는 동작에 영향이 없다 |
 | 주소 | `KC_HOSTNAME`=Edge가 내보내는 공개 주소, TLS는 Edge에서 끝남 | 발급자 주소(`<공개 주소>/realms/bravo`)가 브라우저와 앱에서 같아야 한다 |
 | 네트워크 | 8080 수신은 `app=bravo-edge-tunnel`만, 나가는 연결 없음 | 로그인 화면은 Edge로만 열린다. 앱은 공개 주소로 공개 키를 받는다 |
-| 관리자 | Secret `target-identity-admin`(`username`, `password`) | 운영자가 메모리에서 만든다. 렌더에는 이름만 있다 |
+| 관리자 | Secret `target-login-admin`(`username`, `password`), 관리 작업은 `kubectl port-forward`로만 | 같은 8080에 관리 화면(`/admin/`)과 master realm이 있다. master realm은 잠금 보호가 꺼져 있고, 관리자는 모든 작성자를 사칭할 수 있다 |
+| realm 변경 | `--import-realm`은 realm이 없을 때 한 번만 적용된다 | 다시 렌더해도 ConfigMap만 바뀌고 실제 realm은 그대로다(Argo도 Synced로 보인다). realm을 바꿀 때는 관리 API로 바꾸고, 공개 주소에 아래 컨테이너 시험과 같은 탐침을 다시 돌린다 |
 
 ### 적용 순서
 
-1. 호스트에 `/var/lib/bravo-target-dev/identity`를 UID/GID 1000 소유로 만든다. 기존 데이터가 있으면 새로 만들지 않는다.
-2. `render.py accounts`를 다시 적용한다(`target-identity` 계정 추가).
+1. 호스트에 `/var/lib/bravo-target-dev/login`를 UID/GID 1000 소유로 만든다. 기존 데이터가 있으면 새로 만들지 않는다.
+2. `render.py accounts`를 다시 적용한다(`target-login` 계정 추가).
 3. 관리자 Secret을 값이 남지 않게 만든다.
 
 ```sh
 python3 -c 'import secrets, sys; sys.stdout.write(secrets.token_urlsafe(24))' \
-  | kubectl -n target-dev create secret generic target-identity-admin \
+  | kubectl -n target-dev create secret generic target-login-admin \
       --from-literal=username=bravo-admin --from-file=password=/dev/stdin
-kubectl -n target-dev label secret target-identity-admin component=target
+kubectl -n target-dev label secret target-login-admin component=target
 ```
 
 4. 렌더 · 검토 · 적용한다.
@@ -267,31 +271,64 @@ python3 identity.py --node-name <확인한-노드> --public-url https://<로그�
   --app-origin https://<demo-chat 공개 주소> > "$OUTPUT_DIR/identity.json"
 kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/identity.json"
 kubectl apply --server-side -f "$OUTPUT_DIR/identity.json"
-kubectl -n target-dev rollout status deployment/target-identity
+kubectl -n target-dev rollout status deployment/target-login
 ```
 
-5. **Edge(T17):** 로그인 공개 주소를 `target-identity.target-dev.svc:8080`으로 보내는 경로가 필요하다. 이 렌더는 Edge 설정을 바꾸지 않는다.
+5. **Edge(T17) 인계 조건:** 로그인 공개 주소를 `target-login.target-dev.svc:8080`으로 보내되 **`/realms/bravo/`와 `/resources/`만 넘기고 `/admin/` · `/realms/master/`는 막는다.** 관리 작업은 `kubectl -n target-dev port-forward svc/target-login 18080:8080`으로만 한다. 이 렌더는 Edge 설정을 바꾸지 않는다.
 6. 사용자를 옮긴다(아래).
 7. demo-chat 설정: 목적지 앱은 `AUTH_ISSUER=<공개 주소>/realms/bravo`, `AUTH_CLIENT_ID=demo-chat`, 이사 중에는 `AUTH_ALSO_TRUST=<Cognito 발급자>|<Cognito 클라이언트 ID>`. 이사가 끝나면 `AUTH_ALSO_TRUST`를 지운다.
 
 ### 사용자 옮기기
 
-Cognito는 비밀번호 해시를 내보내지 않는다. **계정은 옮기고 비밀번호는 옮기지 않는다.** 옮긴 계정은 첫 로그인에서 새 비밀번호를 정한다.
+Cognito는 비밀번호 해시를 내보내지 않는다. 그래서 옮긴 계정에는 비밀번호가 **없고**, Keycloak은 로그인에 성공해야 비밀번호 변경(UPDATE_PASSWORD)을 보여 주므로 **그대로는 아무도 로그인할 수 없다.** 가져온 뒤 운영자가 계정마다 임시 비밀번호를 넣고, 사용자는 첫 로그인에서 새 비밀번호를 정한다.
+
+1. 목록을 바꾼다. 비활성 · 미확인 계정과 대문자가 든 이름은 빼고 표준 오류에 이름만 적는다.
 
 ```sh
 aws cognito-idp list-users --user-pool-id <풀 ID> \
-  | python3 identity_users.py > "$OUTPUT_DIR/keycloak-users.json"   # 비활성 · 미확인 계정은 표준 오류에 이름만 출력
+  | python3 identity_users.py > "$OUTPUT_DIR/keycloak-users.json"
 ```
 
-결과는 Keycloak partial import 본문이다(관리 화면 realm 설정 → Partial import, 같은 이름이 있으면 건너뜀). 사용자 이름은 Cognito 이름을 소문자로 그대로 쓴다.
-demo-chat은 작성자 이름을 `preferred_username` → `cognito:username` 순으로 고르므로 두 발급자에서 같은 사람은 같은 이름으로 쓴다. 옮긴 뒤 새 비밀번호를 정하기 전까지는 목적지에서 로그인할 수 없으므로, 이사 중에는 `AUTH_ALSO_TRUST`로 Cognito 토큰을 계속 받는다.
+2. 관리 경로를 연다(Edge가 아니라 port-forward). 관리자 토큰은 1분짜리이고, 비밀번호는 명령 인자로 넘기지 않는다(`printf`는 셸 내장 명령, `curl -K -`는 설정을 표준 입력으로 받는다).
+
+```sh
+kubectl -n target-dev port-forward svc/target-login 18080:8080 &
+KC=http://127.0.0.1:18080
+read -rs ADMIN_PASSWORD   # Secret target-login-admin의 password
+TOKEN=$(printf 'grant_type=password&client_id=admin-cli&username=bravo-admin&password=%s' "$ADMIN_PASSWORD" \
+  | curl -s --data @- "$KC/realms/master/protocol/openid-connect/token" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')
+unset ADMIN_PASSWORD
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$TOKEN" \
+  | curl -s -K - --data @"$OUTPUT_DIR/keycloak-users.json" "$KC/admin/realms/bravo/partialImport"
+```
+
+3. 계정마다 임시 비밀번호를 넣는다. 사용자에게는 대면으로 전한다.
+
+```sh
+ID=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/users?exact=true&username=visitor01" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+read -rs TEMP_PASSWORD   # 따옴표 · 역슬래시 없이
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nrequest = "PUT"\ndata = "{\\"type\\":\\"password\\",\\"temporary\\":true,\\"value\\":\\"%s\\"}"\n' \
+  "$TOKEN" "$TEMP_PASSWORD" | curl -s -K - "$KC/admin/realms/bravo/users/$ID/reset-password"
+unset TEMP_PASSWORD
+```
+
+**이름은 Cognito가 발급한 그대로다.** demo-chat은 작성자 이름을 `preferred_username` → `cognito:username` 순으로 고르고 대소문자를 바꾸지 않는다. Keycloak은 이름을 소문자로 저장하므로 대문자가 든 Cognito 이름은 다른 작성자가 된다. 그래서 그런 이름은 옮기지 않고 운영자가 양쪽 이름을 정한다(시연 계정은 처음부터 소문자로 만든다).
+
+**이중 신뢰 중의 조건.** `AUTH_ALSO_TRUST`가 켜진 동안 두 발급자 모두 스스로 가입이 꺼져 있어 일반 사용자는 다른 이름을 만들 수 없다. 하지만 옮기지 않은 계정(비활성 · 미확인 · 대문자)의 이름과 과거 글은 남는다. 이사 중에는 어느 쪽에서도 `identity_users.py` 출력 밖의 계정을 만들지 않고, 건너뛴 이름은 예약한다. 같은 이름을 새로 만들면 과거 작성자를 가져가게 된다.
 
 ### 확인한 것과 못 한 것
 
-- 렌더 시험: 공개 PKCE 클라이언트 하나, 사용자·비밀번호 없음, 관리자 값은 Secret 참조만, Edge만 수신, 고정 digest, 전용 계정.
-- 컨테이너 시험(`BRAVO_TEST_KEYCLOAK=1`): 렌더한 이미지 · 인자 · 환경 · realm으로 UID 1000에서 띄워 `<주소>/realms/bravo` 발급자 문서와 RSA 공개 키를 받았다(로컬 http, Edge 대신). 출발지와의 동등성도 같은 서버로 잰다: 정확한 콜백(`<앱 주소>/`)만 로그인 화면이 열리고 다른 주소 · 경로 · 끝의 `/`가 빠진 주소는 400, 로그인 화면에 가입 링크가 없고 가입 주소는 닫혀 있다. 토큰 없는 쓰기 401은 앱 시험(demo-app #28)이 본다.
+- 렌더 시험: 공개 PKCE 클라이언트 하나, 사용자 · 비밀번호 없음, 이름 변경 · 이메일 로그인 끔, user profile은 관리자만 편집, 관리자 값은 Secret 참조만, Edge만 수신, 고정 digest, 전용 계정.
+- 컨테이너 시험(`BRAVO_TEST_KEYCLOAK=1`): 렌더한 이미지 · 인자 · 환경 · realm으로 UID 1000에서 띄운 실제 서버를 잰다(로컬 http가 Edge 대신).
+  - 발급자 문서 · RSA 공개 키, 정확한 콜백만 로그인 화면(다른 주소 · 경로 · 끝 `/` 없음은 400), 가입 링크 없음 · 가입 주소 닫힘
+  - PKCE 없음 · `plain`은 `invalid_request`, implicit 거부, `demo-chat` password grant는 `unauthorized_client`
+  - 관리 API로 읽은 realm: 이름 변경 · 이메일 로그인 · 가입 끔, user profile 모든 항목이 관리자 편집 · 선택
+  - **옮긴 계정 전체 흐름:** partial import → 아무 비밀번호로도 로그인 실패(비밀번호 변경 화면 없음) → 관리 API로 임시 비밀번호 → 로그인 → 새 비밀번호 → VERIFY_PROFILE 없이 앱 콜백으로 code → PKCE 교환 → ID 토큰 `aud=demo-chat`, `preferred_username=visitor01`
 - 같은 코드의 앱이 로컬 Keycloak으로 실제 로그인 → 서명 확인 → 작성자 저장까지 되는 것은 demo-app #28에서 확인했다.
-- 실제 목적지 클러스터 적용, Edge 공개 주소 연결, Cognito → Keycloak 사용자 이동은 하지 않았다.
+- 실제 목적지 클러스터 적용, Edge 공개 주소 연결과 경로 제한, Cognito → Keycloak 실제 사용자 이동은 하지 않았다.
 
 ## 개발 측정용 앱
 

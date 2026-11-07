@@ -15,10 +15,10 @@ from render import LABELS, database, resource
 # Keycloak 26.0.7 release index, so each node runs its own platform's child:
 # linux/arm64 ec690174 (the target node since 2026-11-06), linux/amd64 32d2eb0f.
 IMAGE = "quay.io/keycloak/keycloak:26.0.7@sha256:4388e2379b7e870a447adbe7b80bd61f5fbf04e925832b19669fda4957f05a81"
-SELECTOR = {"app.kubernetes.io/name": "target-identity"}
+SELECTOR = {"app.kubernetes.io/name": "target-login"}
 REALM = "bravo"
 CLIENT_ID = "demo-chat"
-ADMIN_SECRET = "target-identity-admin"
+ADMIN_SECRET = "target-login-admin"
 # T17 renders the Cloudflare tunnel with this label; the public login hostname reaches Keycloak only through it.
 EDGE = {"app": "bravo-edge-tunnel"}
 HTTPS_ORIGIN = re.compile(r"^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$")
@@ -35,14 +35,43 @@ def issuer(public_url):
     return f"{origin(public_url, 'public URL')}/realms/{REALM}"
 
 
+def _attribute(name, display, validations, viewers=("admin", "user")):
+    # Only the admin edits: demo-chat names authors from these claims, so a user must not rename themselves.
+    return {"name": name, "displayName": display, "validations": validations, "multivalued": False,
+            "permissions": {"view": list(viewers), "edit": ["admin"]}}
+
+
+# Keycloak 26's default profile requires email, first and last name, so a moved account without them would be
+# stopped at VERIFY_PROFILE and could type any unverified address. Here none is required and none is user-editable.
+USER_PROFILE = {
+    "attributes": [
+        _attribute("username", "${username}", {"length": {"min": 3, "max": 255},
+                                                "username-prohibited-characters": {},
+                                                "up-username-not-idn-homograph": {}}),
+        _attribute("email", "${email}", {"email": {}, "length": {"max": 255}}),
+        _attribute("firstName", "${firstName}", {"length": {"max": 255}, "person-name-prohibited-characters": {}}),
+        _attribute("lastName", "${lastName}", {"length": {"max": 255}, "person-name-prohibited-characters": {}}),
+        # Kept from Cognito for tracing a moved account. No token mapper: demo-chat never sees it.
+        _attribute("cognito_sub", "Cognito sub", {"length": {"max": 255}}, viewers=("admin",)),
+    ],
+    "groups": [],
+}
+
+
 def realm(app_origin):
     """One realm, one public client, no users. Sign-up is off: the operator creates demo accounts."""
     app = origin(app_origin, "app origin")
     return {
         "realm": REALM, "enabled": True, "sslRequired": "external",
         "registrationAllowed": False, "resetPasswordAllowed": False, "rememberMe": False,
-        "loginWithEmailAllowed": True, "duplicateEmailsAllowed": False,
+        # Sign-in is by user name only. Addresses are not verified here, so they must not be a login key.
+        "loginWithEmailAllowed": False, "duplicateEmailsAllowed": False,
+        "editUsernameAllowed": False,
         "bruteForceProtected": True,
+        "components": {"org.keycloak.userprofile.UserProfileProvider": [{
+            "providerId": "declarative-user-profile", "subComponents": {},
+            "config": {"kc.user.profile.config": [json.dumps(USER_PROFILE, sort_keys=True)]},
+        }]},
         # The app accepts ID tokens only; keep them as short as Cognito's (source-identity: 60 minutes).
         "accessTokenLifespan": 3600,
         "clients": [{
@@ -59,30 +88,30 @@ def realm(app_origin):
 def identity(node_name, public_url, app_origin):
     # Use the database renderer's exact-node validation and retained local PV shape, like objects.py.
     volume = database(node_name)[2]
-    volume["metadata"]["name"] = "bravo-target-dev-identity"
+    volume["metadata"]["name"] = "bravo-target-dev-login"
     volume["spec"]["capacity"] = {"storage": "1Gi"}
-    volume["spec"]["local"]["path"] = "/var/lib/bravo-target-dev/identity"
-    volume["spec"]["claimRef"] = {"namespace": "target-dev", "name": "target-identity"}
-    claim = resource("v1", "PersistentVolumeClaim", "target-identity", spec={
+    volume["spec"]["local"]["path"] = "/var/lib/bravo-target-dev/login"
+    volume["spec"]["claimRef"] = {"namespace": "target-dev", "name": "target-login"}
+    claim = resource("v1", "PersistentVolumeClaim", "target-login", spec={
         "accessModes": ["ReadWriteOnce"], "storageClassName": "bravo-target-local",
-        "volumeName": "bravo-target-dev-identity",
+        "volumeName": "bravo-target-dev-login",
         "resources": {"requests": {"storage": "1Gi"}},
     })
-    config = resource("v1", "ConfigMap", "target-identity-realm", data={
+    config = resource("v1", "ConfigMap", "target-login-realm", data={
         f"{REALM}-realm.json": json.dumps(realm(app_origin), indent=2, sort_keys=True),
     })
     secret_env = [{"name": name, "valueFrom": {"secretKeyRef": {"name": ADMIN_SECRET, "key": key}}}
                   for name, key in (("KC_BOOTSTRAP_ADMIN_USERNAME", "username"),
                                     ("KC_BOOTSTRAP_ADMIN_PASSWORD", "password"))]
-    service = resource("v1", "Service", "target-identity", spec={
+    service = resource("v1", "Service", "target-login", spec={
         "selector": SELECTOR, "ports": [{"name": "http", "port": 8080, "targetPort": "http"}],
     })
-    deploy = resource("apps/v1", "Deployment", "target-identity", spec={
+    deploy = resource("apps/v1", "Deployment", "target-login", spec={
         "replicas": 1, "strategy": {"type": "Recreate"},
         "selector": {"matchLabels": SELECTOR},
         "template": {"metadata": {"labels": {**LABELS, **SELECTOR}}, "spec": {
             "automountServiceAccountToken": False,
-            "serviceAccountName": "target-identity",
+            "serviceAccountName": "target-login",
             "securityContext": {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000,
                                 "fsGroup": 1000, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{"name": "keycloak", "image": IMAGE,
@@ -117,14 +146,14 @@ def identity(node_name, public_url, app_origin):
                                  {"name": "realm", "mountPath": "/opt/keycloak/data/import", "readOnly": True},
                                  {"name": "tmp", "mountPath": "/tmp"}],
             }],
-            "volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": "target-identity"}},
-                        {"name": "realm", "configMap": {"name": "target-identity-realm"}},
+            "volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": "target-login"}},
+                        {"name": "realm", "configMap": {"name": "target-login-realm"}},
                         {"name": "tmp", "emptyDir": {"sizeLimit": "256Mi"}}],
         }},
     })
     # Browsers reach the login pages through the Edge tunnel; nothing else needs Keycloak. demo-chat fetches
     # the issuer's public keys through the same public hostname. Keycloak itself calls nothing.
-    policy = resource("networking.k8s.io/v1", "NetworkPolicy", "target-identity-edge-only", spec={
+    policy = resource("networking.k8s.io/v1", "NetworkPolicy", "target-login-edge-only", spec={
         "podSelector": {"matchLabels": SELECTOR}, "policyTypes": ["Ingress", "Egress"],
         "ingress": [{"from": [{"podSelector": {"matchLabels": EDGE}}],
                      "ports": [{"protocol": "TCP", "port": 8080}]}],

@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Turn a Cognito user list into a Keycloak partial import, without passwords.
+"""Turn a Cognito user list into a Keycloak partial import. Passwords do not move.
 
-Cognito never exports password hashes, so accounts move and passwords do not: every imported user must
-set a new password on first sign-in (UPDATE_PASSWORD). The name a user signed in with stays the same,
-because demo-chat names authors by preferred_username, then cognito:username: the Cognito username becomes
-the Keycloak username and both issuers produce the same author.
+Cognito never exports password hashes. An imported account therefore has no credential at all, and
+Keycloak runs required actions only after a successful sign-in: without a password the account can never
+sign in, not even to reach UPDATE_PASSWORD. After the import the operator gives every account a temporary
+password (README "사용자 옮기기"); the user signs in with it once and must set a new one.
+
+The name stays exactly as Cognito issued it. demo-chat names authors by preferred_username, then
+cognito:username, without folding case, so "Visitor01" in Cognito and "visitor01" in Keycloak would be two
+authors. Keycloak stores user names in lower case, so a name with an upper-case letter is refused here and
+left to the operator to rename on both sides; it is not silently changed.
 
 Input is `aws cognito-idp list-users --user-pool-id <pool>` output on stdin. Output is the JSON body for
-Keycloak's partial import (Realm settings > Action > Partial import, or kcadm create partialImport).
+Keycloak's partial import. Disabled, unconfirmed and refused accounts are listed on stderr: their names keep
+their past messages, so reserve them and do not create them on either side while AUTH_ALSO_TRUST is on.
 Nothing here contacts AWS or a cluster, and no secret passes through it.
 """
 import json
 import sys
-
-ATTRIBUTES = ("email", "given_name", "family_name")
 
 
 def convert(listing):
@@ -26,8 +30,11 @@ def convert(listing):
                 "CONFIRMED", "FORCE_CHANGE_PASSWORD", "RESET_REQUIRED"):
             skipped.append({"username": username, "reason": "disabled or unconfirmed"})
             continue
+        if username != username.lower():
+            skipped.append({"username": username, "reason": "upper-case name: would become another author"})
+            continue
         user = {
-            "username": username.lower(),  # source-identity's pool is case-insensitive; Keycloak stores lowercase
+            "username": username,
             "enabled": True,
             "requiredActions": ["UPDATE_PASSWORD"],
             "attributes": {"cognito_sub": [attributes["sub"]]} if "sub" in attributes else {},
@@ -40,16 +47,13 @@ def convert(listing):
         if "family_name" in attributes:
             user["lastName"] = attributes["family_name"]
         users.append(user)
-    names = [user["username"] for user in users]
-    if len(names) != len(set(names)):
-        raise ValueError("two Cognito users collapse to the same lowercase username")
     return {"ifResourceExists": "SKIP", "users": users}, skipped
 
 
 def main():
     result, skipped = convert(json.load(sys.stdin))
     for item in skipped:
-        print(f"skipped {item['username']!r}: {item['reason']}", file=sys.stderr)
+        print(f"skipped {item['username']!r}: {item['reason']} (reserve this name)", file=sys.stderr)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 

@@ -3,9 +3,14 @@
 The render tests pin what the browser and demo-chat rely on. The container test (BRAVO_TEST_KEYCLOAK=1)
 starts the rendered image with the rendered settings and realm, and asks it for the issuer demo-chat expects.
 """
+import base64
+import hashlib
+import html
+import http.cookiejar
 import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -83,7 +88,7 @@ class ServerTests(unittest.TestCase):
         for name, key in (("KC_BOOTSTRAP_ADMIN_USERNAME", "username"), ("KC_BOOTSTRAP_ADMIN_PASSWORD", "password")):
             with self.subTest(name=name):
                 self.assertNotIn("value", env[name])
-                self.assertEqual(env[name]["valueFrom"]["secretKeyRef"], {"name": "target-identity-admin", "key": key})
+                self.assertEqual(env[name]["valueFrom"]["secretKeyRef"], {"name": "target-login-admin", "key": key})
 
     def test_urls_come_from_the_public_hostname_behind_the_edge(self):
         env = {e["name"]: e.get("value") for e in container(rendered())["env"]}
@@ -94,8 +99,8 @@ class ServerTests(unittest.TestCase):
 
     def test_runs_unprivileged_on_its_own_tokenless_account(self):
         pod = rendered()["Deployment"]["spec"]["template"]["spec"]
-        self.assertEqual(pod["serviceAccountName"], "target-identity")
-        self.assertIn("target-identity", render.ACCOUNTS)
+        self.assertEqual(pod["serviceAccountName"], "target-login")
+        self.assertIn("target-login", render.ACCOUNTS)
         self.assertIs(pod["automountServiceAccountToken"], False)
         self.assertIs(pod["securityContext"]["runAsNonRoot"], True)
         self.assertEqual(container(rendered())["securityContext"]["capabilities"], {"drop": ["ALL"]})
@@ -103,9 +108,9 @@ class ServerTests(unittest.TestCase):
 
     def test_store_is_a_retained_local_volume_of_its_own(self):
         volume = rendered()["PersistentVolume"]
-        self.assertEqual(volume["spec"]["local"]["path"], "/var/lib/bravo-target-dev/identity")
+        self.assertEqual(volume["spec"]["local"]["path"], "/var/lib/bravo-target-dev/login")
         self.assertEqual(volume["spec"]["persistentVolumeReclaimPolicy"], "Retain")
-        self.assertEqual(volume["spec"]["claimRef"], {"namespace": "target-dev", "name": "target-identity"})
+        self.assertEqual(volume["spec"]["claimRef"], {"namespace": "target-dev", "name": "target-login"})
         mounts = {m["name"]: m["mountPath"] for m in container(rendered())["volumeMounts"]}
         self.assertEqual(mounts["data"], "/opt/keycloak/data/h2")
 
@@ -130,11 +135,11 @@ def cognito_user(username, status="CONFIRMED", enabled=True, **attributes):
 
 
 class UserMoveTests(unittest.TestCase):
-    """Cognito exports no password hashes: accounts move, passwords are set again on first sign-in."""
+    """Cognito exports no password hashes: accounts move without one and get a temporary password after."""
 
-    def test_users_move_without_passwords_and_must_set_one(self):
+    def test_users_move_without_credentials_and_must_change_the_temporary_one(self):
         result, skipped = identity_users.convert({"Users": [
-            cognito_user("Visitor01", email="v@example.test", email_verified="true", given_name="Vi"),
+            cognito_user("visitor01", email="v@example.test", email_verified="true", given_name="Vi"),
         ]})
         (user,) = result["users"]
         self.assertEqual(skipped, [])
@@ -142,7 +147,7 @@ class UserMoveTests(unittest.TestCase):
         self.assertEqual(user["requiredActions"], ["UPDATE_PASSWORD"])
         self.assertNotIn("credentials", user)
         self.assertEqual((user["email"], user["emailVerified"], user["firstName"]), ("v@example.test", True, "Vi"))
-        self.assertEqual(user["attributes"], {"cognito_sub": ["sub-Visitor01"]})
+        self.assertEqual(user["attributes"], {"cognito_sub": ["sub-visitor01"]})
         self.assertEqual(result["ifResourceExists"], "SKIP")
 
     def test_disabled_or_unconfirmed_accounts_stay_behind(self):
@@ -153,78 +158,198 @@ class UserMoveTests(unittest.TestCase):
         self.assertEqual([u["username"] for u in result["users"]], ["kept"])
         self.assertEqual([s["username"] for s in skipped], ["off", "pending"])
 
-    def test_case_collisions_stop_the_move(self):
-        with self.assertRaises(ValueError):
-            identity_users.convert({"Users": [cognito_user("Kim"), cognito_user("kim")]})
+    def test_upper_case_names_are_refused_not_folded(self):
+        # demo-chat does not fold case: "Visitor01" and "visitor01" would be two authors.
+        result, skipped = identity_users.convert({"Users": [cognito_user("Visitor01"), cognito_user("kim")]})
+        self.assertEqual([u["username"] for u in result["users"]], ["kim"])
+        self.assertEqual(skipped, [{"username": "Visitor01", "reason": "upper-case name: would become another author"}])
 
-    def test_the_moved_name_is_the_author_name_on_both_issuers(self):
-        # demo-chat names authors by preferred_username, then cognito:username (demo-app #28).
-        result, _ = identity_users.convert({"Users": [cognito_user("visitor01")]})
-        self.assertEqual(result["users"][0]["username"], "visitor01")
+
+class EdgeLikeCookies(http.cookiejar.DefaultCookiePolicy):
+    """Keycloak marks its session cookies Secure; the Edge serves https, this local test plain http."""
+
+    def return_ok_secure(self, cookie, request):
+        return True
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def claims(token):
+    part = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
 @unittest.skipUnless(os.getenv("BRAVO_TEST_KEYCLOAK") and shutil.which("docker"), "set BRAVO_TEST_KEYCLOAK=1 with docker")
-class RenderedServerStartsTests(unittest.TestCase):
+class RenderedServerTests(unittest.TestCase):
     """Start the rendered image with the rendered env and realm; local http stands in for the Edge."""
 
-    def test_rendered_server_serves_the_issuer_demo_chat_expects(self):
-        public = "http://127.0.0.1:18183"
+    PUBLIC = "http://127.0.0.1:18183"
+    ADMIN = ("admin", "container-test-only")
+
+    @classmethod
+    def setUpClass(cls):
         items = {item["kind"]: item for item in identity.identity("node-a", "https://login.example.com", APP)}
+        cls.args = container(items)["args"]
         env = {e["name"]: e.get("value") for e in container(items)["env"] if "value" in e}
-        env["KC_HOSTNAME"] = public  # the container test has no Edge; the rendered value is checked above
-        name = f"bravo-identity-test-{os.getpid()}"
-        with tempfile.TemporaryDirectory() as tmp:
-            imports, data = Path(tmp, "import"), Path(tmp, "h2")
-            imports.mkdir()
-            data.mkdir()
-            data.chmod(0o777)
-            for file, text in items["ConfigMap"]["data"].items():
-                Path(imports, file).write_text(text)
-            args = ["docker", "run", "-d", "--name", name, "--user", "1000:1000", "-p", "127.0.0.1:18183:8080",
-                    "-p", "127.0.0.1:19183:9000", "-v", f"{imports}:/opt/keycloak/data/import:ro",
-                    "-v", f"{data}:/opt/keycloak/data/h2",
-                    "-e", "KC_BOOTSTRAP_ADMIN_USERNAME=admin", "-e", "KC_BOOTSTRAP_ADMIN_PASSWORD=container-test-only"]
-            for key, value in env.items():
-                args += ["-e", f"{key}={value}"]
-            subprocess.run([*args, identity.IMAGE, *container(items)["args"]], check=True, capture_output=True)
+        env["KC_HOSTNAME"] = cls.PUBLIC  # the container test has no Edge; the rendered value is checked above
+        cls.name = f"bravo-login-test-{os.getpid()}"
+        cls.tmp = tempfile.TemporaryDirectory()
+        imports, data = Path(cls.tmp.name, "import"), Path(cls.tmp.name, "h2")
+        imports.mkdir()
+        data.mkdir()
+        data.chmod(0o777)
+        for file, text in items["ConfigMap"]["data"].items():
+            Path(imports, file).write_text(text)
+        args = ["docker", "run", "-d", "--name", cls.name, "--user", "1000:1000", "-p", "127.0.0.1:18183:8080",
+                "-p", "127.0.0.1:19183:9000", "-v", f"{imports}:/opt/keycloak/data/import:ro",
+                "-v", f"{data}:/opt/keycloak/data/h2",
+                "-e", f"KC_BOOTSTRAP_ADMIN_USERNAME={cls.ADMIN[0]}", "-e", f"KC_BOOTSTRAP_ADMIN_PASSWORD={cls.ADMIN[1]}"]
+        for key, value in env.items():
+            args += ["-e", f"{key}={value}"]
+        subprocess.run([*args, identity.IMAGE, *cls.args], check=True, capture_output=True)
+        deadline = time.monotonic() + 180
+        while True:
             try:
-                deadline = time.monotonic() + 180
-                while True:
-                    try:
-                        with urllib.request.urlopen("http://127.0.0.1:19183/health/ready", timeout=3) as response:
-                            if response.status == 200:
-                                break
-                    except OSError:
-                        pass
-                    self.assertLess(time.monotonic(), deadline, "Keycloak did not become ready")
-                    time.sleep(3)
-                url = f"{public}/realms/bravo/.well-known/openid-configuration"
-                with urllib.request.urlopen(url, timeout=5) as response:
-                    document = json.load(response)
-                self.assertEqual(document["issuer"], f"{public}/realms/bravo")
-                self.assertIn("S256", document["code_challenge_methods_supported"])
-                with urllib.request.urlopen(document["jwks_uri"], timeout=5) as response:
-                    self.assertTrue(any(k["kty"] == "RSA" for k in json.load(response)["keys"]))
-                # 동등성: 출발지 Cognito와 같이 정확한 콜백만 받고, 스스로 가입할 길이 없다.
-                login = document["authorization_endpoint"] + "?" + urllib.parse.urlencode({
-                    "client_id": "demo-chat", "response_type": "code", "scope": "openid",
-                    "redirect_uri": f"{APP}/", "code_challenge": "x" * 43, "code_challenge_method": "S256",
-                })
-                with urllib.request.urlopen(login, timeout=5) as response:
-                    page = response.read().decode()
-                self.assertEqual(response.status, 200)
-                self.assertNotIn("login-actions/registration", page)
-                for redirect in ("https://evil.example/", f"{APP}/other", f"{APP}"):
-                    with self.subTest(redirect=redirect), self.assertRaises(urllib.error.HTTPError) as refused:
-                        urllib.request.urlopen(login.replace(urllib.parse.quote(f"{APP}/", safe=""),
-                                                             urllib.parse.quote(redirect, safe="")), timeout=5)
-                    self.assertEqual(refused.exception.code, 400)
-                registration = f"{public}/realms/bravo/protocol/openid-connect/registrations?" + login.split("?", 1)[1]
-                with self.assertRaises(urllib.error.HTTPError) as closed:
-                    urllib.request.urlopen(registration, timeout=5)
-                self.assertIn(closed.exception.code, (400, 403, 404))
-            finally:
-                subprocess.run(["docker", "rm", "-f", name], check=False, capture_output=True)
+                with urllib.request.urlopen("http://127.0.0.1:19183/health/ready", timeout=3) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                pass
+            if time.monotonic() > deadline:
+                cls.tearDownClass()
+                raise AssertionError("Keycloak did not become ready")
+            time.sleep(3)
+        with urllib.request.urlopen(f"{cls.PUBLIC}/realms/bravo/.well-known/openid-configuration", timeout=5) as r:
+            cls.document = json.load(r)
+
+    @classmethod
+    def tearDownClass(cls):
+        subprocess.run(["docker", "rm", "-f", cls.name], check=False, capture_output=True)
+        cls.tmp.cleanup()
+
+    def authorize(self, **overrides):
+        params = {"client_id": "demo-chat", "response_type": "code", "scope": "openid", "redirect_uri": f"{APP}/",
+                  "state": "s", "code_challenge": "x" * 43, "code_challenge_method": "S256", **overrides}
+        return self.document["authorization_endpoint"] + "?" + urllib.parse.urlencode(
+            {k: v for k, v in params.items() if v is not None})
+
+    def fetch(self, opener, url, data=None):
+        """(status, Location, body) without following a redirect."""
+        body = urllib.parse.urlencode(data).encode() if data is not None else None
+        try:
+            with opener.open(urllib.request.Request(url, data=body), timeout=10) as response:
+                return response.status, response.headers.get("Location"), response.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.headers.get("Location"), error.read().decode()
+
+    def admin(self, method, path, body=None):
+        token_url = f"{self.PUBLIC}/realms/master/protocol/openid-connect/token"
+        form = urllib.parse.urlencode({"grant_type": "password", "client_id": "admin-cli",
+                                       "username": self.ADMIN[0], "password": self.ADMIN[1]}).encode()
+        with urllib.request.urlopen(token_url, data=form, timeout=10) as response:
+            token = json.load(response)["access_token"]
+        request = urllib.request.Request(f"{self.PUBLIC}/admin/realms/bravo{path}", method=method,
+                                         data=None if body is None else json.dumps(body).encode(),
+                                         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            text = response.read().decode()
+            return json.loads(text) if text else None
+
+    def test_issuer_and_keys_are_what_demo_chat_expects(self):
+        self.assertEqual(self.document["issuer"], f"{self.PUBLIC}/realms/bravo")
+        self.assertIn("S256", self.document["code_challenge_methods_supported"])
+        with urllib.request.urlopen(self.document["jwks_uri"], timeout=5) as response:
+            self.assertTrue(any(k["kty"] == "RSA" for k in json.load(response)["keys"]))
+
+    def test_only_the_exact_callback_opens_the_login_page_and_sign_up_is_closed(self):
+        opener = urllib.request.build_opener(NoRedirect)
+        status, _, page = self.fetch(opener, self.authorize())
+        self.assertEqual(status, 200)
+        self.assertNotIn("login-actions/registration", page)
+        for redirect in ("https://evil.example/", f"{APP}/other", APP):
+            with self.subTest(redirect=redirect):
+                self.assertEqual(self.fetch(opener, self.authorize(redirect_uri=redirect))[0], 400)
+        registration = self.authorize().replace("/auth?", "/registrations?")
+        self.assertIn(self.fetch(opener, registration)[0], (400, 403, 404))
+
+    def test_pkce_is_required_and_only_s256(self):
+        opener = urllib.request.build_opener(NoRedirect)
+        for overrides in ({"code_challenge": None, "code_challenge_method": None}, {"code_challenge_method": "plain"}):
+            with self.subTest(overrides=overrides):
+                status, location, _ = self.fetch(opener, self.authorize(**overrides))
+                self.assertEqual(status, 302)
+                self.assertIn("error=invalid_request", location)
+
+    def test_implicit_and_password_grants_are_refused(self):
+        opener = urllib.request.build_opener(NoRedirect)
+        status, location, _ = self.fetch(opener, self.authorize(response_type="token"))
+        self.assertIn(status, (302, 400))
+        self.assertTrue(location is None or "error=" in location)
+        status, _, body = self.fetch(opener, self.document["token_endpoint"], {
+            "grant_type": "password", "client_id": "demo-chat", "username": "nobody", "password": "x"})
+        self.assertEqual((status, json.loads(body)["error"]), (400, "unauthorized_client"))
+
+    def test_realm_keeps_names_fixed_and_logs_in_by_name_only(self):
+        realm = self.admin("GET", "")
+        self.assertIs(realm["editUsernameAllowed"], False)
+        self.assertIs(realm["loginWithEmailAllowed"], False)
+        self.assertIs(realm["registrationAllowed"], False)
+        profile = self.admin("GET", "/users/profile")
+        for attribute in profile["attributes"]:
+            with self.subTest(attribute=attribute["name"]):
+                self.assertEqual(attribute["permissions"]["edit"], ["admin"])
+                self.assertFalse(attribute.get("required"))
+
+    def test_moved_account_needs_a_temporary_password_then_a_new_one(self):
+        """README "사용자 옮기기": import → no sign-in at all → temporary password → new password → ID token."""
+        partial, _ = identity_users.convert({"Users": [cognito_user("visitor01")]})
+        self.admin("POST", "/partialImport", partial)
+        (user,) = self.admin("GET", "/users?exact=true&username=visitor01")
+
+        def sign_in(password, new_password=None):
+            jar = http.cookiejar.CookieJar(policy=EdgeLikeCookies())
+            opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPCookieProcessor(jar))
+            verifier = b64url(os.urandom(32))
+            challenge = b64url(hashlib.sha256(verifier.encode()).digest())
+            status, _, page = self.fetch(opener, self.authorize(code_challenge=challenge))
+            self.assertEqual(status, 200)
+            form = (re.search(r'id="kc-form-login"[^>]*action="([^"]+)"', page)
+                    or re.search(r'action="([^"]+)"[^>]*id="kc-form-login"', page))
+            action = html.unescape(form.group(1))
+            status, location, page = self.fetch(opener, action, {"username": "visitor01", "password": password})
+            while status == 302 and location.startswith(self.PUBLIC):
+                status, location, page = self.fetch(opener, location)
+            if new_password is not None and status == 200 and "password-new" in page:
+                action = html.unescape(re.search(r'action="([^"]+)"', page).group(1))
+                status, location, page = self.fetch(opener, action, {
+                    "password-new": new_password, "password-confirm": new_password})
+            return status, location, page, verifier
+
+        status, location, page, _ = sign_in("anything")
+        # Back on the login form with Keycloak's wrong-credential answer, never on UPDATE_PASSWORD.
+        self.assertIn(status, (200, 400))
+        visible = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", page)))
+        self.assertIn("Invalid username or password", visible, visible[:600])
+        self.assertNotIn("password-new", page)
+        self.admin("PUT", f"/users/{user['id']}/reset-password",
+                   {"type": "password", "value": "Temporary-Only-1", "temporary": True})
+        status, location, page, verifier = sign_in("Temporary-Only-1", new_password="Chosen-By-User-2")
+        self.assertEqual(status, 302)
+        self.assertTrue(location.startswith(f"{APP}/?"), location)  # no VERIFY_PROFILE stop on the way
+        code = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query)["code"][0]
+        status, _, body = self.fetch(urllib.request.build_opener(NoRedirect), self.document["token_endpoint"], {
+            "grant_type": "authorization_code", "client_id": "demo-chat", "code": code,
+            "redirect_uri": f"{APP}/", "code_verifier": verifier})
+        self.assertEqual(status, 200)
+        token = claims(json.loads(body)["id_token"])
+        self.assertEqual((token["aud"], token["preferred_username"]), ("demo-chat", "visitor01"))
 
 
 if __name__ == "__main__":
