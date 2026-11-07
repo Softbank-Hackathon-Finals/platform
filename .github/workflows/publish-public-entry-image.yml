@@ -28,6 +28,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
     env:
       SOURCE_SHA: ${{ github.workflow_sha }}
       IMAGE: ghcr.io/softbank-hackathon-finals/platform-public-entry
@@ -82,3 +84,35 @@ jobs:
           test "sha256:$remote" = "$BUILD_DIGEST"
           echo "digest=$BUILD_DIGEST" >> "$GITHUB_OUTPUT"
           echo "### $IMAGE@$BUILD_DIGEST (source $SOURCE_SHA)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Pin the published digest through the normal PR path; Argo deploys it after merge. No tag is ever deployed.
+  propose:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          token: ${{ secrets.PROJECT_TOKEN }}
+      - name: Propose the immutable digest
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          SOURCE_SHA: ${{ github.workflow_sha }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          file=infra/envs/public-entry/kustomization.yaml
+          sed -i -E "s/^(    digest: )sha256:[0-9a-f]{64}$/\1$DIGEST/" "$file"
+          if git diff --quiet; then echo "already pinned"; exit 0; fi
+          branch="feature/T43-public-entry-image-${SOURCE_SHA:0:12}"
+          git config user.name 'bravo-board'
+          git config user.email 'bravo-board@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -qam "[T43] 검증된 공개 입구 이미지 배포 (${DIGEST:7:12})"
+          git push -q origin "$branch"
+          gh pr create --base develop --head "$branch" --title "[T43] 검증된 공개 입구 이미지 배포" \
+            --body "publish-public-entry-image가 소스 \`$SOURCE_SHA\`에서 검사 · 발행한 \`$DIGEST\`를 고정합니다. 병합하면 플랫폼 Argo가 배포합니다."
+
