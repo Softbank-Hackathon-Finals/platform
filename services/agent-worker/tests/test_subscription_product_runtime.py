@@ -231,6 +231,13 @@ def test_install_takes_the_model_from_the_environment_config_only():
                 development | {"api_key": "sk-x"}):
         with pytest.raises(ValueError):
             module.installation(RUNTIME, "d" * 64, settings, bad)
+    # T49: OpenAI API key provider — the settings name only the systemd credential mount, never a value.
+    openai = module.installation(RUNTIME, "d" * 64, settings, {"provider": "openai", "model": "gpt-test"})
+    encoded = next(part for part in openai.split("'") if part.startswith("eyJ"))
+    assert _json.loads(base64.b64decode(encoded))["openai_key_file"] == module.OPENAI_KEY_CREDENTIAL
+    assert f"test -r {module.OPENAI_KEY_SOURCE}" in openai and f"LoadCredential=openai.key:{module.OPENAI_KEY_SOURCE}" in openai
+    assert "openai_key_file" not in _json.loads(base64.b64decode(next(
+        part for part in script.split("'") if part.startswith("eyJ"))))
 
 
 
