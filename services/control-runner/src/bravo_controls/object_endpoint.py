@@ -28,10 +28,13 @@ TOOL = "bravo-controls-s3-endpoint"
 TOOL_VERSION = "1"
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _LOOPBACK = {"localhost"}
+# An in-cluster Service: the collector runs as a Job beside the store (the target's SeaweedFS serves plain
+# HTTP inside the cluster). SigV4 still signs each request; the answer is trusted as far as the cluster network.
+_SERVICE = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.svc(?:\.cluster\.local)?\Z")
 
 
 def _endpoint(value: str) -> str:
-    """https://host[:port], or http only to a loopback host (local qualification)."""
+    """https://host[:port]; plain http only to a loopback host (local qualification) or an in-cluster Service."""
     try:
         url = urlsplit(value)
         host, port = url.hostname, url.port
@@ -45,8 +48,8 @@ def _endpoint(value: str) -> str:
             loopback = host in _LOOPBACK or ipaddress.ip_address(host).is_loopback
         except ValueError:
             loopback = False
-        if not loopback:
-            raise ValueError("plain HTTP is accepted for a loopback endpoint only")
+        if not loopback and not _SERVICE.fullmatch(host):
+            raise ValueError("plain HTTP is accepted for a loopback endpoint or an in-cluster Service only")
     return value.rstrip("/")
 
 

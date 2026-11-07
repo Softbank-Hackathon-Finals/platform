@@ -103,7 +103,10 @@ def test_the_demo_gate_run_reports_the_other_tests_as_not_run():
 
 
 @pytest.mark.parametrize("endpoint", [
-    "http://objects.target.example:8333",   # plain HTTP off loopback
+    "http://objects.target.example:8333",   # plain HTTP off loopback and outside the cluster
+    "http://seaweedfs.target-dev.svc.attacker.example:8333",
+    "http://seaweedfs.svc.cluster.local:8333",   # no namespace
+    "http://evil.seaweedfs.target-dev.svc:8333",   # not <service>.<namespace>.svc
     "https://objects.target.example:8333/bucket",
     "https://user:pass@objects.target.example:8333",
     "https://objects.target.example:8333?x=1",
@@ -113,6 +116,9 @@ def test_only_a_registered_https_endpoint_is_accepted(endpoint):
     with pytest.raises(ValueError):
         target(endpoint)
     assert target("http://127.0.0.1:8333").endpoint == "http://127.0.0.1:8333"
+    # The target app's own endpoint: the Job runs in the cluster, beside the store.
+    for inside in ("http://seaweedfs.target-dev.svc.cluster.local:8333", "http://seaweedfs.target-dev.svc:8333"):
+        assert target(inside).endpoint == inside
 
 
 def test_clients_must_be_bound_to_the_registered_endpoint_with_path_addressing():
