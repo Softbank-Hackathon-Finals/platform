@@ -26,6 +26,7 @@ TOOL_NAMES = {
     "mcp__bravo__plan_propose": "plan.propose",
     "mcp__bravo__inventory_describe": "inventory.describe",
     "mcp__bravo__policy_evaluate": "policy.evaluate",
+    "mcp__bravo__infra_plan": "infra.plan",
 }
 # Design 8.3 whitelist entries that no runtime provides yet. A call is denied like any other
 # tool but audited as TOOL_NOT_PROVIDED so the console can tell "not built" from "forbidden".
@@ -90,7 +91,9 @@ The input carries "task" (the original objective of this run; its editable files
 only files you may change), "failure" (the latest independent verification feedback, which
 on a retry replaces nothing in the task) and "attempt". Read only the approved snapshot with
 repo_read. When inventory_describe is offered, use it
-to see which dependency is graded code_change and where it is referenced. policy_evaluate
+to see which dependency is graded code_change and where it is referenced. When infra_plan is
+offered and the failure is in the destination's configuration rather than the code, plan that
+module change with it; a plan is a proposal for human review, never an apply. policy_evaluate
 only lints a candidate text; it does not apply or approve anything. Submit exactly one
 bounded correction through plan_propose. The coordinator supplies run_id and source_sha;
 preserve them.
@@ -138,8 +141,15 @@ class Snapshot:
 
 class Tools:
     def __init__(self, bundle: FailureBundle, snapshot: Snapshot, attempt: int,
-                 inventory: InventorySummary | None = None, task: FailureBundle | None = None):
+                 inventory: InventorySummary | None = None, task: FailureBundle | None = None,
+                 iac=None):
         self.bundle, self.snapshot, self.attempt = bundle, snapshot, attempt
+        # T44 planning port from the trusted control path (bravo_iac.agent.AgentPlanner): describe()
+        # and plan(module, params). Plans only, origin=agent; it holds no credentials and applies nothing.
+        if iac is not None and not (callable(getattr(iac, "plan", None)) and callable(getattr(iac, "describe", None))):
+            raise ValueError("iac port must plan and describe")
+        self.iac = iac
+        self.infra_plans: list[dict] = []
         if inventory is not None and inventory.source_sha != bundle.source_sha:
             raise ValueError("inventory revision mismatch")
         self.inventory = inventory
@@ -181,7 +191,8 @@ class Tools:
             return "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": category}
         if tool in RESERVED_TOOLS:
             return "TOOL_NOT_PROVIDED", {}
-        if tool == "mcp__bravo__inventory_describe" and self.inventory is None:
+        if ((tool == "mcp__bravo__inventory_describe" and self.inventory is None)
+                or (tool == "mcp__bravo__infra_plan" and self.iac is None)):
             return "TOOL_NOT_ATTACHED", {}
         if tool in TOOL_NAMES:
             return "INVALID_INPUT_OR_POLICY", {}
@@ -197,7 +208,8 @@ class Tools:
         if self.calls > 64:
             self.record(tool, "DENIED", "TOOL_LIMIT")
             raise PolicyDenied("tool denied")
-        if not self.allowed(tool) or (tool == "mcp__bravo__inventory_describe" and self.inventory is None):
+        if (not self.allowed(tool) or (tool == "mcp__bravo__inventory_describe" and self.inventory is None)
+                or (tool == "mcp__bravo__infra_plan" and self.iac is None)):
             self._deny(tool, args)
         category = None
         try:
@@ -219,6 +231,16 @@ class Tools:
                           "inventory_digest": self.inventory.digest, "items": items,
                           "note": "read-only T16 inventory; grades by rule are final, agent fills agent_needed only"}
                 metadata = {"inventory_digest": self.inventory.digest, "items": len(items), **({"role": role} if role else {})}
+            elif tool == "mcp__bravo__infra_plan":
+                module, params = args.get("module"), args.get("params_json")
+                if (set(args) != {"module", "params_json"} or not isinstance(module, str)
+                        or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}", module)
+                        or not isinstance(params, str) or len(params) > 4096 or len(self.infra_plans) >= 8):
+                    raise PolicyDenied("invalid infra plan arguments")
+                result = self.iac.plan(module, json.loads(params))
+                self.infra_plans.append(result)
+                metadata = {"plan_digest": result["plan_digest"], "accepted": result["accepted"],
+                            "refusal": result["refusals"][0] if result["refusals"] else "NONE"}
             elif tool == "mcp__bravo__policy_evaluate":
                 policy = args.get("policy")
                 if set(args) != {"policy"} or not isinstance(policy, str) or len(policy) > 32768:
