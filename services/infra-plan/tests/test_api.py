@@ -57,12 +57,8 @@ def test_an_agent_plans_and_a_human_runs_the_approved_digest(client):
     assert run["started_by"] == "operator-jeon"
     confirm = f"/v1/infra/runs/{run_id}/steps/host-dirs/confirm"
     assert http.post(confirm, headers=as_("agent")).status_code == 403
+    state["cluster"].prepare_node()  # the platform prepared the node; the confirmation re-observes it
     assert http.post(confirm, headers=as_("human")).status_code == 202
-    wait_for(http, run_id, {"WAITING_OPERATOR"})
-    for _ in range(100):
-        if http.post(f"/v1/infra/runs/{run_id}/steps/openbao-image/confirm", headers=as_("human")).status_code == 202:
-            break
-        time.sleep(0.05)
     assert wait_for(http, run_id, {"SUCCEEDED", "HOLD", "FAILED"})["status"] == "SUCCEEDED"
 
 

@@ -31,7 +31,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 ## 역할 분담
 
-**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (9개, P0 7개)
+**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (10개, P0 7개)
 - `T1` AWS 기반: 권한 · VPC 2개 · 비용 태그 (P0)
 - `T6` 출발지: EKS + CNPG + PgBouncer + ESO (P0)
 - `T7` 플랫폼 클러스터 (EC2 + RKE2) + Actions OIDC (P0)
@@ -41,21 +41,24 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T43` 플랫폼 GitOps 배포: Argo CD · Helm · GitFlow 승격 (P0)
 - `T27` Exit Drill (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
+- `T50` GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull (P2)
 
-**김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (5개, P0 5개)
+**김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (6개, P0 5개)
 - `T2` 온프렘 RKE2 (Ubuntu VM, CIS) + 공통 cloud-init (P0)
 - `T8` 복제 경로: 논리 복제 왕복 · 첨부 동기화 (P0)
 - `T13` 무결성 비교와 영수증 (P0)
 - `T18` 부하 생성기와 관측 (P0)
 - `T30` 목적지 워크로드: CNPG · PgBouncer · 앱 + Tailscale 연결 (P0)
+- `T47` 데모 앱 로그인: Cognito → Keycloak 이전 (P1)
 
-**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (6개, P0 4개)
+**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (7개, P0 4개)
 - `T12` Cutover Executor (P0)
 - `T3` 리허설 네임스페이스 격리 실측 (P0)
 - `T15` 리허설 러너: 작업 → 검증 Job → 승인 결속 (P0)
 - `T20` 되돌리기 (failback) (P0)
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T42` rehearsal.exec: AI가 리허설 공간에서 정해진 동작으로 시험 (P1)
+- `T46` SQS → Lambda 호환 런타임: 수정 없는 핸들러를 목적지에서 실행하고 컷오버에 큐를 포함 (P1)
 
 **이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (16개, P0 11개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
@@ -75,13 +78,14 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T41` 기존 Actions 인증을 재사용하는 Merge Queue 자동 등록 (P0)
 - `T44` 목적지 IaC API: 모듈 카탈로그 · 결정적 plan · 에이전트 계획 도구 · GitOps 적용 (P1)
 
-**전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (6개, P0 4개)
+**전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (7개, P0 4개)
 - `T9` 목적지 보안 구성요소: OpenBao · ESO · SeaweedFS (P0)
 - `T11` 에이전트 워커 + 도구 계층 + 제안서 스키마 (P0)
 - `T16` 의존성 · 설정 인벤토리: 정적 탐지 + 설정 수집 + 3등급 분류 (P0)
 - `T24` 감사 로그 (S3 Object Lock) (P1)
 - `T31` 승인 반영 경로: diff → 이미지 → 목적지 배포 (P0)
 - `T32` 이전 대상 추천: 적합성 검사 + AI 추천 (P1)
+- `T45` 목적지 처음 구축 실행기: 정형 단계 스택 · T10 승인 · T44 Argo CD (P1)
 
 **전원** · 통합 · 문서 (2개, P0 1개)
 - `T29` 결정 문서 · ADR · 설계 문서 갱신 (P1)
@@ -978,6 +982,31 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** `local-vm.sh up`으로 만든 새 VM이 API 적용만으로 16단계 확인을 통과하고 단계별 소요 시간이 기록된다. 목적지 Argo CD가 실행 기록의 커밋으로 수렴하고, 같은 계획 재적용은 커밋과 클러스터를 바꾸지 않으며, 승인 뒤 렌더 결과나 기준 커밋이 바뀌면 적용이 거부되고, 에이전트 신원은 승인 · 적용을 할 수 없다. 적용 신원의 권한 세분화와 AWS Terraform 스택 일괄 적용은 별도 범위로 진행한다.
 
+### [T48] tailnet 합류 · 정책 · 분리의 코드화: Tailscale 워크로드 신원 연합(WIF)
+
+**어디에 필요** tailnet 정책을 관리자가 콘솔에서 손으로 합치고, operator의 OAuth client secret(`operator-oauth`)을 사람이 클러스터에 넣는다. 새 클러스터는 VM 생성 때 합류하지 않고, 작업이 끝난 뒤 연결을 닫는 코드가 없다. 2026-11-07 새 RKE2 시험 클러스터는 T45 데이터 계층까지 섰으나 합류 단계에서 멈췄다.
+
+**만들 것** 정책은 `tailnet-policy` 워크플로(#667) 한 곳에서 쓰고, 환경별 연합 신원은 Terraform 스택 `infra/envs/tailnet`으로 관리하고, operator · CI · 플랫폼이 장기 secret 없이 OIDC 토큰으로 Tailscale에 인증한다. 온프렘 클러스터는 ServiceAccount 발급자를 공개 정적 주소로 둔다. 합류 · 제어 · 고객 접근 · 분리를 원하는 상태 PR과 사람 승인으로 진행한다. ADR-0035.
+
+- **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 류지환
+- **선행** `T44` (통합 시점: `T45`, `T2`, `T30`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-7, ADR-0035
+
+**목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
+
+**할 일**
+- [ ] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [ ] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
+- [ ] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
+- [ ] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
+- [ ] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
+- [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
+- [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
+- [ ] 분리: 환경 tailnet 항목 삭제 PR → 승인 적용 → 장치 삭제 → operator 인증 실패 · 플랫폼 도달 실패 확인과 분리 영수증
+- [ ] 기존 플랫폼 · 대상 operator의 WIF 전환(별도 실행 창, 기존 Secret 회수)
+
+**완료 기준** 새 RKE2 시험 클러스터에서 원하는 상태 PR → 승인 → 합류 → Tailscale 관리자 신원으로 T45 실행(포트포워딩 없음) → 운영자 접근 확인 → 분리 PR → 도달 실패까지 이어지고, 저장소 · 클러스터 · 실행 기록에 Tailscale secret이 없다. 계획이나 CI 통과만으로 완료 처리하지 않는다.
+
 ### [T50] GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull
 
 **어디에 필요** 목적지 RKE2는 Mac mini VM(T2) 하나뿐이라, 팀원이 각자 목적지를 펼치고 접으며 해피패스를 반복할 수 없다(11/7 GCP 팀 프로젝트 생성). 같은 RKE2 어댑터와 T45 스택을 클라우드 VM에서도 쓰려면 노드·접근 경로·이미지 전달을 코드로 둬야 한다.
@@ -990,8 +1019,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 실제 GCP 프로젝트에서 터미널 몇 줄로 목적지 RKE2를 펼치고 접는다. 들어오는 길은 IAM이 정하는 IAP뿐이고, 이미지는 저장된 비밀 없이 digest로 pull하며, 그 위에서 무인 해피패스가 끝까지 돈다.
 
 **할 일**
-- [ ] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
-- [ ] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
+- [x] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
+- [x] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
 - [ ] T49 무인 해피패스(T45 구축 → 데이터 → 보안 → S1/S2 에이전트 런 → 컷오버)를 이 목적지에서 실행하고 영수증 보존
 
 **완료 기준** 새로 펼친 GCP 노드에서 T49 진행기가 사람 확인 없이 끝까지 성공하고, 같은 env를 접었다 다시 펼쳐도 같은 결과가 나온다. 단계별 시간과 비용 근거가 남는다.

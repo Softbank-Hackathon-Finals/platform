@@ -38,11 +38,34 @@ infra/envs/target-workloads/demo_reset.py check --kubeconfig <target> \
 ```sh
 python3 scripts/happy_path.py steps                      # 순서와 연결 상태
 python3 scripts/happy_path.py run --plan-id <plan> --record <run.jsonl> --profile real \
+  --scenario recovery \
   --plan-state-command <plan 상태를 {"state": ...}로 출력하는 읽기 전용 명령> \
   --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> --wait 600
 python3 scripts/happy_path.py confirm --record <run.jsonl> --step s2-change-approval --by <이름>
 python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status done|failed --by <이름> --note <근거>
 ```
+
+### 정방향 AWS → 온프렘 이전만 인수할 때
+
+```sh
+python3 scripts/happy_path.py run --plan-id <plan> --record <새 회차.jsonl> \
+  --profile real --scenario migration --platform-context <platform> --kubeconfig <target> \
+  --application-id <T31 id> --receipts <T31 receipts> --initial-args --from <initial.json>
+```
+
+`migration`은 정방향 컷오버·WATCH와 역방향 복제 도착 확인까지 진행한다.
+S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획을 다시 읽어 `WATCH` 또는
+`DONE`이어야 완료를 기록한다. `DONE_ROLLED_BACK`은 정방향 이전 완료로 인정하지 않는다.
+기본값 `recovery`는 기존 S4 포함 각본을 유지한다.
+
+두 시나리오 모두 부하 측정과 첨부 복사 확인을 SHIFT·컷오버 승인보다 먼저 요구한다.
+승인 직전에는 현재 T13 관찰·서명을 확인하고, 컷오버 승인 뒤에는 실제 실행 요청도
+보내야 한다. 이 실행기는 승인을 만들거나 T13 자료를 추정하지 않는다.
+
+회차의 `real/local/mock` 프로필과 시나리오는 처음 기록한 값으로 고정한다.
+합성 회차를 `real`로 다시 열거나, 복구 회차를 정방향 회차로 바꿔 완료 처리할 수 없다.
+기존 회차는 시나리오가 없으면 `recovery`로 해석한다. 헤더에는 등록 API·Reader·리허설
+호스트 이미지 고정값을 기록한다. 코드 시험 통과와 실제 공용 환경 인수는 별도다.
 
 - **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
 - **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.

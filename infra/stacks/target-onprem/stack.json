@@ -25,6 +25,11 @@
     "kube_version": {
       "description": "helm template --kube-version에 넘길 실제 Kubernetes 버전",
       "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
+    },
+    "tailnet": {
+      "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
+      "enum": ["join", "none"],
+      "default": "join"
     }
   },
   "charts": {
@@ -66,7 +71,14 @@
         "identity"
       ],
       "instruction": "새 노드에 /var/lib/bravo-target-dev/postgres(UID/GID 26), /var/lib/bravo-target-dev/objects(UID/GID 1000), /var/lib/bravo-target-dev/openbao(UID 100, GID 1000, 0700)를 만든다. 기존 데이터가 있으면 멈추고 재사용하지 않는다.",
-      "confirm": "host-paths"
+      "confirm": "host-paths",
+      "expect": {
+        "host_paths": [
+          {"path": "/var/lib/bravo-target-dev/postgres", "uid": 26, "gid": 26, "mode": "0755"},
+          {"path": "/var/lib/bravo-target-dev/objects", "uid": 1000, "gid": 1000, "mode": "0755"},
+          {"path": "/var/lib/bravo-target-dev/openbao", "uid": 100, "gid": 1000, "mode": "0700"}
+        ]
+      }
     },
     {
       "id": "argocd",
@@ -76,7 +88,7 @@
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops). chart 0.2.0은 기본이 컨트롤러만이고(application.enabled · autoSync · prune 모두 false), T45에는 그것으로 충분하다. T44 Application의 등록 · 활성화는 T44 절차를 따르며 T45 진행 조건이 아니다. 0.1.0 chart라면 README대로 설치 명령을 2회 실행한다. 플랫폼 클러스터에는 설치하지 않는다.",
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops). chart 0.2.2부터 application.enabled는 기본값이 없으므로 application.enabled=false를 명시해 컨트롤러만 설치한다(autoSync · prune 기본 false). T45에는 그것으로 충분하다. T44 Application의 등록 · 활성화는 T44 절차를 따르며 T45 진행 조건이 아니다. 0.1.0 chart라면 README대로 설치 명령을 2회 실행한다. 플랫폼 클러스터에는 설치하지 않는다.",
       "confirm": "iac-argocd"
     },
     {
@@ -382,6 +394,7 @@
       "id": "tailscale-oauth",
       "kind": "operator_action",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Tailscale operator OAuth Secret을 사람이 준비한다",
       "needs": [
         "base-sync"
@@ -393,6 +406,7 @@
       "id": "tailscale",
       "kind": "gitops_publish",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Tailscale operator chart 1.104.4를 올린다",
       "needs": [
         "tailscale-oauth"
@@ -420,6 +434,7 @@
       "id": "tailscale-sync",
       "kind": "gitops_sync",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
       "needs": [
         "tailscale"
@@ -436,7 +451,39 @@
         "identity"
       ],
       "instruction": "검사한 비공개 OpenBao 이미지를 태그와 localhost/bravo-openbao@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
-      "confirm": "openbao-image"
+      "confirm": "openbao-image",
+      "expect": {
+        "images_by_arch": {
+          "arm64": [
+            "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-arm64",
+            "localhost/bravo-openbao@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d"
+          ],
+          "amd64": [
+            "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64",
+            "localhost/bravo-openbao@sha256:eaf0d6c56196afd9348a9002f0ff7b48473ba2c34849be054fe5b263a4f8cb79"
+          ]
+        }
+      }
+    },
+    {
+      "id": "app-image",
+      "kind": "operator_action",
+      "owner": "T30",
+      "when": {"param": "arch", "in": ["arm64"]},
+      "description": "arm64 노드에 목적지 앱 이미지를 오프라인으로 반입한다(amd64는 고정 레지스트리에서 받는다)",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "app-image.json의 arm64 이미지(검사한 OCI)를 태그와 localhost/bravo-demo-chat@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
+      "confirm": "app-image",
+      "expect": {
+        "images_by_arch": {
+          "arm64": [
+            "localhost/bravo-demo-chat:8d82a924-arm64",
+            "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888"
+          ]
+        }
+      }
     },
     {
       "id": "openbao-tls",
@@ -483,13 +530,17 @@
           "values": {
             "run": "infra/envs/target-secrets/render.py",
             "args": [
-              "bao-values"
+              "bao-values",
+              "--arch",
+              "${arch}"
             ]
           },
           "post": {
             "run": "infra/envs/target-secrets/render.py",
             "args": [
-              "finalize-bao"
+              "finalize-bao",
+              "--arch",
+              "${arch}"
             ]
           }
         },
@@ -510,12 +561,13 @@
       "id": "openbao-sync",
       "kind": "gitops_sync",
       "owner": "T9",
-      "description": "Argo CD가 openbao 커밋으로 Synced · Healthy인지 확인한다",
+      "description": "Argo CD가 openbao 커밋으로 Synced인지 확인한다. init · unseal 전에는 Ready일 수 없어 Progressing까지 받고, Ready는 openbao-init이 확인한다",
       "needs": [
         "openbao"
       ],
       "publish": "openbao",
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "health": ["Healthy", "Progressing"]
     },
     {
       "id": "eso",
@@ -628,6 +680,7 @@
       "owner": "T30",
       "description": "목적지 앱(쓰기 차단 상태로 시작)을 올린다",
       "needs": [
+        "app-image",
         "migration-complete",
         "objects-sync",
         "delivery-ready"

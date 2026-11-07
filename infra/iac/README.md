@@ -18,6 +18,7 @@
 | `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `client_policy`?(`false`만), `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
 | `tailnet-ingress` v1 | 클러스터 안 워크로드를 tailnet 장치로 노출: 장치마다 operator expose Service(호스트 이름·태그·selector·포트). 누가 닿는지는 소비자 쪽 `tailnet-egress` grant가 정한다 | `owner_tag`, `devices[]`: `service`, `namespace`, `hostname`, `tag`, `tailnet`?, `selector`, `ports[]`(name·port·target_port) |
 | `operator-access` v1 | 사람이 클러스터 API에 들어오는 길: 바인딩마다 쿠버네티스 그룹 하나의 ClusterRoleBinding, 그리고 tailnet 그룹이 그 클러스터의 Tailscale API 프록시(443)에 닿아 그 쿠버네티스 그룹으로 impersonate되게 하는 grant 하나 | `proxy_hostname`, `proxy_tag`, `bindings[]`: `name`, `group`(`접두사:이름`, `system:` 금지), `cluster_role`, `tailnet_groups`(`group:…`, `autogroup:admin`, `autogroup:owner`); 선택 `tailnet` |
+| `cluster-audit` v1 | API 서버 감사 정책을 **노드 파일**로: `/etc/rancher/rke2/audit-policy.yaml`(0600). 내용은 T30·T34가 검토한 정책(`services/control-runner/templates/rke2-audit-policy.yaml`)과 바이트가 같다(시험 고정). 바뀌면 API 서버 재시작 | `runtime`: `rke2`(EKS 등 관리형 제어면은 `IAC_RUNTIME_UNSUPPORTED`), `policy`: `metadata-v1` |
 
 `target-object-exposure`는 T9 렌더러(`infra/envs/target-workloads/object_exposure.py`)와 같은 계정·권한을 낸다.
 같은지는 시험이 고정한다. 계정 키는 Git에도 plan에도 없다. 적용하는 쪽이 적용 시점에 넣는다(`secret_inputs`).
@@ -131,6 +132,44 @@ kubectl auth whoami                                      # Groups에 bravo:opera
 | `gke` (GCP) | 아직 | 같은 항목, Autopilot이면 ProxyClass 제약. 확인된 것(2026-11-07, A10 GKE Standard): 프로젝트 소유자(IAM)가 이 바인딩을 만들 수 있다(`kubectl apply --server-side --dry-run=server`, 저장하지 않음). 남은 것: A10 스택도 같은 `network.py` 값을 써서 프록시가 꺼진다. `--side target`이면 장치 이름·태그가 온프렘 목적지와 같은 `bravo-target-operator`가 된다 |
 
 사람별 이메일 ClusterRoleBinding(2026-11-06 수동)은 쓰는 사람이 그룹 방식으로 확인한 뒤 레거시로 옮긴다.
+## 노드 파일 (`cluster-audit`)
+
+API 서버가 시작할 때 노드에서만 읽는 설정은 클러스터 안 Argo가 가질 수 없다. 그래서 모듈이 파일의 정확한 바이트를
+내고, 노드의 적용기가 설치한다. 차트에는 들어가지 않고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+
+| 경로 | 뜻 |
+|---|---|
+| `infra/iac/nodes/<환경>/manifest.json` | 그 환경의 노드 파일 목록: 경로·모드·sha256·재시작 대상·모듈. `bravo-iac node`로 생성(손으로 고치지 않음, 시험이 일치를 고정) |
+| `infra/iac/nodes/<환경>/<노드 경로>` | 파일 내용. 노드의 실제 경로 그대로(`etc/rancher/rke2/audit-policy.yaml`) |
+| `infra/iac/nodes/apply.py` | 실행 중인 RKE2 서버 노드의 적용기(표준 라이브러리만) |
+
+```sh
+cd services/iac && uv run bravo-iac node ../../infra/iac/environments/platform.json --out ../../infra/iac/nodes/platform
+# 노드에서(root): 묶음과 클러스터 UID를 대조하고, 바뀔 것만 보고한다
+python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID>
+# 적용: 기존 파일 백업 → 원자적 설치 → API 서버만 재시작 → /readyz와 감사 로그 증가 확인
+python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID> \
+  --sha256 /etc/rancher/rke2/audit-policy.yaml=<검토한 sha256> --apply   # GET .../node-files의 files[].sha256
+```
+
+- **묶음을 믿지 않는다.** 쓸 수 있는 경로·모드·재시작 대상은 적용기 코드의 허용 목록(`ALLOWED`)뿐이다. manifest가 다른
+  경로를 적으면 쓰기 전에 거부한다. 바이트는 `--sha256`(검토한 `GET .../node-files`의 파일별 `sha256`)으로 묶고, `--apply`에는
+  필수다. manifest의 sha와 `state_digest`는 묶음 안에서 베낄 수 있어 기준이 되지 못한다(`level: None`으로 바꾼 묶음도 거부).
+  온프렘 user-data 조립기도 같은 허용 목록을 쓴다. 허용 목록이 노드 모듈 출력과 같은지 시험이 고정한다.
+- **설치 뒤 무엇이 실패해도 되돌린다.** API 서버 준비 실패, 다른 예외, 감사 로그가 늘지 않는 경우가 모두 해당한다.
+  이전 바이트와 모드를 되돌린 뒤 API 서버를 다시 기다리고, 그 결과를 `rollback_ready`로 보고한다. `false`면 API 서버가
+  돌아오지 않은 것이니 운영자가 바로 본다. 되돌리기 쓰기 자체가 실패하면 `rolled_back: false`와 새 바이트가 남은 파일
+  `rollback_failed`를 남긴다. 감사 로그가 그사이 회전하면(inode가 바뀜) 새 파일에 바이트가 있으면 증가로 본다.
+- **ADR-0032의 "적용은 Argo"와 다른 길이다.** API 서버가 시작할 때 노드에서만 읽는 파일이라 클러스터 안 Argo가 가질 수
+  없다. 그래서 노드 파일만 노드 적용기(첫 부팅은 user-data, 실행 중인 노드는 `apply.py`)가 적용한다.
+
+- API(읽기 전용): `GET /v1/iac/environments/{id}/node-files`(목록과 각 파일의 `href`),
+  `GET /v1/iac/environments/{id}/node-files/{노드 경로}`(내용과 sha256). 없는 경로는 404 `IAC_NODE_FILE_UNKNOWN`.
+- 새 노드: 온프렘 user-data(`infra/envs/onprem/render-user-data.sh`)는 같은 원본을 첫 시작 전에 넣는다.
+- 플랫폼 노드(`infra/envs/platform-aws`): `user_data_replace_on_change = true`와 `prevent_destroy`가 함께 있어,
+  cloud-init을 바꾸면 다음 plan이 교체 거부로 멈춘다. 그래서 실행 중인 플랫폼 노드는 `apply.py`로 맞추고 cloud-init은
+  바꾸지 않는다(새 플랫폼 노드를 만들 때 같은 묶음을 넣는다).
+- 에이전트 계획은 이 모듈을 뺄 수 없다(`IAC_MODULE_SET_CHANGE_REFUSED`). 감사를 끄는 정책 프로필은 없다.
 
 ## 적용: 고객 클러스터마다 Argo CD (pull GitOps)
 
@@ -191,7 +230,7 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 실제 출발지/목적지 담당과 실행 시간을 맞추고 등록된 `kube-system` UID가 같은지 먼저 확인한다.
 다른 Argo 설치·기존 렌더러·T45가 소유한 자원은 자동으로 인수하지 않는다. 플랫폼 클러스터에는 적용하지 않는다.
 
-1. 위 명령은 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 기본값에서는 AppProject·Application을 만들지 않는다.
+1. 위 명령은 `application.enabled=false`를 명시해 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 AppProject·Application을 만들지 않는다.
 2. 컨트롤러 준비와 CRD Established, 위 표의 namespace와 Tailscale CRD가 있는지 확인하고, 같은 설치 값에서
    `application.enabled=true`로 바꾼다.
    `application.autoSync=false`, `application.prune=false`는 유지한다. 고객 환경의 경로·diff·소유권을 확인할 수 있지만
@@ -202,6 +241,8 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 
 `helm upgrade`에는 매번 동일한 보호된 운영자 값 파일을 사용한다. 기존 0.1.0 설치는 자동 동기화·prune이 켜져 있었으므로
 업그레이드 전에 세 모드 값을 명시적으로 정해야 한다. 기본값으로 덮어써서 기존 Application을 제거하지 않는다.
+차트 0.2.2부터 `application.enabled`를 생략하면 렌더를 거부한다. bootstrap은 false, 기존 Application 유지·등록은 true를
+명시한다. 스키마 검사를 건너뛰어도 같은 검사를 하며, 생략을 기본 false로 해석하지 않는다.
 `autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
 초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
 
@@ -219,8 +260,11 @@ python3 infra/iac/customer_status.py --kubeconfig <고객 전용 kubeconfig> \
 실제 sync revision과 설정, 실행 중 작업, 컨트롤러 준비, 최근 조정 시각, 조회 중 Application 변경을 확인한다.
 고정 커밋이라도 Helm 값이 다른 오래된 성공은 수용하지 않는다. 명령 오류의 원문은 출력하지 않는다.
 
-상태는 `NOT_INSTALLED`, `BOOTSTRAP_PENDING`, `BOOTSTRAP_ONLY`, `SYNC_PAUSED`, `SYNC_IN_PROGRESS`,
-`SYNC_PENDING`, `BLOCKED`, `SYNC_VERIFIED`로 구분한다. `SYNC_VERIFIED`만 종료 코드 0이고 나머지는 3이다.
+상태는 `NOT_INSTALLED`, `BOOTSTRAP_PENDING`, `BOOTSTRAP_ONLY`, `SYNC_PAUSED`, `SYNC_IN_PROGRESS`, `SYNC_RETRYING`,
+`SYNC_FAILED`, `SYNC_PENDING`, `BLOCKED`, `SYNC_VERIFIED`로 구분한다. `SYNC_VERIFIED`만 종료 코드 0이고 나머지는 3이다.
+실행 중(`Running`·`Terminating`) `retryCount > 0`이면 `SYNC_RETRYING`과 재시도 횟수를 표시한다. 새 operation이 아직 시작하지 않았으면
+이전 작업의 횟수가 남아 있어도 `SYNC_IN_PROGRESS`다. 재시도가 끝나 이 커밋의 operation이 `Failed`·`Error`로 끝나면 `SYNC_FAILED`와 횟수를 표시한다. 재시도나 대기 상태를 인수 성공으로 처리하지 않는다.
+로컬 시계보다 미래인 조정 시각은 기존처럼 거부한다. 시계 오차를 독립적으로 확인하지 않은 상태에서 유효 시간 검사를 완화하지 않는다.
 승인된 prune을 별도로 인수할 때만 `--allow-prune`을 준다. 이 옵션은 삭제를 실행하거나 승인하지 않는다.
 GitOps 수렴 확인만 기록하며 `authorizes_cutover`, `migration_verified`, `control_equivalence_verified`는 항상 false다.
 T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요하다.
@@ -228,6 +272,9 @@ T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요�
 차트 0.2.0의 격리된 arm64 설치·정지·고정 SHA 동기화와 실제 온프렘의 읽기 전용 인수 결과는
 [고객 GitOps 검증 기록](../../docs/evidence/t44-customer-gitops-2026-11-07/README.md)에 있다.
 현재 실제 고객 설치 완료를 뜻하지 않는다.
+
+**아래는 차트 0.1.0 시절의 과거 실험 기록이다. 현재 고객 설치 절차로 사용하지 않는다.**
+현재 절차에서는 namespace를 T45 등 클러스터 구축 담당이 먼저 만들며, `application.enabled`를 명시한다.
 
 **로컬 실클러스터 확인(2026-11-07, kind v1.34.0, 운영 클러스터 아님)**: Tailscale 1.104.4 CRD만 설치(operator 없음) →
 위 설치 명령 2회(`environment=platform`, `tailnet=example-tail.ts.net`, 기능 브랜치) → Argo가 GitHub에서 끌어와 `4bc41c87`을
@@ -259,7 +306,7 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
   (`IAC_MODULE_SET_CHANGE_REFUSED`). 운영자는 할 수 있고, plan에 누가 요청했는지 남는다.
 - `stage`는 대상 파일이 plan의 `base_digest`일 때만 쓴다. 그사이 Git이 바뀌었으면 `IAC_BASE_CHANGED`로 멈춘다.
 - API(`bravo_iac.api.create_app(<environments 폴더>)`): `GET /v1/iac/modules`, `GET /v1/iac/environments/{id}`,
-  `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
+  `GET /v1/iac/environments/{id}/node-files[/{노드 경로}]`, `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
 
 ## 플랫폼 API: 계획 → T10 infra 승인 → 원하는 상태 PR
 

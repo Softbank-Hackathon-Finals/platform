@@ -131,6 +131,14 @@
       }
     },
     {
+      "id": "cluster-audit",
+      "version": "1",
+      "params": {
+        "runtime": "rke2",
+        "policy": "metadata-v1"
+      }
+    },
+    {
       "id": "operator-access",
       "version": "1",
       "params": {

@@ -42,7 +42,7 @@ SUBSCRIPTION_QUERIES = {"pg_subscription": {
 # kube-bench (CIS 5.1.5, 5.1.6) counts a Pod on the namespace's default account, or on an account that leaves
 # the token unset, as a finding even when the Pod turns the token off itself.
 ACCOUNTS = ("demo-chat", "target-pgbouncer", "target-seaweedfs", "target-chat-schema", "target-probe",
-            "attachment-copy")
+            "attachment-copy", "target-login")
 
 
 def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
