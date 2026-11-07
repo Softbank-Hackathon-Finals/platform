@@ -30,6 +30,8 @@ run "public_documents_only" {
     condition = jsondecode(aws_s3_bucket_policy.issuer.policy).Statement[0].Resource == [
       "arn:aws:s3:::example-issuer-111122223333/t49/.well-known/openid-configuration",
       "arn:aws:s3:::example-issuer-111122223333/t49/openid/v1/jwks",
+      "arn:aws:s3:::example-issuer-111122223333/target-gce/.well-known/openid-configuration",
+      "arn:aws:s3:::example-issuer-111122223333/target-gce/openid/v1/jwks",
     ]
     error_message = "the public statement must name exactly the two issuer documents"
   }
