@@ -14,9 +14,10 @@ REPO = Path(__file__).resolve().parents[3]
 STACK = REPO / "infra/stacks/target-onprem/stack.json"
 REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
-                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9", "iac_revision": "a" * 40}}
-# Required only under a condition (tailnet=join): not in the schema's unconditional list.
-CONDITIONAL = {"iac_revision"}
+                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9", "iac_revision": "a" * 40,
+                      "login_public_url": "https://login.example.test", "app_origin": "https://chat.example.test"}}
+# Required only under a condition (tailnet=join, login=edge): not in the schema's unconditional list.
+CONDITIONAL = {"iac_revision", "login_public_url", "app_origin"}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
 REV, BASE = "1" * 40, "2" * 40
 
@@ -89,7 +90,7 @@ def test_plan_holds_no_secret_value_and_secret_steps_only_name_keys():
         for secret in step.get("secrets", []):
             for spec in secret["keys"].values():
                 assert set(spec) <= {"literal", "random"}
-                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator")
+                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator", "bravo-admin")
 
 
 def test_charts_get_rendered_values_post_processing_and_the_kube_version():
@@ -153,6 +154,8 @@ def _doc():
      "invalid_parameter_condition"),
     (lambda d: d["params"]["iac_revision"].update(default="a" * 40), "invalid_parameter_condition"),
     (lambda d: d["steps"][4]["renders"][0]["args"].append("${iac_revision}"),
+     "conditional_parameter_outside_condition"),
+    (lambda d: d["steps"][4]["renders"][0]["args"].append("${login_public_url}"),
      "conditional_parameter_outside_condition"),
 ])
 def test_malformed_stacks_are_refused_before_rendering(edit, code):
@@ -259,3 +262,33 @@ def test_the_iac_revision_is_required_only_with_a_tailnet():
         plan(request)
     request["params"]["tailnet"] = "none"
     assert "iac_revision" not in plan(request).document["request"]["params"]
+
+
+def test_the_login_line_renders_keycloak_after_its_admin_secret_and_host_directory():
+    result = plan()
+    stack = load_stack(STACK)
+    levels = {step: n for n, level in enumerate(stack.levels) for step in level}
+    assert levels["login-admin"] < levels["login"] < levels["login-sync"] < levels["login-edge"] < levels["verify"]
+    assert {"login-admin", "host-dirs"} <= set(stack.steps["login"]["needs"])
+    assert "/var/lib/bravo-target-dev/login" in {p["path"] for p in stack.steps["host-dirs"]["expect"]["host_paths"]}
+    items = json.loads(result.files["login"]["login/server.json"])["items"]
+    [deploy] = [i for i in items if i["kind"] == "Deployment"]
+    env = {e["name"]: e for e in deploy["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["KC_HOSTNAME"]["value"] == "https://login.example.test"
+    assert env["KC_BOOTSTRAP_ADMIN_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "target-login-admin"
+    [secret] = stack.steps["login-admin"]["secrets"]
+    assert (secret["namespace"], secret["name"]) == ("target-dev", "target-login-admin")
+
+
+def test_without_an_edge_the_login_line_is_omitted_and_its_addresses_are_not_required():
+    request = copy.deepcopy(REQUEST)
+    request["params"].update(login="none", tailnet="none")
+    for name in CONDITIONAL:
+        del request["params"][name]
+    omitted = {s["id"] for s in plan(request).document["steps"] if s.get("omitted")}
+    assert {"login-admin", "login", "login-sync", "login-edge", "iac-application", "iac-application-check"} <= omitted
+    for name in CONDITIONAL:  # the default (tailnet=join, login=edge) requires each of them
+        request = copy.deepcopy(REQUEST)
+        del request["params"][name]
+        with pytest.raises(StackError, match="invalid_plan_request"):
+            plan(request)

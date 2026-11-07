@@ -37,12 +37,21 @@ class FakeCluster:
         self.never_ready = set(never_ready)
         self.diff_calls = 0
         self.annotations, self.images = {}, set()
-        # T44's Application (bravo-iac-target-dev) as its intake reports it.
+        # T44's Application (bravo-iac-target-dev) as its intake reports it, and the public login host.
         self.iac_status, self.iac_reasons = "SYNC_PAUSED", []
+        self.login_reachable, self.login_admin_open, self.login_issuer = True, False, None
 
     def argo_intake(self, repo_root, environment, cluster_uid, revision):
         assert (environment, cluster_uid, revision) == ("target-dev", "cluster-1", REQUEST["params"]["iac_revision"])
         return {"status": self.iac_status, "reasons": list(self.iac_reasons)}
+
+    def http(self, url):
+        base = REQUEST["params"]["login_public_url"]
+        if not self.login_reachable:
+            return None, None
+        if url == f"{base}/realms/bravo/.well-known/openid-configuration":
+            return 200, json.dumps({"issuer": self.login_issuer or f"{base}/realms/bravo"}).encode()
+        return (200 if self.login_admin_open else 404), b""
 
     def prepare_node(self):
         """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
@@ -158,7 +167,7 @@ def world(tmp_path):
         ticks = iter(range(0, 10**9, 5))  # each poll advances 5 s: stable waits pass without real time
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
-                        checks=ClusterChecks(cluster, REPO), store=FileRunStore(tmp_path / "runs"),
+                        checks=ClusterChecks(cluster, REPO, http=cluster.http), store=FileRunStore(tmp_path / "runs"),
                         repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
@@ -552,3 +561,61 @@ def test_an_application_the_t44_judge_refuses_holds_the_run(world, status, reaso
     assert (run["steps"]["iac-application-check"]["status"], run["steps"]["iac-application-check"]["reason"]) == (
         "HOLD", reason)
     assert run["steps"]["verify"]["status"] == "PENDING"
+
+
+def test_the_login_host_is_probed_publicly_and_an_open_admin_path_holds(world):
+    cluster = world["cluster"]
+    cluster.prepare_node()
+    cluster.login_reachable = False  # Keycloak is Ready, the Edge route is not there yet
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert run["steps"]["login-sync"]["status"] == "APPLIED"
+    assert run["steps"]["login-edge"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["verify"]["status"] == "PENDING"
+    assert cluster.secret_exists("target-dev", "target-login-admin")
+
+    cluster.login_reachable, cluster.login_admin_open = True, True  # the whole Keycloak exposed on the Edge
+    run = world["executor"]().resume("run-1")
+    assert (run["steps"]["login-edge"]["status"], run["steps"]["login-edge"]["reason"]) == (
+        "HOLD", "login_admin_path_open")
+
+    cluster.login_admin_open = False
+    run = world["executor"]().resume("run-1")
+    assert run["status"] == "SUCCEEDED" and run["steps"]["verify"]["status"] == "APPLIED"
+
+
+def test_a_login_host_with_another_issuer_holds_and_verify_reprobes_it(world):
+    cluster = world["cluster"]
+    checks = ClusterChecks(cluster, REPO, http=cluster.http)
+    plan = world["executor"]().planner.plan(REQUEST, stack_revision=REV, target=cluster.identity(NODE),
+                                            base_commit=world["repo"].head())
+    run = {"plan": plan.document, "stack": load_stack(STACK).document}
+    assert checks.check("login-public", run) is True and checks.check("target-checks", run) is True
+    cluster.login_issuer = "https://elsewhere.example.test/realms/bravo"
+    with pytest.raises(StepOutcome, match="login_issuer_mismatch"):
+        checks.check("target-checks", run)  # the last probe sees the public address again
+
+
+def test_the_public_probe_does_not_follow_redirects_and_reports_unreachable_as_none():
+    import http.server
+
+    from bravo_infra_plan.adapters import public_get
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+    try:
+        assert public_get(f"http://127.0.0.1:{server.server_port}/admin/")[0] == 302
+    finally:
+        thread.join(5)
+        server.server_close()
+    assert public_get("http://127.0.0.1:1/", timeout=2) == (None, None)
