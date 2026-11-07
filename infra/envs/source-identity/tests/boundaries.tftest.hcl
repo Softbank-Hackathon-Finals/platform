@@ -90,8 +90,8 @@ run "loadgen_client_only_takes_signed_admin_sign_in" {
     error_message = "Tokens from this client cannot rename the account either (empty write_attributes means all)."
   }
   assert {
-    condition     = aws_cognito_user_pool_client.loadgen.refresh_token_validity == 60 && aws_cognito_user_pool_client.loadgen.token_validity_units[0].refresh_token == "minutes" && aws_cognito_user_pool_client.loadgen.id_token_validity == 60
-    error_message = "The generator never refreshes; keep the refresh token at Cognito's 60-minute minimum and the ID token as short as the browser's."
+    condition     = aws_cognito_user_pool_client.loadgen.refresh_token_validity == 120 && aws_cognito_user_pool_client.loadgen.token_validity_units[0].refresh_token == "minutes" && aws_cognito_user_pool_client.loadgen.id_token_validity == 60
+    error_message = "The generator never refreshes; keep the refresh token one hour past the ID token (120 minutes by default) and the ID token as short as the browser's."
   }
   assert {
     condition     = aws_cognito_user_pool_client.loadgen.prevent_user_existence_errors == "ENABLED" && aws_cognito_user_pool_client.loadgen.enable_token_revocation == true

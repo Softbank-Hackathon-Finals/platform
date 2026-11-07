@@ -86,7 +86,8 @@ resource "aws_cognito_user_pool_client" "loadgen" {
   allowed_oauth_flows_user_pool_client = false
 
   # 갱신 토큰 흐름은 브라우저 클라이언트처럼 둔다. 부하 생성기는 갱신 토큰을 쓰지 않고 만료 전에
-  # 같은 관리자 흐름으로 다시 받는다. 갱신 토큰은 서명 없이 쓸 수 있으므로 수명을 최소(60분)로 줄인다.
+  # 같은 관리자 흐름으로 다시 받는다. 갱신 토큰은 서명 없이 쓸 수 있으므로 짧게 둔다. Cognito가 ID 토큰보다
+  # 짧은 갱신 토큰을 받는지 확인하지 못해 ID 토큰보다 60분만 길게 둔다(기본 120분).
   explicit_auth_flows           = ["ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
 
@@ -96,7 +97,7 @@ resource "aws_cognito_user_pool_client" "loadgen" {
 
   id_token_validity      = var.id_token_minutes
   access_token_validity  = var.id_token_minutes
-  refresh_token_validity = 60
+  refresh_token_validity = var.id_token_minutes + 60
   token_validity_units {
     id_token      = "minutes"
     access_token  = "minutes"
