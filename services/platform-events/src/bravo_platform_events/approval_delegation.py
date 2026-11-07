@@ -115,7 +115,10 @@ class ApprovalDelegations:
     def principal_for(self, plan_id, gate, *, binding, version):
         """Host only: the approver's principal for one gate whose binding stays within the delegation.
 
-        `binding` is the decision's binding, or `binding(c, principal)` computing it in this transaction."""
+        `binding` is the decision's binding, or `binding(c, principal)` computing it in this transaction.
+        The approver must hold the gate's permission now, under a grant no newer than the delegation (#828
+        review: a narrowed grant stops the platform acting in their name). `version=None` reads the plan
+        version in this same transaction, so the use is recorded for the version it was checked against."""
         if gate not in GATES or not (type(binding) is dict or callable(binding)):
             raise EventError("invalid_delegation")
         with self.store._transaction(write=True, plan_id=plan_id) as c:
@@ -133,6 +136,10 @@ class ApprovalDelegations:
             principal = OperatorPrincipal(receipt["approver"], receipt["tenant_id"], issued,
                                           min(issued + HOST_PRINCIPAL_SECONDS, int(_ts(receipt["expires_at"]))),
                                           receipt["authenticated_at"], "delegation:" + receipt["delegation_id"])
+            plan = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+            self.access.require(c, principal, plan, GATES[gate])
+            if version is None:
+                version = plan["version"]
             if callable(binding):
                 binding = binding(c, principal)
                 if type(binding) is not dict:

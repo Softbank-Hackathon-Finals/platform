@@ -79,8 +79,9 @@ def test_a_wrong_kms_answer_is_refused_before_anything_is_published(relay):  # n
     kms.forge = Ed25519PrivateKey.generate()
     records = {}
     with pytest.raises(InvalidSignature):
-        gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, records.__setitem__)
+        gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, lambda _plan, key, value: records.update({key: value}))
     assert f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]["published"] == []
+    assert [v.get("signature_sha256") for v in records.values()] == [None]  # the intent only
 
 
 def test_signing_needs_a_kms_ed25519_key():
@@ -153,7 +154,13 @@ def test_a_live_evidence_delegation_signs_and_names_itself_in_every_record(relay
         check("0" * 64)  # one decision per version: another context in the same version is refused
 
 
-@pytest.mark.parametrize("case", ["none", "expired", "revoked", "other_gate"])
+def regrant(f, permissions, *, valid_after):
+    f.access.set_permissions(f.plan.plan_id, issuer(f), permissions=permissions, valid_after=valid_after.isoformat(),
+                             expires_at=(f.clock.at + timedelta(hours=1)).isoformat(), expected_revision=1,
+                             administration_ref="test-admin", command_key="regrant-issuer")
+
+
+@pytest.mark.parametrize("case", ["none", "expired", "revoked", "other_gate", "narrowed", "granted_after"])
 def test_without_a_live_evidence_delegation_nothing_is_recorded_or_signed(relay, case):  # noqa: F811
     from bravo_platform_events.store import EventError
 
@@ -173,9 +180,58 @@ def test_without_a_live_evidence_delegation_nothing_is_recorded_or_signed(relay,
                                  expires_at=(f.clock.at + timedelta(hours=1)).isoformat(), expected_revision=1,
                                  administration_ref="test-admin", command_key="grant-issuer-change")
         delegate(f, d, gates=("change",))  # an approval delegation does not cover the T19 evidence
+    elif case == "narrowed":  # #828 review: the delegator's grant now, not at delegation time
+        delegate(f, d)
+        regrant(f, ["read", "gate:read"], valid_after=f.clock.at - timedelta(hours=1))
+    elif case == "granted_after":  # a grant newer than the delegation does not count
+        delegate(f, d)
+        f.clock.at += timedelta(minutes=1)
+        regrant(f, ["read", "gate:read", "gate:publish-provenance"], valid_after=f.clock.at)
     with pytest.raises(EventError, match="delegation_unavailable"):
         gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, lambda _plan, key, value: records.setdefault(key, value),
                          delegation=gate_signer.delegated(d, f.plan.plan_id, version(f)))
     assert records == {} and kms.signed == []
     assert f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]["published"] == []
+
+
+def test_nothing_left_needs_no_delegation_and_the_platform_never_signs_its_gate_result(relay):  # noqa: F811
+    f, kms, records = relay, FakeKms(), {}
+    keys = bound_with_platform_keys(f, kms)
+    d = delegations(f)
+    delegate(f, d)
+    check = gate_signer.delegated(d, f.plan.plan_id)  # version read where the use is recorded
+
+    def put(_plan, key, value):
+        records.setdefault(key, value)
+
+    assert set(gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put, delegation=check)) == (
+        set(gate_signer.PURPOSES) - {"gate-result"})
+    assert f.call({"op": "evaluate", "plan_id": f.plan.plan_id})["evaluated"]["decision"] == "PASS"
+    made = len(kms.signed)
+    # the second sweep: the evaluation's gate-result is not measurement provenance (#565)
+    assert gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put, delegation=check) == []
+    d.revoke(issuer(f), f.plan.plan_id)
+    # an operator-signed or finished plan holds no GATE for a delegation it no longer needs
+    assert gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put, delegation=check) == []
+    assert len(kms.signed) == made and "gate-result" not in {v["purpose"] for v in records.values()}
+
+
+def test_the_intent_is_recorded_before_kms_signs_and_each_signature_once(relay):  # noqa: F811
+    f, kms, records = relay, FakeKms(), {}
+    keys = bound_with_platform_keys(f, kms)
+
+    def put(_plan, key, value):
+        records.setdefault(key, value)
+
+    def down(**_):
+        raise RuntimeError("kms unavailable")
+
+    kms.sign = down
+    with pytest.raises(Exception):  # noqa: B017 - whatever the client raises
+        gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put)
+    assert [v.get("signature_sha256") for v in records.values()] == [None]  # the intent, no signature
+    del kms.sign
+    signed = gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put)
+    made = [v for v in records.values() if "signature_sha256" in v]
+    assert len(made) == len(kms.signed) == len(signed)  # one record per kms:Sign
 

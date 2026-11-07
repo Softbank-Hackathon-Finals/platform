@@ -16,8 +16,8 @@ grants and records are separate from the operator's.
 
 `enroll` runs when the plan starts, before any T14 run: T19 refuses a subject that started before its
 key's enrollment. `sign` signs what the relay's `subjects` shows and is not yet published, and records
-each signature next to its envelope. It checks no pre-delegation (#716) yet: it is an operator-run step
-(exec into the workflow host) until the automatic GATE link checks one (ADR-0038 3절).
+each signature next to its envelope. The CLI `sign` is the operator-run step (exec into the workflow host);
+the GATE stage (GateRecheck.sign) signs only under the plan's live `evidence` pre-delegation (#716, ADR-0038 3절).
 """
 
 import argparse
@@ -108,29 +108,36 @@ def enroll(call, keys, plan_id, now):
 
 
 def sign(call, keys, plan_id, now, put_record, *, delegation=None):
-    """Sign and publish what `subjects` shows and is not yet published; record each signature first.
+    """Sign and publish what `subjects` shows and is not yet published; record the intent before each KMS call.
 
     `delegation(context_digest) -> delegation_id` (the GATE stage, ADR-0038) checks the plan's current
-    pre-delegation before anything is recorded or signed; it raises and nothing is signed. Without it this is
-    the operator-run step, and no delegation is recorded."""
+    pre-delegation before anything is recorded or signed; it raises and nothing is signed. Under it the
+    platform signs measurement provenance only, never its own gate-result (#565). Nothing left to sign needs
+    no delegation. Without it this is the operator-run step, and no delegation is recorded."""
     subjects = call({"op": "subjects", "plan_id": plan_id})["subjects"]
     context = subjects["context"]["digest"]
+    due = [(p, context if p == "context" else subjects.get(p)) for p in PURPOSES
+           if not (delegation is not None and p == "gate-result")]
+    due = [(p, subject) for p, subject in due if subject is not None and p not in subjects["published"]]
+    if not due:
+        return []
     delegation_id = delegation(context) if delegation is not None else None
     published = []
-    for purpose in PURPOSES:
-        subject = context if purpose == "context" else subjects.get(purpose)
-        if subject is None or purpose in subjects["published"]:
-            continue
+    for purpose, subject in due:
         key = keys[purpose]
         value = AuthorityEnvelope("platform-" + purpose, key.key_id, purpose, context, subject, now.isoformat(),
                                   (now + ENVELOPE_TTL).isoformat(), "0" * 128)
+        intent = ({"kind": "t19-platform-signature.v1", "purpose": purpose, "context_digest": context,
+                   "subject_digest": subject, "issuer_id": value.issuer_id, "key_id": key.key_id,
+                   "kms_key_arn": key.arn, "signed_at": now.isoformat()}
+                  | ({"delegation_id": delegation_id} if delegation_id else {}))
+        # Intent before kms:Sign; then one record per signature made, so CloudTrail Sign calls and records
+        # match one to one (a retry signs a new issued_at, a crash in between leaves the intent).
+        base = f"platform-signature-{purpose}-{subject[:16]}"
+        put_record(plan_id, base, intent)
         signed = replace(value, signature_hex=key.sign(DOMAIN + canonical(value.payload)).hex())
-        # Intent first: a crash after publish still leaves which key signed which subject.
-        put_record(plan_id, f"platform-signature-{purpose}-{subject[:16]}",
-                   {"kind": "t19-platform-signature.v1", "purpose": purpose, "context_digest": context,
-                    "subject_digest": subject, "issuer_id": signed.issuer_id, "key_id": key.key_id,
-                    "kms_key_arn": key.arn, "signed_at": now.isoformat()}
-                   | ({"delegation_id": delegation_id} if delegation_id else {}))
+        digest = hashlib.sha256(bytes.fromhex(signed.signature_hex)).hexdigest()
+        put_record(plan_id, f"{base}-{digest[:16]}", intent | {"signature_sha256": digest})
         call({"op": "publish", "plan_id": plan_id, "envelope": {
             k: getattr(signed, k) for k in ("issuer_id", "key_id", "purpose", "context_digest", "subject_digest",
                                             "issued_at", "expires_at", "signature_hex")}})
@@ -138,11 +145,12 @@ def sign(call, keys, plan_id, now, put_record, *, delegation=None):
     return published
 
 
-def delegated(delegations, plan_id, version):
+def delegated(delegations, plan_id, version=None):
     """`sign`'s delegation check: the plan's live `evidence` delegation for this version and context.
 
-    ApprovalDelegations.principal_for checks the plan, revocation, expiry and gate, and records one use per
-    version (a different context in the same version is refused). Every refusal is delegation_unavailable."""
+    ApprovalDelegations.principal_for checks the plan, revocation, expiry, gate and the approver's current
+    gate:publish-provenance grant, and records one use per version (a different context in the same version is
+    refused). `version=None` reads it in that transaction. Every refusal is delegation_unavailable."""
     from .store import EventError
 
     def check(context_digest):

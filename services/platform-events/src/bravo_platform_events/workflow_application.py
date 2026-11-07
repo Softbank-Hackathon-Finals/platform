@@ -104,10 +104,9 @@ def platform_signer(store, records, access, delegations, loaded):
                 _put(c, plan_id, key, {"op": "platform-sign"}, value)
 
     def sign(principal, plan_id, outcome):
-        with store._transaction(plan_id=plan_id) as c:
-            version = c.execute("SELECT version FROM plans WHERE plan_id=?", (plan_id,)).fetchone()["version"]
+        # the version is read where the delegation use is recorded (same transaction)
         gate_signer.sign(call, keys, plan_id, datetime.now(UTC), put_record,
-                         delegation=gate_signer.delegated(delegations, plan_id, version))
+                         delegation=gate_signer.delegated(delegations, plan_id))
 
     return sign
 

@@ -64,7 +64,14 @@ KMS는 `ECC_NIST_EDWARDS25519` 키로 순수 Ed25519(`ED25519_SHA_512`, RAW 메�
   * 경로: STS·KMS는 플랫폼 VPC interface endpoint로만 닿는다. workflow host NetworkPolicy는 그 ENI 사설 IP만 연다(`network.py --aws-endpoints`).
 * **같은 검증기, 다른 발급자.** 플랫폼 키는 계획마다 `platform-<용도>` 발급자로 등록(enroll)한다. 경로는 운영자 키와 같은 relay 연산이다(`gate_signer`가 `gate_relay.handle`을 부른다). 운영자 키 경로(`operations/gate/run.py`)는 지우지 않는다. 검증기는 등록된 키 중 실제로 서명한 키를 받는다.
 * **플랫폼 서명기의 주체는 운영자와 따로다.** `/workflow/gate-signer.json`의 relay 주체(admin·issuer·operator)에 별도 T10 권한을 준다. 권한과 기록을 운영자와 섞지 않는다.
-* **위임 확인(GATE 연결):** 사람의 결정은 #716 사전 위임의 T19 전용 범위 `evidence`로 남는다. 이 범위는 `gate:publish-provenance`(직접 서명할 수 있는 발급자 권한)를 가진 사람만 기록할 수 있다. workflow host의 GATE 단계(`GateRecheck.sign`)는 적용 뒤 맥락을 묶은 다음, 평가하기 전에 서명한다. `sign`은 맥락을 읽은 직후, 아무것도 기록하거나 서명하기 전에 `ApprovalDelegations.principal_for(evidence)`로 계획·회수·만료·범위를 대조하고, 같은 버전의 다른 맥락이면 거부한다. 맞지 않으면 `delegation_unavailable`로 멈추고 서명은 0건이다. 확인된 위임 ID만 `platform-signature-*` 기록에 남는다. 운영자가 workflow host에서 직접 돌리는 `sign` CLI는 위임 없이 그대로 두고, 그때는 위임 ID를 기록하지 않는다(확인하지 않은 ID가 감사 원장 T24에 증거처럼 남지 않게). 서명 설정이 있는데 위임 서비스가 없으면 workflow host는 시작하지 않는다.
+* **위임 확인(GATE 연결):** 사람의 결정은 #716 사전 위임의 T19 전용 범위 `evidence`로 남는다.
+  * **누가 위임하나:** `gate:publish-provenance`(직접 서명할 수 있는 발급자 권한)를 가진 사람만 위임할 수 있다. 계획 관리자가 기존 권한 부여 절차(`OperatorAccess.set_permissions`, `administration_ref` 기록)로 그 사람의 SSO principal에 이 권한을 준다. 그 사람은 자기 신원으로 `POST /v1/plans/{plan_id}/delegations`에 `gates: ["evidence", ...]`를 보낸다. relay 서비스 주체 이름으로 DB나 exec를 거쳐 위임을 만들지 않는다.
+  * **확인 시점:** workflow host의 GATE 단계(`GateRecheck.sign`)는 적용 뒤 맥락을 묶은 다음, 평가하기 전에 서명한다. `sign`은 서명할 용도가 남았을 때만 `ApprovalDelegations.principal_for(evidence)`를 부르고, 아무것도 기록하거나 서명하기 전에 대조한다. 대조 항목은 계획·회수·만료·범위, 그리고 **위임자의 지금 권한**이다. 권한이 빠졌거나 위임보다 나중에 받은 권한이면 거부한다. 버전은 위임 사용을 기록하는 같은 트랜잭션에서 읽는다. 같은 버전의 다른 맥락이면 거부한다.
+  * **거부:** 맞지 않으면 `delegation_unavailable`로 멈추고, 기록·KMS 호출·게시는 0건이다. GATE는 평가하지 않는다. 서명할 용도가 없으면 위임을 보지 않는다. 그래서 운영자가 이미 다 서명한 계획은 위임 없이도 GATE로 간다.
+  * **범위:** 위임 경로는 측정 출처(context, run-*, readiness-*)만 서명한다. 플랫폼 자신의 평가 결과(`gate-result`)에는 서명하지 않는다(#565: 플랫폼 재평가는 서명된 gate-result로 내보내지 않는다).
+  * **기록:** 용도마다 KMS 호출 전에 의도 기록(`platform-signature-<용도>-<subject 앞 16자>`)을 남긴다. 서명이 끝날 때마다 서명 SHA-256을 담은 기록(`…-<서명 digest 앞 16자>`)을 하나씩 남긴다. 그래서 CloudTrail `kms:Sign` 건수와 서명 기록이 1:1로 맞는다. 둘 사이에서 실패하면 의도 기록만 남는다. 확인된 위임 ID만 기록에 남는다.
+  * **운영자 경로:** 운영자가 workflow host에서 직접 돌리는 `sign` CLI는 위임 없이 그대로 둔다. 그때는 위임 ID를 기록하지 않는다(확인하지 않은 ID가 감사 원장 T24에 증거처럼 남지 않게). 서명 설정이 있는데 위임 서비스가 없으면 workflow host는 시작하지 않는다.
+  * **운영 주의:** 계획마다 살아 있는 위임은 하나다. evidence를 더하려면 기존 위임을 회수하고 다시 위임한다. 그래서 승인 권한과 `gate:publish-provenance`가 한 사람에게 모인다. 이 사람이 승인과 측정 출처를 함께 대신 결정하게 된다는 점을 운영 절차에서 확인한다.
 * **등록 시점:** T19는 키 등록보다 먼저 시작한 측정을 거부한다(`SUBJECT_PREDATES_AUTHORITY_ENROLLMENT`). 그래서 계획 시작 때, T14 실행보다 먼저 `enroll`한다. 등록 창은 48시간이다. 그보다 늦게 GATE에 닿은 계획은 HOLD한다(실패 쪽으로 닫힘).
 
 ## 4. 결과
@@ -81,7 +88,8 @@ KMS는 `ECC_NIST_EDWARDS25519` 키로 순수 Ed25519(`ED25519_SHA_512`, RAW 메�
   5. Argo 컨트롤러의 Deployment 정책(`registration-rbac.yaml`)에 `t10-workflow-host`의 projected `sts-token`(audience `sts.amazonaws.com`, `expirationSeconds` 3600 이하) 예외와 시험을 더한다. 지금 정책은 t15 `intake-token`만 허용해 `gateSigner.roleArn`을 넣으면 동기화가 거부된다.
   6. 이미지를 승격하고 `gateSigner.roleArn`·`gate-signer.json`·T10 권한을 넣는다.
   7. 계획마다 `enroll`한다. 이전 시간대에 이미 등록된 용도는 `reused`로 보고한다.
-* 남은 일: GATE 단계에서 위임 확인 → `sign` → 평가를 자동으로 잇는 연결(적용 뒤 목적지 T14 실행 기록과 함께, df).
+* GATE 단계 연결: `GateRecheck.sign`(위임 확인 → `sign` → 평가). 시험은 `services/control-gate/tests/test_gate_signer.py`(위임 없음·만료·회수·다른 범위·권한 축소·위임 뒤 권한, 서명할 것이 없을 때, gate-result 제외, KMS 앞 의도 기록), `services/platform-events/tests/test_approval_delegation.py`(사람이 HTTP로 evidence 위임, 권한 축소 뒤 거부), `services/platform-events/tests/test_application_gate.py`(서명 거부 시 평가 안 함).
+* 남은 일: 플랫폼이 스스로 기록한 run(#765)에 스스로 서명하게 되면, run 영수증에 `recorded_by`를 넣고 `platform-signature-*` 기록에도 옮겨 적는다. #765와 이 경로 중 나중에 병합되는 쪽에서 한다.
 * **실제 서명 경계는 KMS 키 정책이 아니라 `platform-state` 권한이다.** workflow host는 relay admin(`gate:manage-provenance`)과 issuer를 함께 쥐고, T19는 등록된 키라면 어느 것이든 받는다. 그래서 `platform-state`의 `pods/exec` · `pods/create`(서명 SA를 지정한 Pod)와 T10 DB 쓰기 권한이 곧 서명 권한이다. 권한 세분화(T44)에서 함께 좁힌다. 후속: `platform-*` 발급자의 공개키를 설정(terraform output)으로 고정하고 다른 키 등록을 거부한다.
 * **관리자 우회 경로와 감시 대상:** 계정 관리자는 `kms:PutKeyPolicy`로 자신에게 서명 권한을 줄 수 있다(잠김을 피하려고 남긴 경로). 서명 역할의 신뢰(`iam:UpdateAssumeRolePolicy`)와 OIDC 발급자 버킷의 `platform` JWKS 객체(`infra/envs/oidc-issuer`)도 신뢰 근거다. `PutKeyPolicy` · `ScheduleKeyDeletion` · `DisableKey` · `UpdateAssumeRolePolicy` · 그 JWKS 객체의 `PutObject`를 CloudTrail 경보 대상으로 둔다.
 * 후속: 서명 역할의 KMS 문에 `aws:SourceVpce` 조건과 endpoint 정책을 더한다(지금은 exec로 읽은 projected 토큰으로 VPC 밖에서도 역할을 받을 수 있다). `platform-signature-*` 기록과 CloudTrail `kms:Sign` 이벤트(키 ARN · 시각 · 건수)를 T24 감사 원장에서 대조하는 방법은 T24와 함께 정한다.
