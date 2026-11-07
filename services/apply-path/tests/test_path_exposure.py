@@ -79,3 +79,26 @@ def test_a_close_that_cannot_run_holds_the_application_and_keeps_the_image(claim
     assert out.cluster_mutation_attempted is True and k.patches  # the image was deployed; nothing rolled back
     assert out.job_passed is False and out.deployed_digest is None and out.observed_digests
     validate_outcome(out.as_dict())
+
+
+def test_a_close_refused_after_the_image_holds_the_application_instead_of_leaving_it_started(
+        claim, proposal, tmp_path, repo, monkeypatch):  # noqa: F811
+    """#821 review: the second Git read (inside the close) can fail after the image is out."""
+    from bravo_apply import desired
+
+    real, calls = desired.read_planned, []
+
+    def second_read_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            raise desired.DesiredRefused("REVISION_UNKNOWN")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(desired, "read_planned", second_read_fails)
+    out, k = run(claim, proposal, tmp_path, repo, plan=repo.plan)
+    assert (out.outcome, out.reason) == ("SAFE_HOLD", "EXPOSURE_REFUSED")
+    assert k.patches and anonymous(k)  # the image was deployed; the bucket was not touched
+    from bravo_apply.path import _record_path
+
+    assert json.loads(_record_path(tmp_path / "receipts", out.application_id).read_text())["outcome"] == "SAFE_HOLD"
+    validate_outcome(out.as_dict())

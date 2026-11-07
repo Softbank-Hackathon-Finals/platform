@@ -336,14 +336,19 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
         if exposure is not None:
             # 4b. close after the image, so this application's finished_at (the post-apply run's lower bound)
             # is after both. A failure holds the whole application; the image is not rolled back (8.2).
-            from .desired import apply_planned_exposure
+            from .desired import DesiredRefused, apply_planned_exposure
 
-            closed = apply_planned_exposure(exposure["iac_plan"], approved_iac_plan_digest=planned,
-                                            environment_id=exposure["environment_id"],
-                                            base_revision=exposure["base_revision"], repo_root=exposure["repo_root"],
-                                            kube=kube, receipts_dir=receipts_dir, target=exposure["target"],
-                                            plan_id=binding["plan_id"], timeout_seconds=timeout_seconds,
-                                            policy_hooks=policy_hooks)
+            try:
+                closed = apply_planned_exposure(exposure["iac_plan"], approved_iac_plan_digest=planned,
+                                                environment_id=exposure["environment_id"],
+                                                base_revision=exposure["base_revision"],
+                                                repo_root=exposure["repo_root"], kube=kube, receipts_dir=receipts_dir,
+                                                target=exposure["target"], plan_id=binding["plan_id"],
+                                                timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+            except DesiredRefused as exc:
+                # The image is already out: a refusal here (e.g. the Git read failing the second time) holds this
+                # application instead of leaving its record STARTED.
+                closed = {"application_id": "-", "status": "REFUSED", "reason": exc.code}
             if closed["status"] not in ("APPLIED", "ALREADY_CLOSED"):
                 steps.append({"step": "exposure_close", "status": "failed",
                               "detail": f"{closed['application_id']} {closed['status']} {closed['reason']}"})
