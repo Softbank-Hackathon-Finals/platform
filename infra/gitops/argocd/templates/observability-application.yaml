@@ -1,0 +1,26 @@
+{{- if .Values.observability.enabled }}
+# Store (bravo-observability), the platform Collector (platform-telemetry) and its platform-state DB discovery.
+# TLS Secrets stay outside Git and must exist first. prune is off: adoption of the running store must not delete it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-observability
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-observability
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: services/observability/deploy/platform-gitops
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+{{- end }}

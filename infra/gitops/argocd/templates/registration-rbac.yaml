@@ -57,7 +57,7 @@ spec:
       expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller'"
   validations:
     - expression: >-
-        request.namespace == 'platform-state' &&
+        (request.namespace == 'platform-state' &&
         ((object != null ? object.metadata.name : oldObject.metadata.name) == 't10-registration'
         {{- if .Values.productReader.enabled }}
         || (request.resource.resource in ['deployments', 'services'] &&
@@ -73,7 +73,13 @@ spec:
         {{- if .Values.publicEntry.enabled }}
         || (request.resource.resource == 'deployments' &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 'public-entry')
-        {{- end }})
+        {{- end }}))
+        {{- if .Values.observability.enabled }}
+        || (request.namespace == 'bravo-observability' &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) in ['bravo-prometheus', 'bravo-prometheus-tailnet', 'bravo-observability-api'])
+        || (request.namespace == 'platform-telemetry' &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) == 'bravo-collector')
+        {{- end }}
       message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"
       message: Registration must remain a private ClusterIP Service.
@@ -88,8 +94,16 @@ spec:
         {{- if .Values.workflowHost.enabled }}
         object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
         {{- end }}
+        {{- if .Values.observability.enabled }}
+        object.metadata.name == 'bravo-prometheus' ? object.spec.template.spec.serviceAccountName == 'bravo-prometheus' :
+        object.metadata.name == 'bravo-observability-api' ? object.spec.template.spec.serviceAccountName == 'bravo-observability-api' :
+        object.metadata.name == 'bravo-collector' ? object.spec.template.spec.serviceAccountName == 'bravo-collector' :
+        {{- end }}
         object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
-        has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
+        ((has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false)
+        {{- if .Values.observability.enabled }}
+        || (request.namespace == 'platform-telemetry' && object.metadata.name == 'bravo-collector')
+        {{- end }}) &&
         (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
         (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&
         (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false) &&
@@ -101,6 +115,8 @@ spec:
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
         {{- end }})))
+      # Exception: the platform Collector (observability) lists CNPG Pods in platform-state; its only grant is the
+      # read-only discovery Role (platform-gitops-state-names).
       message: Registration cannot acquire host or Kubernetes API credentials.
 ---
 apiVersion: admissionregistration.k8s.io/v1

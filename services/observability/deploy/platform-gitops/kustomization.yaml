@@ -1,0 +1,30 @@
+# 플랫폼 Argo의 observability Application이 동기화하는 플랫폼 관측 묶음(infra/gitops/argocd).
+# 저장소와 HTTPS 조회 API(bravo-observability) · 플랫폼 자체 Collector(platform-telemetry) · 플랫폼 DB 쪽 권한(platform-state).
+# Namespace는 클러스터를 세우는 쪽이 갖는다(T44와 같은 원칙): 여기서는 선언하지 않는다.
+# Secret(bravo-prometheus-tls, bravo-collector-tls, bravo-observability-api-tls · -server-tls · -token, platform-ghcr-reader)은
+# Git에 두지 않고 배포 전에 있어야 한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../platform-api-tls
+  - ../collector-platform
+  - ../collector-platform-db-access
+patches:
+  - target: {kind: Namespace}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: any
+  # 조회 API는 비공개 GHCR 이미지다(플랫폼의 기존 읽기 Secret)
+  - target: {kind: Deployment, name: bravo-observability-api}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value: [{name: platform-ghcr-reader}]
+images:
+  # publish-observability-api-image가 발행한 digest(propose PR이 고친다). 태그를 배포하지 않는다
+  - name: bravo-observability-api
+    newName: ghcr.io/softbank-hackathon-finals/platform-observability-api
+    digest: sha256:7ba10921ccdff83bdef37bdfdb41287952ce0d0e3f0d9d92c5839666143db855
