@@ -568,3 +568,7 @@ app = ConsoleApp(api, public_origin=public_origin, audit=reader)
   T24 또는 T21 전체 완료를 체크하지 않는다.
 
 T24 모듈의 수정은 담당자 범위로 유지한다. 이 변경은 T21 소비자와 검증 코드만 포함한다.
+
+## 운영 호스트 연결
+
+운영 호스트 합성과 개인 SSO 접속 도구의 준비·미완료 범위는 [운영 호스트 연결](docs/operational-host.md)을 참고한다.
