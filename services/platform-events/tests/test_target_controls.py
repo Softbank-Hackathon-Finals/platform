@@ -14,7 +14,8 @@ from bravo_platform_events import target_controls
 from bravo_platform_events.target_controls import Kube, TargetRunProducer, watch_preparer
 
 FINISHED = datetime(2026, 11, 7, 10, 0, tzinfo=UTC)
-CONTEXT = SimpleNamespace(target_environment_id="env-target", profile_id="apply-recheck", profile_version="1")
+CONTEXT = SimpleNamespace(target_environment_id="env-target", target_environment_ref="onprem:k8s/target-dev",
+                          profile_id="apply-recheck", profile_version="1")
 SPEC = {"workload_id": "demo-chat"}
 
 
@@ -50,6 +51,7 @@ def producer(store, records, measured, *, located=(CONTEXT, SPEC, FINISHED), clo
         return {"run_id": "run-1", "app": kw["app"], "environment": {"id": kw["environment_id"], "role": "target"}}
 
     return TargetRunProducer(store, records, lambda tenant: ("host", tenant), measure=measure,
+                             environment_ref="onprem:k8s/target-dev",
                              locate=lambda c, plan_id: located, monotonic=clock or (lambda: 0.0))
 
 
@@ -158,11 +160,14 @@ def _kubeconfig(tmp_path, claims):
     return path
 
 
+SUB = {"sub": "system:serviceaccount:bravo-apply-access:bravo-t14-collector"}
+
+
 @pytest.mark.parametrize("claims, ok", [
-    ({"iat": 1000, "exp": 1000 + 24 * 3600}, True),                 # the documented 24 h token
-    ({"iat": 1000, "exp": 1000 + 24 * 3600 + 1}, False),            # longer than 24 h
-    ({"iat": 1000}, False),                                         # no exp: a legacy/unbounded token
-    ({"iat": 1000, "exp": 1500}, False),                            # expires before one measurement ends
+    (SUB | {"iat": 1000, "exp": 1000 + 24 * 3600}, True),           # the documented 24 h token
+    (SUB | {"iat": 1000, "exp": 1000 + 24 * 3600 + 1}, False),      # longer than 24 h
+    (SUB | {"iat": 1000}, False),                                   # no exp: a legacy/unbounded token
+    (SUB | {"iat": 1000, "exp": 1500}, False),                      # expires before one measurement ends
 ])
 def test_the_collector_credential_must_be_short_lived(tmp_path, claims, ok):
     path = _kubeconfig(tmp_path, claims)
@@ -189,3 +194,18 @@ def test_enc_is_a_wired_adapter_and_reads_its_login_through_the_openbao_entry(tm
     config.write_text(json.dumps(base | {"tests": {"ENC-01.1": {"adapter": "pooler-tls"}}}))
     assert target_controls.create(None, config).measure is not None
     assert target_controls.ADAPTERS["ENC-01.1"] == "pooler-tls" and target_controls.POOLER_CLIENT == "port-forward"
+
+
+def test_another_identity_s_kubeconfig_is_refused(tmp_path):
+    path = _kubeconfig(tmp_path, {"sub": "system:serviceaccount:bravo-apply-access:apply-deployer",
+                                  "iat": 1000, "exp": 1000 + 3600})
+    with pytest.raises(RuntimeError, match="collector_credential_subject"):
+        target_controls.bounded_credential(path, now=lambda: 1000)
+
+
+def test_a_context_for_another_target_is_never_measured_with_this_kubeconfig():
+    store, records, measured = Store(), Records(), []
+    other = SimpleNamespace(**{**vars(CONTEXT), "target_environment_ref": "gcp:k8s/target-dev"})
+    with pytest.raises(RuntimeError, match="target_environment_ref_mismatch"):
+        producer(store, records, measured, located=(other, SPEC, FINISHED)).ensure("p1", "bravo")
+    assert measured == [] and records.calls == []

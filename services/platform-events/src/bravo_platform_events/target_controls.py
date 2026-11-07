@@ -41,6 +41,7 @@ _NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 
 
 MAX_CREDENTIAL_SECONDS = 24 * 3600
+COLLECTOR_SUBJECT = "system:serviceaccount:bravo-apply-access:bravo-t14-collector"
 
 
 def bounded_credential(kubeconfig, *, now=time.time):
@@ -52,11 +53,13 @@ def bounded_credential(kubeconfig, *, now=time.time):
     try:
         payload = token.split(".")[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-        exp, iat = int(claims["exp"]), int(claims["iat"])
+        exp, iat, subject = int(claims["exp"]), int(claims["iat"]), claims["sub"]
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         raise RuntimeError("collector_credential_unbounded") from None
     if exp - iat > MAX_CREDENTIAL_SECONDS or exp - now() < TOKEN_SECONDS:
         raise RuntimeError("collector_credential_unbounded")
+    if subject != COLLECTOR_SUBJECT:  # a mounted kubeconfig of another identity is a configuration error
+        raise RuntimeError("collector_credential_subject")
     return exp
 
 
@@ -308,9 +311,10 @@ def _recorded_after(c, plan_id, environment_id, finished):
 
 
 class TargetRunProducer:
-    def __init__(self, store, records, principal, *, measure, locate=_locate, monotonic=time.monotonic):
+    def __init__(self, store, records, principal, *, measure, environment_ref, locate=_locate,
+                 monotonic=time.monotonic):
         self.store, self.records, self.principal, self.measure = store, records, principal, measure
-        self.locate, self.monotonic, self._tried = locate, monotonic, {}
+        self.environment_ref, self.locate, self.monotonic, self._tried = environment_ref, locate, monotonic, {}
 
     def ensure(self, plan_id, tenant_id):
         """Record one target run after the cutover unless one exists. Returns its ref, or None."""
@@ -322,6 +326,9 @@ class TargetRunProducer:
             if located is None:
                 return None
             context, spec, finished = located
+            if context.target_environment_ref != self.environment_ref:
+                # The kubeconfig measures one registered target; never record it for another (#765 review 5).
+                raise RuntimeError("target_environment_ref_mismatch")
             if _recorded_after(c, plan_id, context.target_environment_id, finished):
                 return None
         last = self._tried.get(plan_id)
@@ -362,4 +369,5 @@ def create(store, config_file, *, subject="workflow-host"):
         bounded_credential(registration["kubeconfig"])  # every attempt: a renewed Secret is re-read
         return collect(registration, kube, **kw)
 
-    return TargetRunProducer(store, records, lambda tenant: host_principal(subject, tenant), measure=measure)
+    return TargetRunProducer(store, records, lambda tenant: host_principal(subject, tenant), measure=measure,
+                             environment_ref=registration["environment_ref"])

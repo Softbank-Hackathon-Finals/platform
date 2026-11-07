@@ -67,6 +67,43 @@ COLLECTOR = "bravo-t14-collector"
 COLLECTOR_NAMESPACE = "bravo-apply-access"  # where the platform's other target identities live
 
 
+COLLECTOR_USER = f"system:serviceaccount:{COLLECTOR_NAMESPACE}:{COLLECTOR}"
+# Pods the collector may reach. Deployment Pods by their owner prefix; never target-db-* (#765 review).
+FORWARD_PODS = {"target-dev": ("target-seaweedfs-", "target-pgbouncer-"), "bravo-secrets": ("target-openbao-0",)}
+
+
+def collector_admission():
+    """ADR-0041: what RBAC cannot bound, admission does, for this identity only (installed before the grants).
+
+    TokenRequest: exactly audience openbao and 600 s. RBAC cannot limit a TokenRequest's audience or
+    lifetime and the API server sets no maximum, so without this the kubeconfig could mint a long-lived
+    demo-chat token (#666 review 2). Port-forward: only the three service Pods, not the database Pod.
+    """
+    actor = f"request.userInfo.username == {json.dumps(COLLECTOR_USER)}"
+    allowed = " || ".join(
+        f"(request.namespace == {json.dumps(ns)} && ({' || '.join(f'request.name.startsWith({json.dumps(p)})' if p.endswith('-') else f'request.name == {json.dumps(p)}' for p in pods)}))"
+        for ns, pods in FORWARD_PODS.items())
+
+    def policy(name, operation, resources, expression, message):
+        return [{"apiVersion": "admissionregistration.k8s.io/v1", "kind": "ValidatingAdmissionPolicy",
+                 "metadata": {"name": name, "labels": LABELS.copy()},
+                 "spec": {"failurePolicy": "Fail",
+                          "matchConstraints": {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
+                              "operations": [operation], "resources": resources, "scope": "Namespaced"}]},
+                          "matchConditions": [{"name": "collector", "expression": actor}],
+                          "validations": [{"expression": expression, "message": message, "reason": "Forbidden"}]}},
+                {"apiVersion": "admissionregistration.k8s.io/v1", "kind": "ValidatingAdmissionPolicyBinding",
+                 "metadata": {"name": name, "labels": LABELS.copy()},
+                 "spec": {"policyName": name, "validationActions": ["Deny"]}}]
+
+    return [*policy(f"{COLLECTOR}-token", "CREATE", ["serviceaccounts/token"],
+                    "object.spec.audiences == ['openbao'] && has(object.spec.expirationSeconds) && "
+                    "object.spec.expirationSeconds == 600",
+                    "bravo-t14-collector may mint only audience openbao, 600 s tokens"),
+            *policy(f"{COLLECTOR}-forward", "CONNECT", ["pods/portforward"], allowed,
+                    "bravo-t14-collector may port-forward only to SeaweedFS, the pooler and OpenBao")]
+
+
 def collector():
     """ADR-0041: the platform's own identity for the post-cutover target run, named resources only.
 
@@ -95,7 +132,8 @@ def collector():
         "bravo-secrets": [{"apiGroups": [""], "resources": ["services"], "verbs": ["get"],
                            "resourceNames": ["target-openbao"]}, *forward(["target-openbao-0"])],
     }
-    items = [namespaced(resource("v1", "ServiceAccount", COLLECTOR, automountServiceAccountToken=False),
+    items = [*collector_admission(),
+             namespaced(resource("v1", "ServiceAccount", COLLECTOR, automountServiceAccountToken=False),
                         COLLECTOR_NAMESPACE)]
     for namespace, rule in rules.items():
         items.append(namespaced(resource("rbac.authorization.k8s.io/v1", "Role", COLLECTOR, rules=rule), namespace))

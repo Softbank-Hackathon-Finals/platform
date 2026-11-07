@@ -64,6 +64,35 @@ class CollectorTests(unittest.TestCase):
         self.assertIs(account["automountServiceAccountToken"], False)
 
 
+class CollectorAdmissionTests(unittest.TestCase):
+    """What RBAC cannot bound (#765 review): token audience/lifetime and port-forward targets."""
+
+    def policies(self):
+        return {i["metadata"]["name"]: i for i in t14_gate.collector() if i["kind"] == "ValidatingAdmissionPolicy"}
+
+    def test_admission_is_installed_before_the_grants_and_denies(self):
+        kinds = [i["kind"] for i in t14_gate.collector()]
+        self.assertLess(kinds.index("ValidatingAdmissionPolicyBinding"), kinds.index("RoleBinding"))
+        for item in t14_gate.collector():
+            if item["kind"] == "ValidatingAdmissionPolicyBinding":
+                self.assertEqual(item["spec"]["validationActions"], ["Deny"])
+
+    def test_tokens_are_only_openbao_600s_for_the_collector(self):
+        token = self.policies()["bravo-t14-collector-token"]["spec"]
+        self.assertIn("bravo-apply-access:bravo-t14-collector", token["matchConditions"][0]["expression"])
+        self.assertEqual(token["validations"][0]["expression"],
+                         "object.spec.audiences == ['openbao'] && has(object.spec.expirationSeconds) && "
+                         "object.spec.expirationSeconds == 600")
+
+    def test_port_forward_never_reaches_the_database_pod(self):
+        forward = self.policies()["bravo-t14-collector-forward"]["spec"]
+        self.assertEqual(forward["matchConstraints"]["resourceRules"][0]["operations"], ["CONNECT"])
+        expression = forward["validations"][0]["expression"]
+        self.assertIn('startsWith("target-seaweedfs-")', expression)
+        self.assertIn('request.name == "target-openbao-0"', expression)
+        self.assertNotIn("target-db", expression)
+
+
 class CanaryTests(unittest.TestCase):
     def job(self, arch="arm64"):
         return by_kind(t14_gate.canary(arch))[("Job", "target-t14-canary")]["spec"]["template"]
