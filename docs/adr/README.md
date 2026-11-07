@@ -21,6 +21,7 @@
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.5·8.9 등록 앱 식별자와 계획의 평가 프로필(T10·T14·T19) | [0027 계획과 평가 프로필 결속](0027-plan-evaluation-profile.md) |
 | 7.5·8.3 플랫폼 자체 서비스의 GitFlow·Helm·Argo CD 배포(T43) | [0029 플랫폼 GitOps 배포](0029-platform-gitops-delivery.md) |
+| FR-3 · NFR-7 · 8.3 목적지 IaC 모듈·원하는 상태(Git)·plan API와 에이전트 계획 도구(T44) | [0032 목적지 IaC API](0032-destination-iac-api.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
