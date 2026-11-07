@@ -73,12 +73,17 @@ GATE 보고서를 확인한 뒤 자기 기기에서 서명하고, 플랫폼에�
 1. `keys --dir <0700 비공개 경로>`: 용도별 키를 만든다.
 2. `enroll`: 수집보다 **먼저** 공개키를 등록한다. 등록 전에 시작한 수집은 서명할 수 없다. 처음 정한 유효기간을
    `--dir`에 남기므로 일부만 등록된 뒤 다시 실행해도 충돌하지 않는다. 키 유효기간은 48시간 이하다.
-3. T14 실행 기록은 기존 수집 경로(`gate_record_host`)로 남긴다. 반영 뒤 컨텍스트 결속은 워크플로 호스트의
-   `post_apply_prepare`(#565)가 한다. relay에는 이 단계의 도구가 없다. T13 기록은 `readiness --binding … --snapshot …`.
-4. `subjects`로 서명할 지문과 이미 게시된 용도를 확인하고, 출력의 `confirm`을 `sign --confirm <값>`에 넘긴다.
+3. T14 실행 기록: `record --side source|target --run <control_run JSON>`(참조는 문서의 `run_id`).
+   기존 수집 경로(`gate_record_host`)를 써도 같은 기록이 된다.
+4. 처음 context(S1): `bind`. 계획 등록값과 양쪽의 **가장 새** 실행으로 결속하고, GateRecords가 실행 기록과
+   대조한다. 같은 실행으로 다시 부르면 기존 결속을 돌려주고, 더 새 실행을 기록한 뒤 부르면 새 context가 된다.
+   반영 뒤 결속은 워크플로 호스트의 `post_apply_prepare`(#565)가 한다.
+5. T13 기록: `readiness --binding … --snapshot …`(context마다 다시 캡처).
+6. `subjects`로 서명할 지문과 이미 게시된 용도를 확인하고, 출력의 `confirm`을 `sign --confirm <값>`에 넘긴다.
    기본 `sign`은 보여 준 것 중 아직 게시되지 않은 용도만 서명한다. 확인 뒤에 T13 기록이나 GATE 판정이 새로
    생기면 `confirm`이 달라져 `sign`이 거부한다. 다시 `subjects`로 확인한다.
-5. gate-result 서명은 해피패스에 필요하지 않다. 워크플로 GATE reader는 SHIFT·컷오버처럼 같은 트랜잭션의 플랫폼
+7. S1의 1차 판정: `evaluate`(운영 조립으로 평가해 저장, 보통 BLOCK). 반영 뒤 판정은 워크플로 GATE 단계가 한다.
+8. gate-result 서명은 해피패스에 필요하지 않다. 워크플로 GATE reader는 SHIFT·컷오버처럼 같은 트랜잭션의 플랫폼
    재평가(`served_reevaluation`)를 소비한다. 입력 5종(context, run 2종, readiness 2종)의 서명은 그대로 필요하다.
 
 **readiness 기록의 신뢰 근거:** relay는 호출자가 보낸 T13 binding·snapshot을 그대로 저장한다. 신뢰 근거는
