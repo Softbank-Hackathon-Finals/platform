@@ -432,10 +432,16 @@
       "instruction": "검사한 비공개 OpenBao 이미지를 태그와 localhost/bravo-openbao@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
       "confirm": "openbao-image",
       "expect": {
-        "images": [
-          "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64",
-          "localhost/bravo-openbao@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
-        ]
+        "images_by_arch": {
+          "arm64": [
+            "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64",
+            "localhost/bravo-openbao@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
+          ],
+          "amd64": [
+            "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64",
+            "localhost/bravo-openbao@sha256:eaf0d6c56196afd9348a9002f0ff7b48473ba2c34849be054fe5b263a4f8cb79"
+          ]
+        }
       }
     },
     {
@@ -510,12 +516,13 @@
       "id": "openbao-sync",
       "kind": "gitops_sync",
       "owner": "T9",
-      "description": "Argo CD가 openbao 커밋으로 Synced · Healthy인지 확인한다",
+      "description": "Argo CD가 openbao 커밋으로 Synced인지 확인한다. init · unseal 전에는 Ready일 수 없어 Progressing까지 받고, Ready는 openbao-init이 확인한다",
       "needs": [
         "openbao"
       ],
       "publish": "openbao",
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "health": ["Healthy", "Progressing"]
     },
     {
       "id": "eso",

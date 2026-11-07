@@ -171,18 +171,24 @@ class Executor:
                 finished, _ = wait(futures, return_when=FIRST_COMPLETED)
                 for future in finished:
                     step_id = futures.pop(future)
+                    error = None
                     try:
                         status, reason = future.result(), None
                     except StepOutcome as outcome:
                         status, reason = outcome.status, outcome.reason
-                    except StackError as error:
-                        status, reason = FAILED, str(error)
-                    except Exception:  # an adapter error is not a verdict: hold for a human
+                    except StackError as error_:
+                        status, reason = FAILED, str(error_)
+                    except Exception as error_:  # an adapter error is not a verdict: hold for a human
                         status, reason = HOLD, "adapter_error"
+                        # Which adapter call failed, so nobody reads process logs to find out. Adapters raise
+                        # RuntimeError with fixed messages; other types are named only (their text may carry argv).
+                        error = type(error_).__name__ + (f": {error_}"[:160] if type(error_) is RuntimeError else "")
                     with self._lock:
                         states[step_id].update(status=status, ended_at=self.clock())
                         if reason:
                             states[step_id]["reason"] = reason
+                        if error:
+                            states[step_id]["error"] = error
                         self.ledger({"event": "infra.step", "run_id": run["run_id"], "step": step_id,
                                      "status": status, "reason": reason, "at": states[step_id]["ended_at"]})
         with self._lock:
@@ -255,10 +261,11 @@ class Executor:
         if expected is None:
             raise StepOutcome(HOLD, "publish_commit_unknown")
         deadline = self.monotonic() + step["timeout_seconds"]
+        accepted = set(step.get("health", ["Healthy"]))
         while True:
             status = self.cluster.application_status(name)
             if status and status.get("revision") == expected and status.get("sync") == "Synced" \
-                    and status.get("health") == "Healthy":
+                    and status.get("health") in accepted:
                 return APPLIED
             if self.monotonic() >= deadline:
                 raise StepOutcome(HOLD, "sync_timeout")

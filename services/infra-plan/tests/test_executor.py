@@ -13,6 +13,7 @@ from bravo_infra_plan.adapters import (
     ClusterChecks,
     FileRunStore,
     GitConfigRepo,
+    expected_images,
     host_paths_digest,
 )
 from bravo_infra_plan.applications import application_name
@@ -41,7 +42,7 @@ class FakeCluster:
         """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
         steps = load_stack(STACK).steps
         self.annotations[HOST_PATHS_ANNOTATION] = host_paths_digest(steps["host-dirs"]["expect"]["host_paths"])
-        self.images |= set(steps["openbao-image"]["expect"]["images"])
+        self.images |= set(expected_images(steps["openbao-image"]["expect"], REQUEST["params"]))
 
     def identity(self, node_name):
         return {"cluster_uid": "cluster-1", "node_uid": f"uid-{node_name}"}
@@ -276,8 +277,11 @@ def test_the_stack_names_the_openbao_image_the_renderer_deploys():
     render = (REPO / "infra/envs/target-secrets/render.py").read_text()
     pinned = render.split('BAO_IMAGE = "', 1)[1].split('"', 1)[0]
     repo_tag, digest = pinned.split("@", 1)
-    expect = load_stack(STACK).steps["openbao-image"]["expect"]["images"]
-    assert set(expect) == {repo_tag, f"{repo_tag.rsplit(':', 1)[0]}@{digest}"}
+    expect = load_stack(STACK).steps["openbao-image"]["expect"]
+    # The renderer here pins the arm64 build; the amd64 names follow render.py --arch (T50, #682).
+    assert set(expected_images(expect, {"arch": "arm64"})) == {repo_tag, f"{repo_tag.rsplit(':', 1)[0]}@{digest}"}
+    with pytest.raises(StackError, match="image_unavailable_for_arch"):
+        expected_images({"images_by_arch": {"amd64": ["x"]}}, {"arch": "arm64"})
 
 
 def test_an_approval_already_claimed_by_another_run_is_refused(world):
@@ -410,3 +414,36 @@ def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world
         "tailscale-oauth", "tailscale", "tailscale-sync"}
     assert run["steps"]["verify"]["status"] == "APPLIED"
     assert not any(name.startswith("tailscale/") for name in world["repo"].read_tree(""))
+
+
+def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
+    """OpenBao cannot be Ready before init and unseal; only its sync accepts Progressing."""
+
+    class SealedCluster(FakeCluster):
+        def application_status(self, name):
+            status = super().application_status(name)
+            sealed = name in (application_name("target-onprem", "openbao"), application_name("target-onprem", "base"))
+            return status and (status | {"health": "Progressing"} if sealed else status)
+
+    ticks = iter(range(0, 10**6, 100))
+    cluster = SealedCluster()
+    cluster.prepare_node()
+    executor = world["executor"](cluster=cluster, monotonic=lambda: next(ticks))
+    world["approvals"].approve("appr-1", executor.planner.plan(
+        REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
+    run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
+                         run_id="run-1", started_by="applier")
+    states = run["steps"]
+    # base-sync declares nothing, so Progressing holds it; nothing after base can then start.
+    assert (states["base-sync"]["status"], states["base-sync"]["reason"]) == ("HOLD", "sync_timeout")
+    healthy_base = SealedCluster()
+    healthy_base.application_status = lambda name: (FakeCluster.application_status(healthy_base, name) or None) and (
+        FakeCluster.application_status(healthy_base, name) | (
+            {"health": "Progressing"} if name == application_name("target-onprem", "openbao") else {}))
+    healthy_base.prepare_node()
+    executor = world["executor"](cluster=healthy_base, monotonic=lambda: next(ticks))
+    world["approvals"].approve("appr-2", executor.planner.plan(
+        REQUEST, stack_revision=REV, target=healthy_base.identity(NODE), base_commit=world["repo"].head()).plan_digest)
+    run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-2",
+                         run_id="run-2", started_by="applier")
+    assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing

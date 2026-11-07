@@ -28,6 +28,16 @@ HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
 def host_paths_digest(paths):
     return sha256_text(canonical(paths))
 
+
+def expected_images(expect, params):
+    """The image names an `expect` names for this request (`images`, or `images_by_arch[arch]`)."""
+    if "images" in expect:
+        return expect["images"]
+    names = expect["images_by_arch"].get(params.get("arch"))
+    if not names:
+        raise StackError("image_unavailable_for_arch")
+    return names
+
 TIMEOUT = 600
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -336,7 +346,7 @@ class ClusterChecks:
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
             "host-paths": lambda: None if not expect else (
                 c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
-            "openbao-image": lambda: None if not expect else set(expect["images"]) <= c.node_image_names(node),
+            "openbao-image": lambda: None if not expect else set(expected_images(expect, params)) <= c.node_image_names(node),
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),
