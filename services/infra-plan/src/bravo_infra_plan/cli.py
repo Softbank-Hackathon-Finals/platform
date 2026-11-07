@@ -23,6 +23,7 @@ from .adapters import (
 from .executor import Executor
 from .plan import HelmChartRenderer, Planner
 from .stack import StackError, load_stack
+from .terraform import TerraformCli
 
 
 def _executor(args, stack):
@@ -35,7 +36,8 @@ def _executor(args, stack):
     approvals, store = T10Approvals(args.t10_url, token), FileRunStore(args.runs_dir)
     ledger = _jsonl(Path(args.runs_dir) / "ledger.jsonl")
     if args.aws:  # a terraform stack: bound to the AWS account, no cluster or configuration repository
-        return Executor(Planner(stack, repo_root), stack_revision=revision, cluster=None, repo=None,
+        return Executor(Planner(stack, repo_root, terraform=TerraformCli()), stack_revision=revision,
+                        cluster=None, repo=None,
                         approvals=approvals, checks=None, store=store, repo_url="", ledger=ledger,
                         identity=AwsIdentity())
     if not (args.kubeconfig and args.config_repo and args.config_workdir and args.charts_dir):
@@ -147,7 +149,9 @@ def main(argv=None):
         out = Path(args.out)
         if out.exists() and any(out.iterdir()):
             raise StackError("output_directory_not_empty")
-        result = Planner(stack, args.repo_root, chart_renderer=HelmChartRenderer(args.charts_dir)).plan(
+        has_terraform = any(s["kind"] == "terraform" for s in stack.document["steps"])
+        result = Planner(stack, args.repo_root, chart_renderer=HelmChartRenderer(args.charts_dir),
+                         terraform=TerraformCli() if has_terraform else None).plan(
             json.loads(Path(args.request).read_text()), stack_revision=args.stack_revision,
             target={"cluster_uid": args.cluster_uid, "node_uid": args.node_uid}, base_commit=args.base_commit)
         for step_id, rendered in result.files.items():

@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from .stack import PLACEHOLDER, Stack, StackError, canonical, sha256_text
-from .terraform import inputs_digest
+from .terraform import Scratch, inputs_digest, outputs_reader, plan_step
 
 RENDER_TIMEOUT = 120
 
@@ -102,11 +102,12 @@ class Plan:
 
 class Planner:
     def __init__(self, stack: Stack, repo_root, *, chart_renderer=None, renderer=None,
-                 kube_version_param="kube_version"):
+                 kube_version_param="kube_version", terraform=None):
         self.stack, self.repo_root = stack, Path(repo_root).resolve()
         self.renderer = renderer or RepositoryRenderer(self.repo_root)
         self.charts = chart_renderer
         self.kube_version_param = kube_version_param
+        self.terraform = terraform  # a TerraformCli to bind each terraform step's change set
 
     def plan(self, request, *, stack_revision, target, base_commit) -> Plan:
         request = self.stack.validate_request(request)
@@ -130,7 +131,9 @@ class Planner:
                     tree.update(entry["files"])
             elif step["kind"] == "terraform":
                 entry["inputs"] = inputs_digest(self.repo_root, step, params)
-                entry["digest"] = sha256_text(canonical({"step": step, "inputs": entry["inputs"]}))
+                entry["change_set"], entry["changes"] = self._terraform_change_set(step, params)
+                entry["digest"] = sha256_text(canonical({"step": step, "inputs": entry["inputs"],
+                                                         "change_set": entry["change_set"]}))
             else:
                 entry["digest"] = sha256_text(canonical(step))
             steps.append(entry)
@@ -173,6 +176,24 @@ class Planner:
             items = _items(json.loads(self.renderer.run(post["run"], _substitute(post["args"], params),
                                                         stdin=json.dumps(items))))
         return items
+
+    def _terraform_change_set(self, step, params):
+        """What terraform would change now (addresses and actions, no values), bound into the approval.
+
+        UNPLANNED: no terraform client was given (offline). PENDING_UPSTREAM: an upstream stack is not
+        applied yet, so its outputs do not exist; the executor stops there for a new approval."""
+        if self.terraform is None:
+            return "UNPLANNED", {}
+        steps = {s["id"]: s for s in self.stack.document["steps"] if s["kind"] == "terraform"}
+        read = outputs_reader(self.terraform, self.repo_root, steps, params)
+        try:
+            with Scratch() as scratch:
+                planned = plan_step(self.terraform, self.repo_root, step, params, read, scratch, lock=False)
+        except StackError as error:
+            if str(error) == "terraform_output_missing":
+                return "PENDING_UPSTREAM", {}
+            raise
+        return planned["change_set"], planned["changes"]
 
     def _repo_file(self, relative):
         path = (self.repo_root / relative).resolve()

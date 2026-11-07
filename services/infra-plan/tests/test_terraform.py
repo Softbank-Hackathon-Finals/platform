@@ -16,6 +16,7 @@ from test_plan import REPO
 from bravo_infra_plan import Planner, StackError, parse_stack
 from bravo_infra_plan.adapters import FileRunStore
 from bravo_infra_plan.executor import Executor
+from bravo_infra_plan.terraform import TerraformCli, change_summary
 
 pytestmark = pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform binary not installed")
 FIXTURES = "services/infra-plan/tests/fixtures/tf"
@@ -51,7 +52,7 @@ def aws(tmp_path):
     approvals = FakeApprovals()
 
     def executor(document=STACK):
-        planner = Planner(parse_stack(document), REPO)
+        planner = Planner(parse_stack(document), REPO, terraform=TerraformCli())
         return Executor(planner, stack_revision="1" * 40, cluster=None, repo=None, approvals=approvals, checks=None,
                         store=FileRunStore(tmp_path / "runs"), repo_url="", identity=lambda params: dict(ACCOUNT),
                         sleep=lambda s: None)
@@ -74,17 +75,29 @@ def state_value(path, address):
             return resource["instances"][0]["attributes"]["input"]["value"]
 
 
+def build(aws):
+    """A fresh build takes two approvals: the cluster's change set exists only once the network is applied."""
+    first = aws["run"]("run-1", "appr-1")
+    assert first["steps"]["network"]["status"] == "APPLIED"
+    assert (first["steps"]["cluster"]["status"], first["steps"]["cluster"]["reason"]) == (
+        "HOLD", "terraform_change_set_unapproved")
+    assert next(s for s in first["plan"]["steps"] if s["id"] == "cluster")["change_set"] == "PENDING_UPSTREAM"
+    second = aws["run"]("run-2", "appr-2")
+    assert {k: v["status"] for k, v in second["steps"].items()} == {"network": "SKIPPED", "cluster": "APPLIED"}
+    return first, second
+
+
 def test_outputs_flow_to_the_next_stack_in_memory_and_a_rerun_changes_nothing(aws):
-    run = aws["run"]("run-1", "appr-1")
-    assert run["status"] == "SUCCEEDED", run["steps"]
-    assert {k: v["status"] for k, v in run["steps"].items()} == {"network": "APPLIED", "cluster": "APPLIED"}
+    run, _ = build(aws)
     vpc_id = state_value(aws["state"] / "cluster.tfstate", "terraform_data.cluster")["vpc_id"]
     assert vpc_id.startswith("vpc-")
-    record = (aws["tmp"] / "runs" / "run-1.json").read_text()
+    record = (aws["tmp"] / "runs" / "run-2.json").read_text()
     assert vpc_id not in record and "10.80.0.0/16" not in record  # wired values and private inputs stay out
     assert run["terraform"]["network"]["changes"] == {"create": 1}
+    approved = next(s for s in run["plan"]["steps"] if s["id"] == "network")
+    assert approved["changes"] == {"create": 1} and len(approved["change_set"]) == 64  # seen before approval
 
-    again = aws["run"]("run-2", "appr-2")
+    again = aws["run"]("run-3", "appr-3")
     assert {k: v["status"] for k, v in again["steps"].items()} == {"network": "SKIPPED", "cluster": "SKIPPED"}
 
 
@@ -102,9 +115,9 @@ def test_a_private_input_changed_after_approval_holds_before_planning(aws):
 
 
 def test_a_plan_that_replaces_or_deletes_is_held_for_a_person(aws):
-    assert aws["run"]("run-1", "appr-1")["status"] == "SUCCEEDED"
+    build(aws)
     aws["private"].joinpath("network.tfvars.json").write_text(json.dumps({"cidr": "10.99.0.0/16"}))
-    run = aws["run"]("run-2", "appr-2")  # approved, but the plan replaces the VPC
+    run = aws["run"]("run-3", "appr-3")  # approved with the replace in view, but deletes stay with people
     assert run["steps"]["network"]["status"] == "HOLD"
     assert run["steps"]["network"]["reason"] == "terraform_plan_destroys"
     assert run["terraform"]["network"] == {"changes": {"replace": 1}, "destructive": 1}
@@ -156,7 +169,7 @@ def test_the_aws_stack_wires_only_declared_variables_and_digests_every_env(tmp_p
 def test_verify_plans_in_order_against_state_and_never_applies(aws):
     from bravo_infra_plan.terraform import verify
 
-    assert aws["run"]("run-1", "appr-1")["status"] == "SUCCEEDED"
+    build(aws)
     before = (aws["state"] / "network.tfstate").read_text()
     stack = parse_stack(STACK)
     assert [r["status"] for r in verify(stack, REPO, aws["request"]["params"])] == ["NO_CHANGES", "NO_CHANGES"]
@@ -165,3 +178,34 @@ def test_verify_plans_in_order_against_state_and_never_applies(aws):
     assert network == [{"step": "network", "status": "CHANGES", "changes": {"replace": 1}, "destructive": 1}]
     assert (aws["state"] / "network.tfstate").read_text() == before  # plan only: state untouched
     assert not list(aws["state"].glob("*.lock*"))
+
+
+def test_a_change_set_that_moved_after_approval_is_refused(aws):
+    """Someone applied the network out of band between approval and run: the change set is no longer
+    the one a person saw, so the run is refused before anything is applied."""
+    from bravo_infra_plan.terraform import Scratch, outputs_reader, plan_step
+
+    ex = aws["executor"]()
+    aws["approvals"].approve("appr-1", ex.planner.plan(aws["request"], stack_revision="1" * 40, target=ACCOUNT,
+                                                       base_commit="0" * 40).plan_digest)
+    cli, steps = TerraformCli(), {s["id"]: s for s in STACK["steps"]}
+    with Scratch() as scratch:
+        planned = plan_step(cli, REPO, steps["network"], aws["request"]["params"],
+                            outputs_reader(cli, REPO, steps, aws["request"]["params"]), scratch, lock=True)
+        cli.apply(planned["directory"], scratch / "data", scratch / "plan.bin")
+    run = ex.start(request=aws["request"], migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
+                   started_by="applier")
+    assert (run["status"], run["reason"]) == ("REFUSED", "plan_digest_mismatch")
+
+
+def test_forget_and_delete_are_destructive_and_reads_are_not_changes():
+    plan = {"resource_changes": [
+        {"address": "a.keep", "change": {"actions": ["forget"]}},
+        {"address": "b.gone", "change": {"actions": ["delete"]}},
+        {"address": "c.new", "change": {"actions": ["create"]}},
+        {"address": "d.data", "change": {"actions": ["read"]}},
+        {"address": "e.same", "change": {"actions": ["no-op"]}}]}
+    counts, destructive, change_set = change_summary(plan)
+    assert destructive == ["a.keep", "b.gone"]
+    assert counts == {"forget": 1, "delete": 1, "create": 1}
+    assert [c["address"] for c in change_set] == ["a.keep", "b.gone", "c.new"]
