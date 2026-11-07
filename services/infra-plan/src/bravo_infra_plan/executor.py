@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from .applications import application, application_name, project
 from .plan import Planner
 from .stack import StackError, canonical, sha256_text
+from .terraform import Scratch, TerraformCli, change_summary, inputs_digest, output_path, substitute
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
@@ -58,13 +59,16 @@ def _steps(run):
 class Executor:
     def __init__(self, planner: Planner, *, stack_revision, cluster, repo, approvals, checks, store,
                  repo_url, ledger=None, clock=_now, sleep=time.sleep, monotonic=time.monotonic,
-                 poll_seconds=5.0, workers=4):
+                 poll_seconds=5.0, workers=4, identity=None, terraform=None):
         self.planner, self.stack = planner, planner.stack
         self.stack_revision, self.repo_url = stack_revision, repo_url
         self.cluster, self.repo, self.approvals, self.checks, self.store = cluster, repo, approvals, checks, store
         self.ledger = ledger or (lambda event: None)
         self.clock, self.sleep, self.monotonic = clock, sleep, monotonic
         self.poll, self.workers = poll_seconds, workers
+        # What a run is bound to: the cluster and node by default, an AWS account for terraform stacks.
+        self.identity = identity or (lambda params: cluster.identity(params["node_name"]))
+        self.terraform = terraform or TerraformCli()
         # One lock for the run record and the repository: workers mutate `run` and push commits
         # while the scheduler saves it, so every mutation and every save happens under it.
         self._lock = threading.RLock()
@@ -74,8 +78,8 @@ class Executor:
     def start(self, *, request, migration_plan_id, approval_id, run_id, started_by):
         if self.store.exists(run_id):
             return self.store.load(run_id)
-        target = self.cluster.identity(request["params"]["node_name"])
-        head = self.repo.head()
+        target = self.identity(request["params"])
+        head = self.repo.head() if self.repo is not None else "0" * 40  # a stack without publish steps
         plan = self.planner.plan(request, stack_revision=self.stack_revision, target=target, base_commit=head)
         run = dict(run_id=run_id, migration_plan_id=migration_plan_id, approval_id=approval_id,
                    plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
@@ -121,7 +125,7 @@ class Executor:
             return self._hold(run, "approval_revoked")
         self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"],
                              plan_digest=run["plan_digest"])
-        if self.repo.head() != run["head"]:
+        if self.repo is not None and self.repo.head() != run["head"]:
             return self._hold(run, "config_repo_moved")
         for state in run["steps"].values():
             if state["status"] in (RUNNING, WAITING, HOLD):
@@ -195,8 +199,7 @@ class Executor:
 
     def _run_step(self, run, step):
         # Every step starts on the approved cluster, whatever the kubeconfig says now.
-        params = run["plan"]["request"]["params"]
-        if self.cluster.identity(params["node_name"]) != run["plan"]["target"]:
+        if self.identity(run["plan"]["request"]["params"]) != run["plan"]["target"]:
             raise StepOutcome(HOLD, "target_identity_changed")
         return getattr(self, "_" + step["kind"])(run, step)
 
@@ -259,6 +262,47 @@ class Executor:
                 raise StepOutcome(HOLD, "sync_timeout")
             self.sleep(self.poll)
 
+    def _terraform(self, run, step):
+        """Plan to a file, refuse deletes and replaces, apply exactly that file."""
+        params = run["plan"]["request"]["params"]
+        root = self.planner.repo_root
+        approved = _planned(run, step)["inputs"]
+        if inputs_digest(root, step, params) != approved:
+            raise StepOutcome(HOLD, "terraform_inputs_changed")  # code or a private input moved since approval
+        resolved = substitute({k: step[k] for k in ("backend", "var_file") if k in step}, params)
+        directory = root / step["dir"]
+        values = {}
+        for name, value in step.get("vars", {}).items():
+            if isinstance(value, dict):
+                values[name] = output_path(self._outputs(run, value["from"]), value)  # memory only
+            else:
+                values[name] = substitute(value, params)
+        with Scratch() as scratch:
+            self.terraform.init(directory, scratch / "data", resolved["backend"]["file"],
+                                resolved["backend"].get("config", {}))
+            wired = scratch / "wired.tfvars.json"
+            wired.write_text(json.dumps(values))
+            var_files = ([resolved["var_file"]] if resolved.get("var_file") else []) + [str(wired)]
+            plan_file = scratch / "plan.bin"
+            if not self.terraform.plan(directory, scratch / "data", plan_file, var_files):
+                return SKIPPED
+            counts, destructive = change_summary(self.terraform.show(directory, scratch / "data", plan_file))
+            with self._lock:
+                run.setdefault("terraform", {})[step["id"]] = {"changes": counts, "destructive": len(destructive)}
+            if destructive:
+                raise StepOutcome(HOLD, "terraform_plan_destroys")  # a person decides deletes and replaces
+            self.terraform.apply(directory, scratch / "data", plan_file)
+            return APPLIED
+
+    def _outputs(self, run, step_id):
+        step = _steps(run)[step_id]
+        params = run["plan"]["request"]["params"]
+        backend = substitute(step["backend"], params)
+        with Scratch() as scratch:
+            directory = self.planner.repo_root / step["dir"]
+            self.terraform.init(directory, scratch / "data", backend["file"], backend.get("config", {}))
+            return self.terraform.outputs(directory, scratch / "data")
+
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]
         if not self.cluster.diff(items):
@@ -300,6 +344,10 @@ class Executor:
             if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
+
+
+def _planned(run, step):
+    return next(s for s in run["plan"]["steps"] if s["id"] == step["id"])
 
 
 def _items(text):

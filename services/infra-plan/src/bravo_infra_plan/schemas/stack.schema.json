@@ -235,7 +235,8 @@
             "gitops_sync",
             "render_apply",
             "secret_generate",
-            "wait"
+            "wait",
+            "terraform"
           ]
         },
         "owner": {
@@ -558,6 +559,105 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 300
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "terraform"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "dir",
+              "backend"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "dir": {
+                "$ref": "#/$defs/repo_path"
+              },
+              "backend": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "$ref": "#/$defs/arg"
+                  },
+                  "config": {
+                    "type": "object",
+                    "propertyNames": {
+                      "pattern": "^[a-z_]{1,32}$"
+                    },
+                    "additionalProperties": {
+                      "$ref": "#/$defs/arg"
+                    }
+                  }
+                }
+              },
+              "var_file": {
+                "$ref": "#/$defs/arg"
+              },
+              "vars": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/arg"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "from",
+                        "output"
+                      ],
+                      "properties": {
+                        "from": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "output": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                        },
+                        "path": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$"
+                        },
+                        "paths": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 16,
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$"
+                          }
+                        }
+                      },
+                      "not": {
+                        "required": [
+                          "path",
+                          "paths"
+                        ]
+                      }
+                    }
+                  ]
+                }
               }
             },
             "additionalProperties": false

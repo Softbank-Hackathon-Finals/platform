@@ -19,9 +19,9 @@ from pathlib import Path
 import yaml
 
 from .stack import PLACEHOLDER, Stack, StackError, canonical, sha256_text
+from .terraform import inputs_digest
 
 RENDER_TIMEOUT = 120
-TARGET_KEYS = frozenset({"cluster_uid", "node_uid"})
 
 
 def _substitute(args, params):
@@ -110,8 +110,9 @@ class Planner:
 
     def plan(self, request, *, stack_revision, target, base_commit) -> Plan:
         request = self.stack.validate_request(request)
-        if not isinstance(target, dict) or set(target) != TARGET_KEYS or not all(
-                isinstance(v, str) and v for v in target.values()):
+        # The identity of what this plan changes: a cluster and node, or an AWS account.
+        if not isinstance(target, dict) or not target or not all(
+                isinstance(k, str) and isinstance(v, str) and v for k, v in target.items()):
             raise StackError("target_identity_required")
         for value in (stack_revision, base_commit):
             if not isinstance(value, str) or len(value) != 40 or not all(c in "0123456789abcdef" for c in value):
@@ -127,6 +128,9 @@ class Planner:
                 entry["digest"] = sha256_text(canonical(entry["files"]))
                 if step["kind"] == "gitops_publish":
                     tree.update(entry["files"])
+            elif step["kind"] == "terraform":
+                entry["inputs"] = inputs_digest(self.repo_root, step, params)
+                entry["digest"] = sha256_text(canonical({"step": step, "inputs": entry["inputs"]}))
             else:
                 entry["digest"] = sha256_text(canonical(step))
             steps.append(entry)

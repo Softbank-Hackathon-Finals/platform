@@ -12,7 +12,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .adapters import ClusterChecks, FileRunStore, GitConfigRepo, KubectlCluster, T10Approvals
+from .adapters import (
+    AwsIdentity,
+    ClusterChecks,
+    FileRunStore,
+    GitConfigRepo,
+    KubectlCluster,
+    T10Approvals,
+)
 from .executor import Executor
 from .plan import HelmChartRenderer, Planner
 from .stack import StackError, load_stack
@@ -25,13 +32,20 @@ def _executor(args, stack):
     token = os.environ.get(args.t10_token_env, "")
     if not token:
         raise StackError("t10_token_required")
+    approvals, store = T10Approvals(args.t10_url, token), FileRunStore(args.runs_dir)
+    ledger = _jsonl(Path(args.runs_dir) / "ledger.jsonl")
+    if args.aws:  # a terraform stack: bound to the AWS account, no cluster or configuration repository
+        return Executor(Planner(stack, repo_root), stack_revision=revision, cluster=None, repo=None,
+                        approvals=approvals, checks=None, store=store, repo_url="", ledger=ledger,
+                        identity=AwsIdentity())
+    if not (args.kubeconfig and args.config_repo and args.config_workdir and args.charts_dir):
+        raise StackError("cluster_arguments_required")
     cluster = KubectlCluster(args.kubeconfig)
     return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir)),
                     stack_revision=revision, cluster=cluster,
                     repo=GitConfigRepo(args.config_repo, args.config_branch, args.config_workdir),
-                    approvals=T10Approvals(args.t10_url, token), checks=ClusterChecks(cluster),
-                    store=FileRunStore(args.runs_dir), repo_url=args.argo_repo_url or args.config_repo,
-                    ledger=_jsonl(Path(args.runs_dir) / "ledger.jsonl"))
+                    approvals=approvals, checks=ClusterChecks(cluster), store=store,
+                    repo_url=args.argo_repo_url or args.config_repo, ledger=ledger)
 
 
 def _jsonl(path):
@@ -50,9 +64,11 @@ def _summary(run):
 
 
 def _executor_args(parser):
-    for flag in ("--repo-root", "--charts-dir", "--kubeconfig", "--config-repo", "--config-workdir",
-                 "--runs-dir", "--t10-url"):
+    for flag in ("--repo-root", "--runs-dir", "--t10-url"):
         parser.add_argument(flag, required=True)
+    for flag in ("--charts-dir", "--kubeconfig", "--config-repo", "--config-workdir"):
+        parser.add_argument(flag, help="cluster stacks only")
+    parser.add_argument("--aws", action="store_true", help="a terraform stack bound to the AWS account (STS)")
     parser.add_argument("--config-branch", default="main")
     parser.add_argument("--argo-repo-url", help="URL the destination Argo CD reads (default: --config-repo)")
     parser.add_argument("--stack-revision", help="default: git rev-parse HEAD of --repo-root")

@@ -13,6 +13,7 @@
 | `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject(설정 저장소 URL로 제한) |
 | `adapters.py` | `FileRunStore` · `FilePlanStore`, `GitConfigRepo`(fast-forward push만, 강제 push 없음), `KubectlCluster`(server-side diff/apply, Secret은 stdin으로 create만, helm 이력의 digest), `T10Approvals`, `ClusterChecks` |
 | `api.py` | `POST /v1/infra/plans` · `GET .../plans/{id}` · `GET /v1/infra/request-schema` · `POST .../plans/{id}/runs` · `GET /v1/infra/runs/{id}` · `POST .../runs/{id}/steps/{step}/confirm`. 실행 · 확인은 사람만(에이전트 신원 403) |
+| `terraform.py` | `terraform` 단계: 코드 · 모듈 digest, 저장소 밖 입력 digest, 출력 경로 연결, terraform CLI(단계별 데이터 폴더, 읽기 전용 lock), 계획의 변경 요약과 삭제 · 교체 판별 |
 | `serve.py` | API 호스트. 사람은 T10 승인 호스트와 같은 `operator_verifier`(IAM Identity Center 증명 또는 고정 OIDC 토큰)로 확인하고, 같은 토큰을 T10에 넘겨 그 사람의 `apply_infra`를 다시 확인받는다. 에이전트 신원은 아직 받지 않는다 |
 | `cli.py` | `bravo-infra-plan check / request-schema / plan / run / confirm / status` |
 | [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
@@ -52,6 +53,22 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - 모든 단계는 대상 클러스터 UID · 노드 UID를 다시 읽고 시작한다. kube context는 시작 때 고정한다. 다르면 `HOLD`(`target_identity_changed`).
 - 재개(`confirm` 포함)마다 T10에서 승인 회수 여부를 읽고, 호출자의 토큰으로 같은 실행의 소비를 다시 요청해 그 사람의 `apply_infra`를 확인받는다.
 - 실행 기록은 단계별 시작 · 종료 시각을 남긴다. 프로세스가 중간에 죽어 `RUNNING`으로 남은 단계는 재개 때 다시 관찰한다. 재개 전에 설정 저장소가 다른 사람 커밋으로 움직였으면 `HOLD`(`config_repo_moved`).
+
+## Terraform 단계 (AWS 스택 일괄 적용)
+
+[`infra/stacks/aws-platform/stack.json`](../../infra/stacks/aws-platform/stack.json)은 `infra/envs`의 AWS 스택 13개를 의존 순서(3레벨)로 묶는다. 스택 코드는 바꾸지 않는다.
+
+| 레벨 | 스택 |
+|---|---|
+| 1 | `aws-foundation`, `cost-aws`, `platform-audit` |
+| 2 | `source-eks`, `platform-aws` (foundation 출력의 VPC · 서브넷 · 라우팅 테이블을 받는다) |
+| 3 | `source-workloads` · `source-backup` · `human-eks-access`(EKS `cluster_name`), `platform-data`(EC2 `instance_id` · VPC), `private-registry`, `executor-registry`, `subscription-runtime`, `sandbox-session` |
+
+- **승인이 묶는 것**: 스택 디렉터리와 그 디렉터리가 부르는 로컬 모듈의 코드 digest, `.terraform.lock.hcl`, 연결 정의, 그리고 저장소 밖 `private_dir`의 `<단계>.backend.hcl` · `<단계>.tfvars.json` **digest**. 계정 · 자원 ID와 backend 값은 Git과 계획 문서에 들어가지 않는다.
+- **실행**: 단계마다 승인 때의 입력 digest를 다시 대조(다르면 `HOLD`) → 단계 전용 `TF_DATA_DIR`에서 `init -lockfile=readonly` → 앞 스택 출력을 상태에서 읽어 메모리로 연결 → `plan -out` → 변경이 없으면 `SKIPPED` → 삭제 · 교체가 하나라도 있으면 `HOLD`(`terraform_plan_destroys`, 사람이 판단) → 아니면 **그 계획 파일만** `apply`. 출력값은 실행 기록에 저장하지 않는다(여러 출력이 `sensitive`).
+- **대상 신원**: 클러스터 대신 STS의 AWS 계정. CLI는 `--aws`로 실행한다.
+- **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
+- **검증**: 실제 terraform 바이너리로 로컬 backend 시험 스택 두 개(출력 연결, 재실행 `SKIPPED`, 교체 `HOLD`, 승인 뒤 입력 변경 거부). 실제 AWS 계정에는 실행하지 않았다.
 
 ## 다음 PR에서 할 것
 

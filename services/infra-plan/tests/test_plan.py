@@ -122,7 +122,9 @@ def test_requests_outside_the_stack_schema_are_refused(change, code):
 
 def test_target_identity_and_revisions_are_required():
     with pytest.raises(StackError, match="target_identity_required"):
-        plan(target={"cluster_uid": "c"})
+        plan(target={})
+    with pytest.raises(StackError, match="target_identity_required"):
+        plan(target={"cluster_uid": ""})
     with pytest.raises(StackError, match="git_revision_required"):
         plan(rev="main")
 
