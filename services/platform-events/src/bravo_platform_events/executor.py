@@ -22,6 +22,10 @@ MAX_RESPONSE_BYTES = 262_144
 MAX_STEPS = 256
 STATUSES = frozenset({"PENDING", "RUNNING", "DONE", "ABORT_PRE_WRITE", "SAFE_HOLD"})
 STEP_STATUSES = frozenset({"started", "succeeded", "failed", "unknown"})
+READINESS_REFUSALS = frozenset({
+    "environment_not_registered", "direction_not_registered", "table_not_registered", "sequence_not_registered",
+    "readiness_capture_expired", "execution_in_progress", "executor_not_configured",
+    "command_credential_required", "unauthorized"})
 
 
 def _uuid(value: str) -> None:
@@ -270,7 +274,7 @@ class ExecutorReader:
         return {site["environment_id"]: site["connection_ref"] for site in pair.values()}
 
     def _request_json(self, method, path, *, params=None, body=None, headers=None,
-                      accepted_statuses=(200,)):
+                      accepted_statuses=(200,), with_status=False):
         started = time.monotonic()
         with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
             if response.status_code not in accepted_statuses:
@@ -287,7 +291,9 @@ class ExecutorReader:
                 body.extend(chunk)
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise ExecutorReadError("response_too_large")
-        return json.loads(body, object_pairs_hook=_object)
+            status = response.status_code
+        value = json.loads(body, object_pairs_hook=_object)
+        return (status, value) if with_status else value
 
     def _request(self, method, path, expected, *, params=None, body=None, headers=None,
                  previous=None, list_response=False, accepted_statuses=(200,)):
@@ -344,3 +350,29 @@ class ExecutorClient(ExecutorReader):
         return self._request("POST", "/v1/cutovers", expected, body=command,
                              headers={"Idempotency-Key": idempotency_key, "Authorization": f"Bearer {self._command_token}"},
                              accepted_statuses=(200, 202))
+
+    def observe_readiness(self, request: dict) -> dict:
+        """POST /v1/readiness: the Executor's pre-cutover T13 observation (it may raise the target sequence).
+
+        Not a cutover command and not retried here. Any failure is one bounded code.
+        """
+        if self._command_token is None:
+            raise ExecutorReadError("command_credential_missing")
+        try:
+            status, value = self._request_json("POST", "/v1/readiness", body=request,
+                                               headers={"Authorization": f"Bearer {self._command_token}"},
+                                               accepted_statuses=(200, 401, 403, 404, 409, 422, 503),
+                                               with_status=True)
+        except ExecutorReadError:
+            raise
+        except httpx.HTTPError:
+            raise ExecutorReadError("transport_failure") from None
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            raise ExecutorReadError("invalid_response") from None
+        if status != 200:  # a refusal: only the Executor's fixed codes pass through
+            detail = value.get("detail") if isinstance(value, dict) else None
+            code = detail.get("code") if isinstance(detail, dict) else None
+            raise ExecutorReadError(code if code in READINESS_REFUSALS else "http_status")
+        if not isinstance(value, dict) or value.get("kind") != "t13-readiness-observation.v1":
+            raise ExecutorReadError("invalid_response")  # a 200 that is not an observation
+        return value
