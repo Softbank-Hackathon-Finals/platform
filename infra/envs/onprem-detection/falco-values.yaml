@@ -2,6 +2,8 @@
 # 목적지 노드(arm64, 커널 6.8)는 modern eBPF로 커널 모듈 없이 동작한다.
 # 경보는 falcosidekick이 플랫폼 수집 API(POST /v1/security/webhooks/falco/env-onprem)로 바깥 방향으로만 보낸다.
 # 주소와 인증 헤더는 값이 아니라 Secret falcosidekick-bravo에 둔다(README 3단계, stdin으로 생성).
+# 이미지는 태그와 multi-arch index digest로 고정한다(11-08, linux/arm64 포함). 차트가 tag 뒤에 그대로 붙인다
+image: {tag: "0.45.2@sha256:1562a643953f938e02f47319b5214d93a235f11f646d60e9b8a516fd5a64698e"}
 driver:
   kind: modern_ebpf
 tty: false
@@ -18,6 +20,7 @@ falco:
 falcosidekick:
   enabled: true
   replicaCount: 1
+  image: {tag: "2.35.1@sha256:a9bb60d2c7742febd912315ca1155839abc0199bf322c58d3adbb8b0849fadb9"}
   webui:
     enabled: false
   config:
@@ -38,3 +41,11 @@ falcoctl:
   artifact:
     follow:
       enabled: false
+  image: {tag: "0.14.3@sha256:2230fb4802aafe09455b58d38f8f1faedd8f09f042e9a18fffd397e63488c023"}
+  # 규칙은 주 버전(:5)이 아니라 정확한 판. container 플러그인은 차트 기본값이 이미 0.7.6으로 고정이다
+  config:
+    artifact:
+      install:
+        refs: [falco-rules:5.2.0]
+      follow:
+        refs: [falco-rules:5.2.0]
