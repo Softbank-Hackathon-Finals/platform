@@ -196,5 +196,11 @@ def test_a_new_cluster_declares_its_operator_tag_owned_by_admins_and_nothing_els
         with pytest.raises(IacError):
             found.check(bad)
     committed = json.loads((REPO / "infra/tailnet/routes-policy.json").read_text())
-    for env in ("target-gke", "target-gce"):
-        assert committed["tagOwners"][f"tag:bravo-{env}-operator"] == ["autogroup:admin"]
+    granted = {f"{g['dst'][0]}:{g['ip'][0].removeprefix('tcp:')}" for g in committed["grants"] if "app" not in g}
+    for env in ("target-gke", "target-gce", "t49"):
+        tag = f"tag:bravo-{env}-operator"
+        assert committed["tagOwners"][tag] == ["autogroup:admin"]
+        assert not [g for g in committed["grants"] if tag in g["src"]]  # the path to it is the network API's (#622)
+        [test] = [t for t in committed["tests"] if t["src"] == tag]
+        # Runtime device names escape a repository scan: the policy refuses every granted destination.
+        assert set(test["deny"]) == granted and "accept" not in test and "tag:bravo-metrics:9090" in test["deny"]

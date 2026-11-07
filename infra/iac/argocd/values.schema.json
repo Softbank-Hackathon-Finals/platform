@@ -33,6 +33,7 @@
       "type": "string",
       "enum": [
         "source-dev",
+        "t49",
         "target-dev",
         "target-gce",
         "target-gke"
