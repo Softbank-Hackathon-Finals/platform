@@ -24,6 +24,8 @@ metadata:
   name: initial-proposal
   namespace: bravo-initial
 automountServiceAccountToken: false
+imagePullSecrets:
+  - name: {{ .Values.initialProposal.registry }}
 ---
 apiVersion: v1
 kind: ConfigMap

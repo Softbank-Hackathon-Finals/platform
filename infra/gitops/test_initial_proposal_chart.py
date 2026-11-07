@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +43,8 @@ class InitialProposalChart(unittest.TestCase):
                                      "ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"])
         self.assertEqual(docs["Namespace"]["metadata"]["labels"]["pod-security.kubernetes.io/warn"], "restricted")
         self.assertIs(docs["ServiceAccount"]["automountServiceAccountToken"], False)
+        # The pull Secret is declared here, not patched onto the live account; bootstrap checks the same name.
+        self.assertEqual(docs["ServiceAccount"]["imagePullSecrets"], [{"name": bootstrap.INITIAL_PROPOSAL_REGISTRY}])
         self.assertEqual(docs["ConfigMap"]["data"], {"ca.pem": CA})
         self.assertEqual(docs["ValidatingAdmissionPolicyBinding"]["spec"]["validationActions"], ["Deny"])
         self.assertNotIn("RoleBinding", docs)
