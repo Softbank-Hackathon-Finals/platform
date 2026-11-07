@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "stack": "aws-platform",
+  "description": "infra/envs의 AWS Terraform 스택을 의존 순서로 묶고 앞 스택 출력을 다음 스택 입력으로 넘긴다(T45, ADR-0033 2차 범위). 스택 코드는 바꾸지 않는다. 계정 · 자원 ID와 backend 설정은 저장소 밖 private_dir의 <단계>.backend.hcl · <단계>.tfvars.json에서 오고, 계획에는 digest만 남는다. ci-validation-aws(로컬 backend, 일회성)와 아직 적용하지 않은 loadgen-aws · attachment-copy-reader는 넣지 않았다.",
+  "params": {
+    "private_dir": {
+      "description": "운영자 개인 입력 폴더(저장소 밖 절대 경로): <단계>.backend.hcl, <단계>.tfvars.json",
+      "pattern": "^/[^\\u0000]+$"
+    }
+  },
+  "charts": {},
+  "steps": [
+    {
+      "id": "aws-foundation",
+      "kind": "terraform",
+      "owner": "T1",
+      "description": "VPC 2개(source · platform), 피어링, 보안 그룹, Flow Logs",
+      "dir": "infra/envs/aws-foundation",
+      "backend": {
+        "file": "${private_dir}/aws-foundation.backend.hcl"
+      },
+      "var_file": "${private_dir}/aws-foundation.tfvars.json"
+    },
+    {
+      "id": "cost-aws",
+      "kind": "terraform",
+      "owner": "T1",
+      "description": "예산 경보와 비용 배분 태그",
+      "dir": "infra/envs/cost-aws",
+      "backend": {
+        "file": "${private_dir}/cost-aws.backend.hcl"
+      },
+      "var_file": "${private_dir}/cost-aws.tfvars.json"
+    },
+    {
+      "id": "platform-audit",
+      "kind": "terraform",
+      "owner": "T24",
+      "description": "감사 로그 버킷(S3 Object Lock)",
+      "dir": "infra/envs/platform-audit",
+      "backend": {
+        "file": "${private_dir}/platform-audit.backend.hcl"
+      },
+      "var_file": "${private_dir}/platform-audit.tfvars.json"
+    },
+    {
+      "id": "source-eks",
+      "kind": "terraform",
+      "owner": "T6",
+      "description": "출발지 private EKS, 노드그룹, NAT, vpc-cni IRSA",
+      "dir": "infra/envs/source-eks",
+      "backend": {
+        "file": "${private_dir}/source-eks.backend.hcl"
+      },
+      "var_file": "${private_dir}/source-eks.tfvars.json",
+      "needs": [
+        "aws-foundation"
+      ],
+      "vars": {
+        "vpc_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "vpcs.source.id"
+        },
+        "private_subnet_ids": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "paths": [
+            "subnets.source-0.id",
+            "subnets.source-1.id"
+          ]
+        },
+        "private_route_table_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "route_tables.source"
+        },
+        "platform_vpc_cidr": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "vpcs.platform.cidr"
+        }
+      }
+    },
+    {
+      "id": "platform-aws",
+      "kind": "terraform",
+      "owner": "T7",
+      "description": "플랫폼 EC2 + RKE2(cloud-init), NAT, SSM, Actions OIDC 스모크 역할",
+      "dir": "infra/envs/platform-aws",
+      "backend": {
+        "file": "${private_dir}/platform-aws.backend.hcl"
+      },
+      "var_file": "${private_dir}/platform-aws.tfvars.json",
+      "needs": [
+        "aws-foundation"
+      ],
+      "vars": {
+        "vpc_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "vpcs.platform.id"
+        },
+        "private_subnet_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "subnets.platform-0.id"
+        },
+        "private_route_table_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "route_tables.platform"
+        }
+      }
+    },
+    {
+      "id": "source-workloads",
+      "kind": "terraform",
+      "owner": "T6",
+      "description": "출발지 EBS CSI, 앱 · ESO IRSA, Secrets Manager, S3, CloudTrail",
+      "dir": "infra/envs/source-workloads",
+      "backend": {
+        "file": "${private_dir}/source-workloads.backend.hcl"
+      },
+      "var_file": "${private_dir}/source-workloads.tfvars.json",
+      "needs": [
+        "source-eks"
+      ],
+      "vars": {
+        "cluster_name": {
+          "from": "source-eks",
+          "output": "operator",
+          "path": "cluster_name"
+        }
+      }
+    },
+    {
+      "id": "source-backup",
+      "kind": "terraform",
+      "owner": "T35",
+      "description": "출발지 CNPG 백업 버킷과 IRSA",
+      "dir": "infra/envs/source-backup",
+      "backend": {
+        "file": "${private_dir}/source-backup.backend.hcl"
+      },
+      "var_file": "${private_dir}/source-backup.tfvars.json",
+      "needs": [
+        "source-eks"
+      ],
+      "vars": {
+        "cluster_name": {
+          "from": "source-eks",
+          "output": "operator",
+          "path": "cluster_name"
+        }
+      }
+    },
+    {
+      "id": "human-eks-access",
+      "kind": "terraform",
+      "owner": "T1",
+      "description": "사람 SSO 역할의 EKS access entry",
+      "dir": "infra/envs/human-eks-access",
+      "backend": {
+        "file": "${private_dir}/human-eks-access.backend.hcl"
+      },
+      "var_file": "${private_dir}/human-eks-access.tfvars.json",
+      "needs": [
+        "source-eks"
+      ],
+      "vars": {
+        "cluster_name": {
+          "from": "source-eks",
+          "output": "operator",
+          "path": "cluster_name"
+        }
+      }
+    },
+    {
+      "id": "platform-data",
+      "kind": "terraform",
+      "owner": "T7",
+      "description": "플랫폼 DB용 EBS와 attachment",
+      "dir": "infra/envs/platform-data",
+      "backend": {
+        "file": "${private_dir}/platform-data.backend.hcl"
+      },
+      "var_file": "${private_dir}/platform-data.tfvars.json",
+      "needs": [
+        "platform-aws",
+        "aws-foundation"
+      ],
+      "vars": {
+        "instance_id": {
+          "from": "platform-aws",
+          "output": "operator",
+          "path": "instance_id"
+        },
+        "vpc_id": {
+          "from": "aws-foundation",
+          "output": "foundation",
+          "path": "vpcs.platform.id"
+        }
+      }
+    },
+    {
+      "id": "private-registry",
+      "kind": "terraform",
+      "owner": "T7",
+      "description": "플랫폼 비공개 ECR",
+      "dir": "infra/envs/private-registry",
+      "backend": {
+        "file": "${private_dir}/private-registry.backend.hcl"
+      },
+      "var_file": "${private_dir}/private-registry.tfvars.json",
+      "needs": [
+        "platform-aws"
+      ]
+    },
+    {
+      "id": "executor-registry",
+      "kind": "terraform",
+      "owner": "T7",
+      "description": "Executor 이미지 ECR",
+      "dir": "infra/envs/executor-registry",
+      "backend": {
+        "file": "${private_dir}/executor-registry.backend.hcl"
+      },
+      "var_file": "${private_dir}/executor-registry.tfvars.json",
+      "needs": [
+        "platform-aws"
+      ]
+    },
+    {
+      "id": "subscription-runtime",
+      "kind": "terraform",
+      "owner": "T38",
+      "description": "구독 broker 역할",
+      "dir": "infra/envs/subscription-runtime",
+      "backend": {
+        "file": "${private_dir}/subscription-runtime.backend.hcl"
+      },
+      "var_file": "${private_dir}/subscription-runtime.tfvars.json",
+      "needs": [
+        "platform-aws"
+      ]
+    },
+    {
+      "id": "sandbox-session",
+      "kind": "terraform",
+      "owner": "T38",
+      "description": "샌드박스 Docker 호스트 세션",
+      "dir": "infra/envs/sandbox-session",
+      "backend": {
+        "file": "${private_dir}/sandbox-session.backend.hcl"
+      },
+      "var_file": "${private_dir}/sandbox-session.tfvars.json",
+      "needs": [
+        "platform-aws"
+      ]
+    }
+  ]
+}
