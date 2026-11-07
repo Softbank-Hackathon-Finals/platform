@@ -1,0 +1,27 @@
+{{- if .Values.securityFindings.enabled }}
+# T33 findings API. The namespace, its static volume and default-deny come from the cluster builder
+# (infra/envs/platform-security); Secrets stay outside Git. prune is off: the stored findings must not go with a sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-security-findings
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-security-findings
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: services/security-findings/deploy/platform-gitops
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bravo-security
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+{{- end }}
