@@ -102,6 +102,19 @@ Service 주소를 재조회하지 않는 결함도 있다. 이미 설치된 경�
 두 보완은 설치·복구 경계에만 두며 토큰 발급 계정에 관리 권한을 주지 않는다.
 설치 완료는 ProxyGroup Ready·공개 CA TLS·실제 AWS 신원·허용/거부 확인 뒤에 판정한다.
 
+### T31 반영 계정(워크플로 호스트)
+
+같은 발급 경로를 반영 계정 `bravo-apply-access/apply-deployer`에도 쓴다. 발급 프록시는 기존
+`bravo-target-credentials`를 공유하고 새로 만들지 않는다. 등록마다 다른 것은 `render()`의 정책·회수용 Secret·RBAC뿐이며,
+발급 그룹 `tag:bravo-apply`는 이 계정의 토큰만 받는다. tailnet 정책은 기존 `tag:bravo-apply → tag:bravo-target-api:443` 그대로다.
+
+1. 목적지에 `render()` 출력을 설치한다(정책과 binding 먼저). 회수용 Secret의 UID를 `anchor_uid`로 기록한다.
+2. 워크플로 호스트용 ConfigMap(platform-state)에 두 키를 둔다. 비밀 값은 없다.
+   - `registration.json`: `{"registration": …, "anchor_uid": …}`
+   - `kubeconfig`: `credentials.kubeconfig(등록, "/t31/registration.json", "/usr/local/bin/bravo-credential")`의 JSON
+3. runtime values의 `workflowHost.runtime.applyCredential.existingConfigMap`에 이름을 넣는다. `secrets.applyKubeconfig`와 함께 쓰면
+   차트와 bootstrap이 거부한다. bootstrap은 kubeconfig가 위 함수 결과와 같은지(토큰 필드 없음) 확인한다.
+
 발급 실패는 업무 요청을 실행하지 않는 오류다. 자격 발급을 다시 시도하는 것과
 T10의 접수 불명 업무 요청을 재전송하는 것은 다르다. 이 인증 모듈은 업무 접수나
 승인 상태를 바꾸지 않는다. 관리 provisioner의 별도 권한, AWS T15 호스트 조립,

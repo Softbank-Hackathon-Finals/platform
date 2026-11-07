@@ -1,0 +1,198 @@
+diff --git a/api/auth/approle/go.mod b/api/auth/approle/go.mod
+index 943caeb..302e785 100644
+--- a/api/auth/approle/go.mod
++++ b/api/auth/approle/go.mod
+@@ -10,3 +10,3 @@ require (
+ 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
++	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+ 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+@@ -22,3 +22,3 @@ require (
+ 	github.com/ryanuber/go-glob v1.0.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/text v0.43.0 // indirect
+diff --git a/api/auth/approle/go.sum b/api/auth/approle/go.sum
+index b1772d6..0c29191 100644
+--- a/api/auth/approle/go.sum
++++ b/api/auth/approle/go.sum
+@@ -9,2 +9,3 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
+ github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
++github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+ github.com/go-test/deep v1.1.1 h1:0r/53hagsehfO4bzD2Pgr/+RgHqhmf+k1Bpse2cTu1U=
+@@ -46,2 +47,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+diff --git a/api/auth/jwt/go.mod b/api/auth/jwt/go.mod
+index 8df8b6f..2d504c5 100644
+--- a/api/auth/jwt/go.mod
++++ b/api/auth/jwt/go.mod
+@@ -21,3 +21,3 @@ require (
+ 	golang.org/x/crypto v0.58.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/text v0.43.0 // indirect
+diff --git a/api/auth/jwt/go.sum b/api/auth/jwt/go.sum
+index 956fd7e..bf586ea 100644
+--- a/api/auth/jwt/go.sum
++++ b/api/auth/jwt/go.sum
+@@ -67,2 +67,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+diff --git a/api/auth/kubernetes/go.mod b/api/auth/kubernetes/go.mod
+index 6ee5d48..7f7ad21 100644
+--- a/api/auth/kubernetes/go.mod
++++ b/api/auth/kubernetes/go.mod
+@@ -10,3 +10,3 @@ require (
+ 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
++	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+ 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+@@ -22,3 +22,3 @@ require (
+ 	github.com/ryanuber/go-glob v1.0.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/text v0.43.0 // indirect
+diff --git a/api/auth/kubernetes/go.sum b/api/auth/kubernetes/go.sum
+index b1772d6..0c29191 100644
+--- a/api/auth/kubernetes/go.sum
++++ b/api/auth/kubernetes/go.sum
+@@ -9,2 +9,3 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
+ github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
++github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+ github.com/go-test/deep v1.1.1 h1:0r/53hagsehfO4bzD2Pgr/+RgHqhmf+k1Bpse2cTu1U=
+@@ -46,2 +47,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+diff --git a/api/auth/ldap/go.mod b/api/auth/ldap/go.mod
+index 78357b8..d8c7763 100644
+--- a/api/auth/ldap/go.mod
++++ b/api/auth/ldap/go.mod
+@@ -10,3 +10,3 @@ require (
+ 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
++	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+ 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+@@ -22,3 +22,3 @@ require (
+ 	github.com/ryanuber/go-glob v1.0.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/text v0.43.0 // indirect
+diff --git a/api/auth/ldap/go.sum b/api/auth/ldap/go.sum
+index b1772d6..0c29191 100644
+--- a/api/auth/ldap/go.sum
++++ b/api/auth/ldap/go.sum
+@@ -9,2 +9,3 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
+ github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
++github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+ github.com/go-test/deep v1.1.1 h1:0r/53hagsehfO4bzD2Pgr/+RgHqhmf+k1Bpse2cTu1U=
+@@ -46,2 +47,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+diff --git a/api/auth/userpass/go.mod b/api/auth/userpass/go.mod
+index b922c3a..784c6b1 100644
+--- a/api/auth/userpass/go.mod
++++ b/api/auth/userpass/go.mod
+@@ -10,3 +10,3 @@ require (
+ 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
++	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+ 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+@@ -22,3 +22,3 @@ require (
+ 	github.com/ryanuber/go-glob v1.0.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/text v0.43.0 // indirect
+diff --git a/api/auth/userpass/go.sum b/api/auth/userpass/go.sum
+index b1772d6..0c29191 100644
+--- a/api/auth/userpass/go.sum
++++ b/api/auth/userpass/go.sum
+@@ -9,2 +9,3 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
+ github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
++github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+ github.com/go-test/deep v1.1.1 h1:0r/53hagsehfO4bzD2Pgr/+RgHqhmf+k1Bpse2cTu1U=
+@@ -46,2 +47,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+diff --git a/api/go.mod b/api/go.mod
+index 224e512..43f2d91 100644
+--- a/api/go.mod
++++ b/api/go.mod
+@@ -21,3 +21,3 @@ require (
+ 	github.com/stretchr/testify v1.12.1
+-	golang.org/x/net v0.61.0
++	golang.org/x/net v0.62.0
+ 	golang.org/x/time v0.15.0
+diff --git a/api/go.sum b/api/go.sum
+index f36f88a..2d9fd19 100644
+--- a/api/go.sum
++++ b/api/go.sum
+@@ -57,2 +57,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sys v0.0.0-20200116001909-b77594299b42/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+diff --git a/go.mod b/go.mod
+index 86bf2ce..09c7631 100644
+--- a/go.mod
++++ b/go.mod
+@@ -131,3 +131,3 @@ require (
+ 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96
+-	golang.org/x/net v0.61.0
++	golang.org/x/net v0.62.0
+ 	golang.org/x/oauth2 v0.36.0
+diff --git a/go.sum b/go.sum
+index 6bbb62b..9c571c0 100644
+--- a/go.sum
++++ b/go.sum
+@@ -890,2 +890,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
+diff --git a/sdk/go.mod b/sdk/go.mod
+index 17fbc7e..dc164af 100644
+--- a/sdk/go.mod
++++ b/sdk/go.mod
+@@ -52,3 +52,3 @@ require (
+ 	golang.org/x/crypto v0.58.0
+-	golang.org/x/net v0.61.0
++	golang.org/x/net v0.62.0
+ 	golang.org/x/text v0.43.0
+diff --git a/sdk/go.sum b/sdk/go.sum
+index 50b2dd7..cdd27d7 100644
+--- a/sdk/go.sum
++++ b/sdk/go.sum
+@@ -284,2 +284,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/sync v0.0.0-20181108010431-42b317875d0f/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+diff --git a/tools/go.mod b/tools/go.mod
+index caf7a95..1012980 100644
+--- a/tools/go.mod
++++ b/tools/go.mod
+@@ -247,3 +247,3 @@ require (
+ 	golang.org/x/mod v0.42.0 // indirect
+-	golang.org/x/net v0.61.0 // indirect
++	golang.org/x/net v0.62.0 // indirect
+ 	golang.org/x/sync v0.24.0 // indirect
+diff --git a/tools/go.sum b/tools/go.sum
+index 271dc53..38c1e69 100644
+--- a/tools/go.sum
++++ b/tools/go.sum
+@@ -664,2 +664,4 @@ golang.org/x/net v0.61.0 h1:RR+6j/BTBCrggOLugxa+66R8FvoN6MHlzDlZIbN9YFw=
+ golang.org/x/net v0.61.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=

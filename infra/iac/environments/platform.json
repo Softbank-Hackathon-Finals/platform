@@ -36,6 +36,14 @@
                 "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-rehearsal-control",
+                "destination": "bravo-target-credentials",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
               }
             ]
           },
@@ -50,6 +58,13 @@
                 "labels": {
                   "bravo.dev/target-api-client": "apply"
                 }
+              },
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-workflow-host",
+                  "bravo.dev/target-api-client": "apply"
+                }
               }
             ],
             "routes": [
@@ -57,6 +72,14 @@
                 "service": "target-api",
                 "namespace": "bravo-apply-control",
                 "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-apply-control",
+                "destination": "bravo-target-credentials",
                 "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
@@ -148,6 +171,25 @@
                 "port": 443,
                 "port_name": "https"
               }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-platform-operator",
+        "proxy_tag": "tag:bravo-platform-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_groups": [
+              "autogroup:admin",
+              "autogroup:owner"
             ]
           }
         ]

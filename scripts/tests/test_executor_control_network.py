@@ -56,11 +56,13 @@ def ingress_permits(policy, namespace, labels, protocol, port):
 
 
 class RouteBoundaryTests(unittest.TestCase):
-    def test_platform_operator_uses_precreated_credentials_without_api_proxy(self):
+    def test_platform_operator_uses_precreated_credentials_and_an_auth_mode_api_proxy(self):
         values = render.values()
         self.assertEqual(values["oauth"], {"clientId": "", "clientSecret": ""})
         self.assertEqual(values["oauthSecretVolume"], {"secret": {"secretName": "operator-oauth"}})
-        self.assertEqual(values["apiServerProxyConfig"], {"mode": "false", "allowImpersonation": "false"})
+        # Auth mode only: the proxy impersonates the group a tailnet grant names; noauth would pass the
+        # operator's own rights through to every tailnet caller.
+        self.assertEqual(values["apiServerProxyConfig"], {"mode": "true", "allowImpersonation": "false"})
         self.assertEqual(values["operatorConfig"]["defaultTags"], ["tag:bravo-platform-operator"])
         self.assertEqual(values["proxyConfig"]["defaultTags"], "tag:bravo-cutover-control")
         for image in (values["operatorConfig"]["image"], values["proxyConfig"]["image"]):
@@ -241,11 +243,11 @@ class ProxyIngressBoundaryTests(unittest.TestCase):
                                  [{"protocol": "UDP", "port": port} for port in sorted(ports)])
 
     def test_route_stages_are_refused_because_the_iac_module_owns_them(self):
-        for stage in ("routes", "network", "proxy-ingress"):
+        for stage in ("routes", "network", "proxy-ingress", "pooler-ingress"):
             err = io.StringIO()
             with self.subTest(stage=stage), patch.object(render.sys, "stderr", err), \
                     self.assertRaises(SystemExit) as error:
-                render.main([stage, "--transport-port", "46000"])
+                render.main([stage, "--transport-port", "46000", "--side", "source"])
             self.assertEqual(error.exception.code, 2)
             self.assertIn("infra/iac/environments", err.getvalue())
         policy = render.proxy_ingress(observed_services(), False, transport_ports=[46000, 45000])

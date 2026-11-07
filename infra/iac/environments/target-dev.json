@@ -38,6 +38,113 @@
                 "port_name": "otlp"
               }
             ]
+          },
+          {
+            "name": "bravo-target-replication",
+            "tag": "tag:bravo-target-replication",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "target-dev",
+                "labels": {
+                  "cnpg.io/cluster": "target-db"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-db-for-replication",
+                "namespace": "target-dev",
+                "destination": "bravo-source-db",
+                "destination_tag": "tag:bravo-source-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
+          },
+          {
+            "name": "bravo-target-pooler",
+            "tag": "tag:bravo-target-pooler",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "target-dev",
+                "labels": {
+                  "app": "target-pgbouncer"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-db-for-pooler",
+                "namespace": "target-dev",
+                "destination": "bravo-source-db",
+                "destination_tag": "tag:bravo-source-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-target-operator",
+        "devices": [
+          {
+            "service": "target-db-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-db",
+            "tag": "tag:bravo-target-db",
+            "selector": {
+              "cnpg.io/cluster": "target-db",
+              "cnpg.io/instanceRole": "primary"
+            },
+            "ports": [
+              {
+                "name": "postgres",
+                "port": 5432,
+                "target_port": 5432
+              }
+            ]
+          },
+          {
+            "service": "target-control-pooler-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-control-pooler",
+            "tag": "tag:bravo-target-control-pooler",
+            "selector": {
+              "app": "target-pgbouncer"
+            },
+            "ports": [
+              {
+                "name": "pooler",
+                "port": 6432,
+                "target_port": 5432
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-target-operator",
+        "proxy_tag": "tag:bravo-target-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_groups": [
+              "autogroup:admin",
+              "autogroup:owner"
+            ]
           }
         ]
       }

@@ -1,6 +1,6 @@
 # T12 platform state DB network path
 
-> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`routes`·`network`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: `values`·`pooler-ingress`.
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`routes`·`network`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. `pooler-ingress`(출발지·목적지 제어 Pooler 장치)도 `tailnet-ingress` 모듈로 옮겼다. 남은 것: `values`.
 
 `render.py` creates two additional policies. `platform-state` accepts TCP 5432
 from `bravo-platform` Pods with the exact
@@ -29,14 +29,15 @@ traffic or the Collector's actual denial; verify those from the real callers.
 
 `control_network.py` renders new objects for the Executor's remote DB and
 PgBouncer connections. It does not modify existing app Services, install an
-operator, register nodes, change tailnet ACLs or enable a Kubernetes API proxy.
+operator, register nodes or change tailnet ACLs. The operator values enable the
+platform's Kubernetes API proxy in auth mode only (see `values` below).
 It uses the same chart 1.104.4 and exact operator/proxy image digests as the T8
 network preparation. The chart hash is `CHART_SHA256` in the renderer; verify
 the downloaded archive against it before rendering or installation.
 
 | Stage | Output |
 | --- | --- |
-| `values` | Platform operator values referencing the existing `tailscale-system/operator-oauth` Secret; credential values are empty. API proxy and impersonation are disabled. |
+| `values` | Platform operator values referencing the existing `tailscale-system/operator-oauth` Secret; credential values are empty. The API proxy runs in auth mode (`apiServerProxyConfig.mode: "true"`, never `noauth`): it impersonates the Kubernetes group a tailnet grant names, and the chart adds the `tailscale-auth-proxy` impersonation ClusterRole. Who may use it and with which role is declared in `infra/iac` (`operator-access`, T44). |
 | `pooler-ingress --side source` / `--side target` | New `side-control-pooler-tailnet` Service, TCP 6432 to existing `app=side-pgbouncer` TCP 5432. |
 | `routes` | One `bravo-cutover-control` egress ProxyGroup and four ExternalName Services in `bravo-platform`. |
 | `network` | Executor egress NetworkPolicy derived from current generated Service port mappings supplied as JSON on stdin. |

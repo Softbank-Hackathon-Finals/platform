@@ -28,6 +28,8 @@ class Module:
     render: Callable[[dict], list[dict]]
     exposure: Callable[[dict], dict]  # what callers may reach ("anonymous", "reach"), for widening checks
     grants: Callable[[dict], list[dict]] = lambda params: []  # tailnet grants the module needs
+    # tags the module puts on tailnet devices: [{"tailnet", "tag", "owner"}], for the policy's tagOwners
+    tag_owners: Callable[[dict], list[dict]] = lambda params: []
 
 
 # --- target-object-exposure v1 ---------------------------------------------------------------
@@ -149,7 +151,7 @@ def _egress_check(params: dict) -> dict:
         raise IacError("IAC_PARAMS_INVALID")
     seen_groups, seen_services, checked = set(), set(), []
     for group in groups:
-        _exact(group, ("name", "tag", "clients", "routes"), ("proxy_class", "tailnet"))
+        _exact(group, ("name", "tag", "clients", "routes"), ("proxy_class", "tailnet", "client_policy"))
         name, tag = _name(group["name"]), _tag(group["tag"])
         clients, routes = group["clients"], group["routes"]
         if (name in seen_groups or tag == owner or type(clients) is not list or not 1 <= len(clients) <= 8
@@ -166,6 +168,12 @@ def _egress_check(params: dict) -> dict:
             if _name(group["tailnet"]) == DEFAULT_TAILNET:
                 raise IacError("IAC_PARAMS_INVALID")
             out["tailnet"] = group["tailnet"]
+        if "client_policy" in group:
+            # false: the clients keep their own egress (e.g. CNPG instances, whose backups and
+            # operator calls this module does not know); only the proxy side is restricted to them.
+            if group["client_policy"] is not False:
+                raise IacError("IAC_PARAMS_INVALID")
+            out["client_policy"] = False
         for route in routes:
             _exact(route, ("service", "namespace", "destination", "destination_tag", "port", "port_name"))
             key = (_name(route["namespace"]), _name(route["service"]))
@@ -217,7 +225,7 @@ def _egress_render(params: dict) -> list[dict]:
                                 "tailscale.com/proxy-group": name},
                 "type": "ExternalName", "externalName": "placeholder",
                 "ports": [{"name": route["port_name"], "port": route["port"], "protocol": "TCP"}]}})
-        for namespace in sorted({c["namespace"] for c in group["clients"]}):
+        for namespace in sorted({c["namespace"] for c in group["clients"]} if group.get("client_policy", True) else ()):
             selectors = [c["labels"] for c in group["clients"] if c["namespace"] == namespace]
             for index, labels in enumerate(selectors):
                 out.append({"kind": "NetworkPolicy", "namespace": namespace,
@@ -244,12 +252,22 @@ def _egress_grants(params: dict) -> list[dict]:
     return [{"tailnet": net, "src": [src], "dst": [dst], "ip": [f"tcp:{port}"]} for net, src, dst, port in pairs]
 
 
+def _client(c: dict) -> str:
+    return f'{c["namespace"]}/{",".join(f"{k}={v}" for k, v in c["labels"].items())}'
+
+
 def _egress_exposure(params: dict) -> dict:
     # The tailnet is part of the destination: the same host name on another tailnet is another device.
-    reach = sorted({f'{c["namespace"]}/{",".join(f"{k}={v}" for k, v in c["labels"].items())}'
-                    f' -> {r["destination"]}@{tailnet_of(g)}({r["destination_tag"]}):{r["port"]}'
-                    for g in params["groups"] for c in g["clients"] for r in g["routes"]})
-    return {"anonymous": [], "reach": reach, "checks": []}
+    reach = {f'{_client(c)} -> {r["destination"]}@{tailnet_of(g)}({r["destination_tag"]}):{r["port"]}'
+             for g in params["groups"] for c in g["clients"] for r in g["routes"]}
+    # Dropping a group's client policy lets those clients reach anything else: a widening.
+    reach |= {f"{_client(c)} -> * (egress not isolated by {g['name']})"
+              for g in params["groups"] if g.get("client_policy") is False for c in g["clients"]}
+    return {"anonymous": [], "reach": sorted(reach), "checks": []}
+
+
+def _egress_owners(params: dict) -> list[dict]:
+    return [{"tailnet": tailnet_of(g), "tag": g["tag"], "owner": params["owner_tag"]} for g in params["groups"]]
 
 
 TAILNET_EGRESS = Module(
@@ -266,4 +284,166 @@ TAILNET_EGRESS = Module(
     render=_egress_render,
     exposure=_egress_exposure,
     grants=_egress_grants,
+    tag_owners=_egress_owners,
+)
+
+
+# --- tailnet-ingress v1 -----------------------------------------------------------------------
+# In-cluster workloads exposed to the tailnet as their own devices: one Service per device with
+# the Tailscale operator's expose annotations (hostname, tag), a selector and ports. Who may reach
+# a device is decided by the consumers' egress grants (tailnet-egress), not here; this module owns
+# the device tag (tagOwners: the cluster operator's tag) and what the device forwards to.
+def _ingress_check(params: dict) -> dict:
+    _exact(params, ("owner_tag", "devices"))
+    owner, devices = _tag(params["owner_tag"]), params["devices"]
+    if type(devices) is not list or not 1 <= len(devices) <= 16:
+        raise IacError("IAC_PARAMS_INVALID")
+    seen_services, seen_hosts, checked = set(), set(), []
+    for device in devices:
+        _exact(device, ("service", "namespace", "hostname", "tag", "selector", "ports"), ("tailnet",))
+        key = (_name(device["namespace"]), _name(device["service"]))
+        host, tag, ports = _name(device["hostname"]), _tag(device["tag"]), device["ports"]
+        if key in seen_services or host in seen_hosts or tag == owner or type(ports) is not list or not 1 <= len(ports) <= 4:
+            raise IacError("IAC_PARAMS_INVALID")
+        seen_services.add(key)
+        seen_hosts.add(host)
+        out = {"service": key[1], "namespace": key[0], "hostname": host, "tag": tag,
+               "selector": _labels(device["selector"]), "ports": []}
+        if "tailnet" in device:
+            if _name(device["tailnet"]) == DEFAULT_TAILNET:
+                raise IacError("IAC_PARAMS_INVALID")
+            out["tailnet"] = device["tailnet"]
+        for port in ports:
+            _exact(port, ("name", "port", "target_port"))
+            if not all(type(port[k]) is int and 1 <= port[k] <= 65535 for k in ("port", "target_port")):
+                raise IacError("IAC_PARAMS_INVALID")
+            out["ports"].append({"name": _name(port["name"]), "port": port["port"], "target_port": port["target_port"]})
+        if len({p["port"] for p in out["ports"]}) != len(out["ports"]):
+            raise IacError("IAC_PARAMS_INVALID")
+        checked.append(out)
+    return {"owner_tag": owner, "devices": checked}
+
+
+def _ingress_render(params: dict) -> list[dict]:
+    return [{"kind": "Service", "namespace": d["namespace"], "name": d["service"], "shape": {
+        "annotations": {"tailscale.com/expose": "true", "tailscale.com/hostname": d["hostname"],
+                        "tailscale.com/tags": d["tag"]},
+        "selector": d["selector"],
+        "ports": [{"name": p["name"], "port": p["port"], "targetPort": p["target_port"], "protocol": "TCP"}
+                  for p in d["ports"]]}} for d in params["devices"]]
+
+
+def _ingress_exposure(params: dict) -> dict:
+    # What the tailnet can reach in this cluster: a new device, port or wider selector is a widening.
+    reach = sorted({f'tailnet {d["hostname"]}@{tailnet_of(d)}({d["tag"]}):{p["port"]} -> '
+                    f'{d["namespace"]}/{",".join(f"{k}={v}" for k, v in d["selector"].items())}:{p["target_port"]}'
+                    for d in params["devices"] for p in d["ports"]})
+    return {"anonymous": [], "reach": reach, "checks": []}
+
+
+def _ingress_owners(params: dict) -> list[dict]:
+    return [{"tailnet": tailnet_of(d), "tag": d["tag"], "owner": params["owner_tag"]} for d in params["devices"]]
+
+
+TAILNET_INGRESS = Module(
+    id="tailnet-ingress",
+    version="1",
+    description="In-cluster workloads exposed to the tailnet as their own devices (Tailscale operator expose "
+                "Services: hostname, tag, selector, ports). Who may reach them is gated by the consumers' "
+                "tailnet-egress grants.",
+    params={"type": "object", "additionalProperties": False, "required": ["owner_tag", "devices"],
+            "properties": {"owner_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "devices": {"type": "array", "minItems": 1, "maxItems": 16}}},
+    check=_ingress_check,
+    render=_ingress_render,
+    exposure=_ingress_exposure,
+    tag_owners=_ingress_owners,
+)
+
+
+# --- operator-access v1 -----------------------------------------------------------------------
+# People reach a cluster's API only through that cluster's Tailscale API server proxy (operator auth
+# mode: apiServerProxyConfig.mode "true"). The tailnet grant lets a tailnet group reach the proxy and
+# names the Kubernetes group the proxy impersonates; a ClusterRoleBinding gives that group its role.
+# Who is in the tailnet group lives in the tailnet policy, never in this public repository.
+K8S_GROUP_RE = re.compile(r"[a-z][a-z0-9-]{0,30}:[a-z][a-z0-9-]{0,62}")
+# A tailnet group of the policy, or the tailnet role autogroups (admins, the owner). Never autogroup:member.
+TAILNET_GROUP_RE = re.compile(r"group:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?|autogroup:(?:admin|owner)")
+KUBERNETES_CAP = "tailscale.com/cap/kubernetes"
+API_PROXY_PORT = "tcp:443"
+
+
+def _access_check(params: dict) -> dict:
+    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet",))
+    bindings = params["bindings"]
+    if type(bindings) is not list or not 1 <= len(bindings) <= 4:
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"proxy_hostname": _name(params["proxy_hostname"]), "proxy_tag": _tag(params["proxy_tag"]), "bindings": []}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    for binding in bindings:
+        _exact(binding, ("name", "group", "cluster_role", "tailnet_groups"))
+        name, group, sources = _name(binding["name"]), binding["group"], binding["tailnet_groups"]
+        # system:* groups (system:masters above all) are never impersonated: RBAC decides every right.
+        if (not isinstance(group, str) or not K8S_GROUP_RE.fullmatch(group) or group.startswith("system:")
+                or type(sources) is not list or not 1 <= len(sources) <= 4 or len(set(map(str, sources))) != len(sources)
+                or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in sources)
+                or any(b["name"] == name or b["group"] == group for b in out["bindings"])):
+            raise IacError("IAC_PARAMS_INVALID")
+        role = _name(binding["cluster_role"])
+        # roleRef is immutable: a role change must be a new binding, so the name is the group and the role.
+        if name != group.replace(":", "-") + "-" + role:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["bindings"].append({"name": name, "group": group, "cluster_role": role,
+                                "tailnet_groups": sorted(sources)})
+    return out
+
+
+def _access_render(params: dict) -> list[dict]:
+    # A binding grants its role; whoever creates it needs that role (RBAC escalation). The network
+    # Application never gets it: a cluster administrator applies these (chart.held_objects).
+    return [{"kind": "ClusterRoleBinding", "namespace": "-", "name": b["name"], "applier": "cluster-admin", "shape": {
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": b["cluster_role"]},
+        "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": b["group"]}]}}
+        for b in params["bindings"]]
+
+
+def _access_grants(params: dict) -> list[dict]:
+    # One grant both opens the proxy port and tells the proxy which Kubernetes group to impersonate.
+    return [{"tailnet": tailnet_of(params), "src": [src], "dst": [params["proxy_tag"]],
+             "ip": [API_PROXY_PORT], "app": {KUBERNETES_CAP: [{"impersonate": {"groups": [b["group"]]}}]}}
+            for b in params["bindings"] for src in b["tailnet_groups"]]
+
+
+def _access_exposure(params: dict) -> dict:
+    # A new binding, another role or another tailnet group is a widening; removing a binding is not.
+    reach = sorted(f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
+                   f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"] for src in b["tailnet_groups"])
+    return {"anonymous": [], "reach": reach, "checks": []}
+
+
+OPERATOR_ACCESS = Module(
+    id="operator-access",
+    version="1",
+    description="People reach the cluster API through its Tailscale API server proxy: per binding, a "
+                "ClusterRoleBinding of one Kubernetes group and the tailnet grant that lets a tailnet group "
+                "reach the proxy and be impersonated as that group.",
+    params={"type": "object", "additionalProperties": False, "required": ["proxy_hostname", "proxy_tag", "bindings"],
+            "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
+                           "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "bindings": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                               "type": "object", "additionalProperties": False,
+                               "required": ["name", "group", "cluster_role", "tailnet_groups"],
+                               "properties": {"name": {"type": "string", "pattern": NAME_RE.pattern},
+                                              "group": {"type": "string", "pattern": K8S_GROUP_RE.pattern},
+                                              "cluster_role": {"type": "string", "pattern": NAME_RE.pattern},
+                                              "tailnet_groups": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                                                  "type": "string", "pattern": TAILNET_GROUP_RE.pattern}}}}}}},
+    check=_access_check,
+    render=_access_render,
+    exposure=_access_exposure,
+    grants=_access_grants,
 )

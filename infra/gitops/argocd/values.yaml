@@ -6,6 +6,8 @@ initialProposal:
   enabled: false
   # Public broker CA certificate only; the broker key never enters Git or values.
   brokerCaPem: ""
+  # Existing registry pull Secret in bravo-initial (kubelet only; the Job container gets no Secret).
+  registry: platform-ghcr-reader
 workflowHost:
   enabled: false
   # Protected operator input: existing config/claim/Secret references only (ADR-0031).
@@ -15,6 +17,14 @@ rehearsalHost:
   enabled: false
   # Protected operator input: existing config/claim/Secret references only.
   runtime: {}
+
+iacNetwork:
+  # T44 platform tailnet routes (infra/iac/charts/platform). Needs the reviewed commit SHA and the
+  # tailnet suffixes (never committed) and the controller permissions noted in the template.
+  enabled: false
+  targetRevision: ""
+  tailnet: ""
+  tailnets: {}
 
 registration:
   enabled: false
