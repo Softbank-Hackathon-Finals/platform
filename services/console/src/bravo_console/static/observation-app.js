@@ -80,6 +80,8 @@ const renderer = createWorkloadRenderer(graph, {
   },
 });
 function draw() {
+  host.dataset.observationRevision = current ? String(current.revision) : "";
+  host.dataset.observationSource = current?.source_revision ?? "";
   environments.replaceChildren();
   for (const env of current?.environments ?? [])
     environments.append(
