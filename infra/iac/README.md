@@ -145,6 +145,10 @@ python3 infra/iac/customer_status.py --kubeconfig <고객 전용 kubeconfig> \
 GitOps 수렴 확인만 기록하며 `authorizes_cutover`, `migration_verified`, `control_equivalence_verified`는 항상 false다.
 T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요하다.
 
+차트 0.2.0의 격리된 arm64 설치·정지·고정 SHA 동기화와 실제 온프렘의 읽기 전용 인수 결과는
+[고객 GitOps 검증 기록](../../docs/evidence/t44-customer-gitops-2026-11-07/README.md)에 있다.
+현재 실제 고객 설치 완료를 뜻하지 않는다.
+
 **로컬 실클러스터 확인(2026-11-07, kind v1.34.0, 운영 클러스터 아님)**: Tailscale 1.104.4 CRD만 설치(operator 없음) →
 위 설치 명령 2회(`environment=platform`, `tailnet=example-tail.ts.net`, 기능 브랜치) → Argo가 GitHub에서 끌어와 `4bc41c87`을
 Synced/Healthy로 적용했다(namespace 5, ProxyGroup 4, ExternalName Service 7: FQDN에 설치 값만 들어감, NetworkPolicy 9:
