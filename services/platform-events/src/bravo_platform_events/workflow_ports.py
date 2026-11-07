@@ -14,7 +14,8 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                  "auto": {"state_dir": "/workflow-state/initial-operator", "relay_config": "/workflow/relay.json",
                           "catalog_root": "/catalog",
                           "gitops_image": "/workflow/product-reader-image.json", "plans": ["<plan id>"]}},
-     "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory"},
+     "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory",
+               "target_controls": "/workflow/target-controls.json"},
      "application": "module:factory"}
 
 `executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
@@ -169,7 +170,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
         preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, delegations)
     if "watch" in config:
         watch = config["watch"]
-        if set(watch) != {"profile_file", "retest"}:
+        if set(watch) - {"target_controls"} != {"profile_file", "retest"}:
             raise ValueError("workflow_watch_configuration_invalid")
         profile = json.loads(_path(watch["profile_file"]).read_text())
         observe = sli_observer(profile)
@@ -178,6 +179,14 @@ def create_ports(store, config_file="/workflow/ports.json"):
             from .workflow_stages import watch_fail_preparer
 
             preparers["WATCH"] = watch_fail_preparer(store, observe, readers.pop("WATCH"))
+        if "target_controls" in watch:
+            # ADR-0041: the platform records the post-cutover target T14 run the retest compares.
+            from .target_controls import create as target_controls
+            from .target_controls import watch_preparer
+
+            reader = readers.pop("WATCH", None)
+            inner = preparers.pop("WATCH", None) or (lambda *_: reader)
+            preparers["WATCH"] = watch_preparer(target_controls(store, _path(watch["target_controls"])), inner)
     if "application" in config:
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
         # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's

@@ -37,6 +37,7 @@
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
 | 5절 데모 3 · AUD-01.1을 중앙 전달 전까지 CNPG primary 자체 로그(pods/log)에서 검색(T34·T14) | [0037 AUD-01.1 파드 로그 원천](0037-aud-login-pod-log-source.md) |
+| 6장 S5 · WATCH 재시험의 컷오버 뒤 목적지 T14 run을 플랫폼 신원이 클러스터 밖에서 수집(T10·T14) | [0041 컷오버 뒤 목적지 T14 수집](0041-post-cutover-target-controls.md) |
 | T21 · SOVA MCP 위치·신원·도구 경계·사람 전용 범위 | [0040 SOVA MCP 표면](0040-sova-mcp-surface.md) |
 | 8.4 T19 게이트 서명 키를 플랫폼이 AWS KMS Ed25519로 보관, workflow host가 워크로드 신원으로 서명(T19·T49) | [0038 플랫폼 게이트 서명 키](0038-platform-gate-signing-key.md) |
 | T21 · 앱 배포 엔진(RAILSHOT 이식)을 별도 파드로, CI는 일회성 러너 | [0048 SOVA Deploy](0048-sova-deploy-railshot-engine.md) |

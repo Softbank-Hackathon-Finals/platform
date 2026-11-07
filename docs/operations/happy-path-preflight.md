@@ -17,6 +17,10 @@
 
 - 워크플로 호스트는 자기 주체(`workflow-host`)로 T31 반영을 접수한다. 이 주체에 `read`·`apply_change`를 계획별로
   부여한다(`set_permissions`). 원래 승인자는 `approve_change`로 다시 확인되므로 승인과 반영은 분리된다.
+- WATCH에서 플랫폼이 컷오버 뒤 목적지 T14 run을 기록하면(#765, [ADR-0041](../adr/0041-post-cutover-target-controls.md)) 같은
+  주체에 `gate:record`를 더한다. `set_permissions`는 권한 집합을 **통째로 바꾼다**. 그래서 그 계획의 최신 grant
+  (revision N, 권한 P)를 먼저 읽고 `permissions = P ∪ {"gate:record"}`, `expected_revision = N`으로 부른다.
+  `gate:record`만 넣으면 `read`·`apply_change`가 사라진다. 권한이 없으면 생산자가 `forbidden`이 되고 WATCH는 UNKNOWN에서 기다린다.
 - AWAIT_APPROVAL → SHIFT는 사람의 SHIFT 승인(`approve_shift`)이 필요하다. 콘솔에 아직 버튼이 없으면 운영 API
   `/v1/plans/{id}/approvals`(`approval_kind: shift`)로 한다. 실행기 `s3-shift-approval`.
 - Job 주체(`b3d65883…`)의 T10 initial grant를 둔 뒤 `run.py fence → admit → start → collect` 순서로 한다.
