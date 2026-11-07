@@ -236,8 +236,9 @@ def test_install_takes_the_model_from_the_environment_config_only():
     encoded = next(part for part in openai.split("'") if part.startswith("eyJ"))
     assert _json.loads(base64.b64decode(encoded))["openai_key_file"] == module.OPENAI_KEY_CREDENTIAL
     assert f"test -r {module.OPENAI_KEY_SOURCE}" in openai and f"LoadCredential=openai.key:{module.OPENAI_KEY_SOURCE}" in openai
+    plan = module.installation(RUNTIME, "d" * 64, settings, {"provider": "chatgpt-plan", "model": "gpt-test"})
     assert "openai_key_file" not in _json.loads(base64.b64decode(next(
-        part for part in script.split("'") if part.startswith("eyJ"))))
+        part for part in plan.split("'") if part.startswith("eyJ")))) and "openai-key.conf" not in plan
 
 
 
