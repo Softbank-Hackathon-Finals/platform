@@ -31,7 +31,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 ## 역할 분담
 
-**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (10개, P0 7개)
+**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (11개, P0 7개)
 - `T1` AWS 기반: 권한 · VPC 2개 · 비용 태그 (P0)
 - `T6` 출발지: EKS + CNPG + PgBouncer + ESO (P0)
 - `T7` 플랫폼 클러스터 (EC2 + RKE2) + Actions OIDC (P0)
@@ -42,6 +42,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T27` Exit Drill (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
 - `T50` GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull (P2)
+- `T48` tailnet 합류 · 정책 · 분리의 코드화: Tailscale 워크로드 신원 연합(WIF) (P1)
 
 **김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (6개, P0 5개)
 - `T2` 온프렘 RKE2 (Ubuntu VM, CIS) + 공통 cloud-init (P0)
@@ -1019,8 +1020,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 실제 GCP 프로젝트에서 터미널 몇 줄로 목적지(RKE2·GKE)를 펼치고 접는다. 들어오는 길은 IAM이 정하는 경로뿐이고, 이미지는 저장된 비밀 없이 digest로 pull하며, tailnet에는 장기 secret 없이 합류한다. AWS 플랫폼 RKE2가 이 목적지로 데이터·보안 해피패스를 끝까지 실행한다.
 
 **할 일**
-- [ ] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
-- [ ] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
+- [x] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
+- [x] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
 - [ ] GKE env·mock 시험(private 노드·endpoint, IAM DNS endpoint, Workload Identity, Dataplane V2)과 실측(공개 발급자, Pod의 metadata 은닉)
 - [ ] T48 WIF로 tailnet 합류: 환경 조각의 태그 소유자, 연합 신원, T45 Tailscale 단계를 WIF 값과 합류 관찰 확인으로 바꾸기
 - [ ] AWS 플랫폼 RKE2가 EKS 출발지 → GCP 목적지(GKE·GCE RKE2)로 데이터·보안 해피패스를 실행하고, 장애 시나리오(스플릿 브레인·epoch·lease·소유 인계·펜스) 영수증을 보존
