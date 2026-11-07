@@ -277,6 +277,24 @@ class AccessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 access.target_apply(ns, "demo-chat")
 
+    def test_exposure_adds_only_the_named_bucket_secret_and_store(self):
+        role = next(x for x in access.target_apply("target-fixture", "demo-chat", exposure=True) if x["kind"] == "Role")
+        for verb in ["get", "update"]:
+            self.assertTrue(allowed(role, verb, "secrets", "", "target-seaweedfs-auth"))
+        for verb in ["get", "watch", "patch"]:
+            self.assertTrue(allowed(role, verb, "deployments", "apps", "target-seaweedfs"))
+        for verb, resource, group, target in [
+            ("get", "secrets", "", "target-app-credentials"),  # never the app's own credentials
+            ("list", "secrets", "", ""),
+            ("delete", "secrets", "", "target-seaweedfs-auth"),
+            ("create", "secrets", "", ""),
+            ("delete", "deployments", "apps", "target-seaweedfs"),
+            ("patch", "deployments", "apps", "target-db"),
+        ]:
+            self.assertFalse(allowed(role, verb, resource, group, target))
+        default = next(x for x in access.target_apply("target-fixture", "demo-chat") if x["kind"] == "Role")
+        self.assertFalse(allowed(default, "get", "secrets", "", "target-seaweedfs-auth"))  # opt-in only
+
     def test_kubeconfig_preserves_service_dns_and_tls_identity_without_secret(self):
         obj = access.kubeconfig(
             "apply", "target-api.example.ts.net", "/credentials/token"
