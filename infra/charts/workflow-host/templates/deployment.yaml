@@ -26,6 +26,8 @@ spec:
         app.kubernetes.io/name: t10-workflow-host
         component: platform
         bravo.dev/db-client: runtime
+        # T31 apply: a declared client of bravo-apply-egress (infra/iac/environments/platform.json).
+        bravo.dev/target-api-client: apply
       annotations:
         bravo.dev/reviewed-source: {{ .Values.sourceRevision | quote }}
         bravo.dev/config-sha256: {{ .Values.configuration.sha256 | quote }}
