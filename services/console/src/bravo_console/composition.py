@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from .app import ConsoleApp
 from .audit import PlanAudit, t24_reader
+from .delivery import PlanDelivery
 from .operation_reads import T10Operations
 from .workload import PlanWorkload
 from .workspace_data import AuditPanel, PlanWorkspace, RegisteredPanelSource, T37Details
@@ -45,6 +46,7 @@ def compose_console(
     authorize_network=None,
     network_registration=None,
     workload=None,
+    delivery=None,
 ):
     """`api` must be the native T10 app using these same service instances/store.
 
@@ -55,6 +57,8 @@ def compose_console(
     """
     if workload is not None and (type(workload) is not PlanWorkload or workload.api is not api):
         raise ValueError("workload_provider_requires_same_t10_api")
+    if delivery is not None and (type(delivery) is not PlanDelivery or delivery.api is not api):
+        raise ValueError("delivery_provider_requires_same_t10_api")
     sources = {}
     for feature, loader in (registered_loaders or {}).items():
         if feature not in set(FEATURES) - {"audit", "monitoring"}:
@@ -105,4 +109,5 @@ def compose_console(
         workspace=workspace,
         network=network,
         workload=workload,
+        delivery=delivery,
     )
