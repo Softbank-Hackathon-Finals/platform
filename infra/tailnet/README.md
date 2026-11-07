@@ -43,11 +43,11 @@ uv run bravo-iac tailnet-merge --policy <현재 정책 JSON> [--tailnet workload
 
 Tailscale 자격은 GitHub에 저장하지 않는다. job의 GitHub OIDC 토큰을 Tailscale [workload identity federation](https://tailscale.com/docs/features/workload-identity-federation)으로 짧은 API 토큰과 바꾼다. tailnet마다:
 
-1. 관리 콘솔 Trust credentials에서 GitHub 발급자(`https://token.actions.githubusercontent.com`)를 믿는 연합 신원 둘을 만든다.
-   - 계획용: subject `repo:Softbank-Hackathon-Finals/platform:environment:tailnet-policy-plan`, 범위 `policy_file:read`
-   - 적용용: subject `repo:Softbank-Hackathon-Finals/platform:environment:tailnet-policy`, 범위 `policy_file`, 사용자 claim `ref` = `refs/heads/develop`. PR이 워크플로를 고쳐 적용 환경 이름을 써도 ref가 다르면 토큰을 받지 못한다.
+1. 관리 콘솔 Trust credentials에서 GitHub 발급자(`https://token.actions.githubusercontent.com`)를 믿는 연합 신원 둘을 만든다. 이 저장소의 OIDC subject는 ID 고정 형식이다(`gh api repos/Softbank-Hackathon-Finals/platform/actions/oidc/customization/sub`의 `sub_claim_prefix`). 이름 형식(`repo:Softbank-Hackathon-Finals/platform:...`)으로 만들면 토큰 교환이 거부된다.
+   - 계획용: subject `repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:environment:tailnet-policy-plan`, 범위 `policy_file:read`
+   - 적용용: subject `repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:environment:tailnet-policy`, 범위 `policy_file`, 사용자 claim `ref` = `refs/heads/develop`. PR이 워크플로를 고쳐 적용 환경 이름을 써도 ref가 다르면 토큰을 받지 못한다.
 2. 저장소 Actions **변수**(비밀이 아니다)를 넣는다. `<KEY>`는 `DEFAULT` 또는 `WORKLOAD`다.
-   - `TAILNET_POLICY_NAME_<KEY>`: tailnet 조직 이름. `-`는 쓰지 않는다. 다른 tailnet의 토큰이면 읽기부터 거부된다.
+   - `TAILNET_POLICY_NAME_<KEY>`: tailnet 조직 이름 또는 tailnet ID(콘솔 Settings → General). `-`는 쓰지 않는다. 다른 tailnet의 토큰이면 읽기부터 거부된다.
    - `TAILNET_POLICY_PLAN_CLIENT_<KEY>`, `TAILNET_POLICY_APPLY_CLIENT_<KEY>`: 위 두 신원의 client ID
 3. 저장소 Environments에서 `tailnet-policy`의 배포 브랜치를 `develop`만 허용한다.
 
