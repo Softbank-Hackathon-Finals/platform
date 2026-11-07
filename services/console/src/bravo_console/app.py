@@ -6,11 +6,12 @@ This wrapper adds same-origin browser protections, never authentication by heade
 
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from .observations import ObservationError
+from .wire import object_document
 
 ASSETS = {
     "/console/": ("index.html", "text/html"),
@@ -20,8 +21,34 @@ ASSETS = {
     "/console/recovery.js": ("recovery.js", "text/javascript"),
     "/console/registration.js": ("registration.js", "text/javascript"),
     "/console/audit.js": ("audit.js", "text/javascript"),
+    "/console/workspace.js": ("workspace.js", "text/javascript"),
+    "/console/panels.js": ("panels.js", "text/javascript"),
+    "/console/operations.js": ("operations.js", "text/javascript"),
+    "/console/network-workspace.js": ("network-workspace.js", "text/javascript"),
+    "/console/network-workspace.css": ("network-workspace.css", "text/css"),
+    "/console/workload-layout.js": ("workload-layout.js", "text/javascript"),
+    "/console/workload-motion.js": ("workload-motion.js", "text/javascript"),
+    "/console/workload-model.js": ("workload-model.js", "text/javascript"),
+    "/console/workload-scenario.js": ("workload-scenario.js", "text/javascript"),
+    "/console/workload-view.js": ("workload-view.js", "text/javascript"),
+    "/console/workload.css": ("workload.css", "text/css"),
     "/console/style.css": ("style.css", "text/css"),
 }
+NETWORK_ROOT = Path(__file__).parent / "static/network"
+for _asset in NETWORK_ROOT.rglob("*"):
+    if _asset.is_file() and _asset.suffix in {".html", ".js", ".css", ".jpg", ".txt"}:
+        _relative = _asset.relative_to(Path(__file__).parent / "static").as_posix()
+        _mime = {
+            ".html": "text/html",
+            ".js": "text/javascript",
+            ".css": "text/css",
+            ".jpg": "image/jpeg",
+            ".txt": "text/plain",
+        }[_asset.suffix]
+        ASSETS["/console/" + ("network/" if _relative == "network/index.html" else _relative)] = (
+            _relative,
+            _mime,
+        )
 HEADERS = {
     "Cache-Control": "no-store",
     "Pragma": "no-cache",
@@ -34,7 +61,19 @@ HEADERS = {
 
 
 class ConsoleApp:
-    def __init__(self, api, *, public_origin: str, observations=None, controls=None, security=None, audit=None):
+    def __init__(
+        self,
+        api,
+        *,
+        public_origin: str,
+        observations=None,
+        controls=None,
+        security=None,
+        audit=None,
+        workspace=None,
+        network=None,
+        workload=None,
+    ):
         parsed = urlsplit(public_origin)
         if (
             parsed.scheme not in ("https", "http")
@@ -55,12 +94,34 @@ class ConsoleApp:
         self.controls = controls
         self.security = security
         self.audit = audit
+        self.workspace = workspace
+        self.network = network
+        self.workload = workload
         self.assets = {
             path: ((Path(__file__).parent / "static" / name).read_bytes(), mime)
             for path, (name, mime) in ASSETS.items()
         }
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            match = re.fullmatch(
+                r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/network-stream", scope["path"]
+            )
+            pairs = scope.get("headers", [])
+            headers = dict(pairs)
+            if (
+                not match
+                or self.network is None
+                or scope.get("query_string")
+                or any(
+                    sum(k.lower() == name for k, _ in pairs) != 1 for name in (b"host", b"origin")
+                )
+                or headers.get(b"host") != self.host.encode()
+                or headers.get(b"origin") != self.origin.encode()
+                or headers.get(b"sec-fetch-site") == b"cross-site"
+            ):
+                return await send({"type": "websocket.close", "code": 4403})
+            return await self.network.stream(scope, receive, send, match[1])
         if scope["type"] == "lifespan":
             return await self.api(scope, receive, send)
         if scope["type"] != "http":
@@ -76,7 +137,14 @@ class ConsoleApp:
                 scope, receive, send
             )
 
-        for key in (b"host", b"origin", b"content-type", b"content-length", b"x-bravo-console"):
+        for key in (
+            b"host",
+            b"origin",
+            b"content-type",
+            b"content-length",
+            b"x-bravo-console",
+            b"idempotency-key",
+        ):
             if sum(k.lower() == key for k, _ in pairs) > 1:
                 return await reject(400, "ambiguous_headers")
         if headers.get(b"host", b"").decode("latin1") != self.host:
@@ -85,6 +153,17 @@ class ConsoleApp:
             return await reject(403, "cross_site_request")
         if b"origin" in headers and headers[b"origin"].decode("latin1") != self.origin:
             return await reject(403, "origin_mismatch")
+        if path == "/console/network/":
+            if method not in ("GET", "HEAD"):
+                return await reject(405, "method_not_allowed")
+            query = parse_qs(scope.get("query_string", b"").decode("ascii", "replace"))
+            plan = query.get("plan", [None])[0]
+            target = {"view": "network"}
+            if isinstance(plan, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", plan):
+                target["plan"] = plan
+            return await RedirectResponse("/console/?" + urlencode(target), headers=HEADERS)(
+                scope, receive, send
+            )
         if path in ASSETS:
             if method not in ("GET", "HEAD"):
                 return await reject(405, "method_not_allowed")
@@ -100,6 +179,60 @@ class ConsoleApp:
             return await reject(405, "method_not_allowed")
         if method not in ("GET", "POST"):
             return await reject(405, "method_not_allowed")
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/workload", path
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "workload_query_not_allowed")
+            if self.workload is None:
+                return await reject(503, "workload_unconfigured")
+            try:
+                value = await self.workload.read(scope, match[1])
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "workload_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/network-status", path
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "network_query_not_allowed")
+            if self.network is None:
+                return await reject(503, "network_unconfigured")
+            try:
+                value = await self.network.read(scope, match[1])
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "network_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/(workspace|operation-receipts/([A-Za-z0-9][A-Za-z0-9_-]{0,127}))",
+            path,
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "workspace_query_not_allowed")
+            if self.workspace is None:
+                return await reject(503, "workspace_unconfigured")
+            try:
+                if match[3] is None:
+                    value = await self.workspace.read(scope, match[1])
+                elif self.workspace.operations is not None:
+                    value = await self.workspace.operations.lookup(scope, match[1], match[3])
+                else:
+                    return await reject(503, "operations_unconfigured")
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "workspace_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
         if match := re.fullmatch(r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/observations", path):
             if method != "GET":
                 return await reject(405, "method_not_allowed")
@@ -172,6 +305,30 @@ class ConsoleApp:
                 if not message.get("more_body", False):
                     break
             body = b"".join(chunks)
+            if match := re.fullmatch(
+                r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/initial-proposal/(start|collect)",
+                path,
+            ):
+                if self.workspace is None or self.workspace.operations is None:
+                    return await reject(503, "operations_unconfigured")
+                try:
+                    input_document = object_document(body, max_bytes=4096)
+                    operation_key = headers.get(b"idempotency-key", b"").decode("ascii")
+                except (ValueError, UnicodeError):
+                    return await reject(400, "invalid_operation_input")
+                try:
+                    value = await self.workspace.operations.initial_action(
+                        scope,
+                        match[1],
+                        "initial-" + match[2],
+                        input_document,
+                        operation_key,
+                    )
+                except ObservationError as error:
+                    return await reject(error.status, error.code)
+                except Exception:
+                    return await reject(503, "operation_unavailable")
+                return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
             original_receive = receive
             delivered = False
 

@@ -15,6 +15,12 @@ import {
 import { request, stream } from "./transport.js";
 import { recoveryCommand, canResubmit, canRepeatApproval } from "./recovery.js";
 import { mountRegistration } from "./registration.js";
+import { mountWorkspace } from "./workspace.js";
+import { mountPanels } from "./panels.js";
+import { mountOperations } from "./operations.js";
+import { mountNetworkWorkspace } from "./network-workspace.js";
+import { mountWorkload } from "./workload-view.js";
+const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
   generation = 0,
@@ -30,6 +36,32 @@ let pending = null,
   lastHeartbeat = 0,
   refreshBusy = false,
   refreshTimer;
+let extensionBusy = false;
+const networkWorkspace = mountNetworkWorkspace({ getModel: () => model });
+const workload = mountWorkload({
+  getModel: () => model,
+  getControls: () => controls,
+  onForbidden: revokeView,
+});
+const panels = mountPanels({
+  getModel: () => model,
+  onForbidden: revokeView,
+  onUpdate: () => render(),
+});
+const operations = mountOperations({
+  getModel: () => model,
+  getPanel: () => panels.current(),
+  mainPending: () => pending,
+  setBusy: (value) => {
+    extensionBusy = value;
+    render();
+  },
+  refresh: async () => {
+    if (model) await refresh(generation);
+    await panels.refresh(true);
+  },
+  onForbidden: revokeView,
+});
 const names = {
   COLLECT: "조사",
   ANALYZE: "분석",
@@ -82,15 +114,18 @@ function details(id, values) {
 }
 function render() {
   if (!model) return;
+  networkWorkspace.render();
+  workload.render();
   const now = Date.now(),
-    eligible = model.eligible(now),
+    eligible = !extensionBusy && model.eligible(now),
     approvalRetry =
       pending?.retryReady &&
       !pending.running &&
       canRepeatApproval(model, pending, now),
     changeUsable =
-      (!pending && model.changeEligible(now)) ||
-      (pending?.kind === "approve-change" && approvalRetry),
+      !extensionBusy &&
+      ((!pending && model.changeEligible(now)) ||
+        (pending?.kind === "approve-change" && approvalRetry)),
     usable =
       eligible &&
       (!pending ||
@@ -119,6 +154,12 @@ function render() {
   for (const side of ["source", "target"]) {
     const row = observed?.rows.find((r) => r.side === side);
     const fresh = observed && now - observed.at < 15000;
+    text(
+      side + "-rps",
+      fresh && row?.state === "OK" && row.requests_per_second !== null
+        ? String(row.requests_per_second)
+        : "미확인",
+    );
     text(
       side + "-http",
       fresh && row?.state === "OK"
@@ -334,6 +375,31 @@ function render() {
       return li;
     });
   $("history").replaceChildren(...history);
+  workspace.render({
+    snapshot: model.snapshot,
+    observed,
+    connected: model.connected,
+    snapshotAt: model.snapshotAt,
+    now,
+  });
+  panels.render();
+  const traffic = panels.current()?.features.traffic;
+  const values = traffic?.state === "OK" ? traffic.tables[0]?.rows[0] : null;
+  const weights = values && values.slice(0, 2).map(Number);
+  text(
+    "traffic-weight",
+    weights?.every((n) => Number.isInteger(n) && n >= 0 && n <= 100) &&
+      weights[0] + weights[1] === 100
+      ? `출발 ${weights[0]}% / 목적 ${weights[1]}%`
+      : "미연결",
+  );
+  text(
+    "pause",
+    values && Number.isFinite(Number(values[2])) && Number(values[2]) >= 0
+      ? values[2] + " ms"
+      : "미확인",
+  );
+  operations.render();
 }
 function revokeView(error) {
   if (![401, 403].includes(error.status)) return false;
@@ -346,6 +412,10 @@ function revokeView(error) {
   registration.revoke();
   model = new Model(model?.plan ?? "unconnected");
   model.error = "forbidden";
+  panels.clear();
+  workload.clear();
+  operations.revoke();
+  networkWorkspace.clear();
   observed = null;
   controls = null;
   security = null;
@@ -453,6 +523,7 @@ async function refresh(g) {
     if (g === generation) {
       refreshBusy = false;
       render();
+      void panels.refresh();
     }
   }
 }
@@ -505,6 +576,10 @@ async function follow(g) {
   }
 }
 async function connectPlan(plan, recovery = false) {
+  if (!operations.canConnect(plan)) {
+    notice("먼저 같은 운영 요청의 결과를 확인해 주세요.", true);
+    return;
+  }
   if (pending && ((pending.running && !recovery) || pending.plan !== plan)) {
     notice(
       "결과가 확인되지 않은 요청이 있습니다. 먼저 같은 요청의 결과를 확인해 주세요.",
@@ -520,6 +595,8 @@ async function connectPlan(plan, recovery = false) {
   streamController?.abort();
   clearInterval(refreshTimer);
   model = new Model(plan);
+  panels.clear();
+  workload.clear();
   observed = null;
   controls = null;
   security = null;
@@ -566,6 +643,7 @@ $("connect-form").onsubmit = async (e) => {
 };
 $("confirm").onchange = render;
 async function perform() {
+  if (extensionBusy) return;
   if (!pending || pending.running || model.error === "forbidden") return;
   const g = generation,
     current = pending;
@@ -636,6 +714,7 @@ async function perform() {
   }
 }
 $("approve-change").onclick = async () => {
+  if (extensionBusy) return;
   if (
     !$("confirm").checked ||
     (pending
@@ -659,6 +738,7 @@ $("approve-change").onclick = async () => {
   await perform();
 };
 $("approve").onclick = async () => {
+  if (extensionBusy) return;
   if (
     !$("confirm").checked ||
     (pending
@@ -682,6 +762,7 @@ $("approve").onclick = async () => {
   await perform();
 };
 $("execute").onclick = async () => {
+  if (extensionBusy) return;
   if (
     (pending &&
       (!pending.retryReady || !canResubmit(model, pending, Date.now()))) ||
@@ -715,6 +796,7 @@ $("execute").onclick = async () => {
   await perform();
 };
 async function recoverPending() {
+  if (extensionBusy) return;
   if (!pending || pending.running || model.error === "forbidden") return;
   if (["approve", "approve-change"].includes(pending.kind)) {
     const current = pending;
@@ -838,15 +920,25 @@ window.addEventListener("offline", () => {
   }
 });
 window.addEventListener("beforeunload", (e) => {
-  if (pending) {
+  if (pending || operations.pending) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
 window.addEventListener("pagehide", () => {
+  networkWorkspace.clear();
+  workload.clear();
   stopped = true;
   generation++;
   clearInterval(refreshTimer);
   streamController?.abort();
   postController?.abort();
 });
+// Legacy atlas links remain in the same Sova shell. Only authenticated reads run.
+const initialQuery = new URLSearchParams(location.search);
+if (initialQuery.get("view") === "network")
+  document.querySelector('[data-view="network"]').click();
+if (identifier(initialQuery.get("plan"))) {
+  $("plan").value = initialQuery.get("plan");
+  void connectPlan(initialQuery.get("plan"));
+}

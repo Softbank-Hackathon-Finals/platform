@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "lint": "node --check src/bravo_console/static/audit.js && node --check src/bravo_console/static/model.js && node --check src/bravo_console/static/transport.js && node --check src/bravo_console/static/recovery.js && node --check src/bravo_console/static/app.js && node --check src/bravo_console/static/registration.js",
+    "lint": "node --check src/bravo_console/static/model.js && node --check src/bravo_console/static/transport.js && node --check src/bravo_console/static/recovery.js && node --check src/bravo_console/static/app.js && node --check src/bravo_console/static/registration.js && node --check src/bravo_console/static/workspace.js && node --check src/bravo_console/static/panels.js && node --check src/bravo_console/static/operations.js && node --check src/bravo_console/static/network-workspace.js && node --check src/bravo_console/static/workload-layout.js && node --check src/bravo_console/static/workload-motion.js && node --check src/bravo_console/static/workload-model.js && node --check src/bravo_console/static/workload-scenario.js && node --check src/bravo_console/static/workload-view.js && node --check src/bravo_console/static/audit.js",
     "test": "node --test tests/*.test.js",
     "build": "node tests/check-assets.mjs",
     "test:browser": "playwright test"
