@@ -11,6 +11,7 @@
 | UI를 켜는 Argo 값(읽기 전용, 로그인 없음) | `infra/gitops/environments/development/public-entry.json` (bootstrap이 함께 넘긴다) |
 | 플랫폼 노드의 Cloudflare 엣지 7844 바깥 방향 | `infra/envs/platform-aws` SG 규칙 `cloudflare_tunnel` |
 
+- 항목에 `"public": true`를 두면 그 호스트는 Access 없이 열린다(로그인 · origin Access 검사 없음). 플랫폼 Argo(`platform-argocd`)는 2026-11-08 사용자 결정으로 공개다: 읽기 전용 · 로그 없는 viewer라 Application · 프로젝트 상태와 라이브 매니페스트(Secret 값 제외)가 인터넷에 보인다. 보호 항목이 하나도 없으면 조정기가 소유한 Access 앱 · 정책을 지운다.
 - 사람 인증은 Cloudflare Access다. 모든 Tunnel 경로가 origin에서도 Access 토큰을 요구하므로, DNS를 우회한 요청도 Argo에 닿지 않는다.
   Argo 화면은 읽기 전용이고 바꾸는 계정이 없다. 변경은 계속 Git PR → 컨트롤러다.
 - 플랫폼 Argo의 경계는 그대로다: `platform-state`만, 이름으로 묶은 네 객체(Deployment · ConfigMap · NetworkPolicy · ExternalSecret)만,

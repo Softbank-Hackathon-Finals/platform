@@ -56,6 +56,9 @@ class FakeCloudflare:
                 return store[-1]
             if m := re.fullmatch(rf"/accounts/acct/access/{kind}/(\w+)", path):
                 item = next(x for x in store if x["id"] == m[1])
+                if method == "DELETE":
+                    store.remove(item)
+                    return {"id": m[1]}
                 item.update(copy.deepcopy(body))
                 return item
         if path == "/zones/zone/dns_records?type=CNAME":
@@ -155,3 +158,36 @@ def test_token_file_is_rewritten_only_when_it_changes(tmp_path):
     write = file_writer(tmp_path / "token")
     assert write("t1") is True and write("t1") is False and write("t2") is True
     assert (tmp_path / "token").read_text() == "t2" and oct((tmp_path / "token").stat().st_mode)[-3:] == "440"
+
+
+def test_public_entries_leave_access_and_the_origin_check():
+    cf, tokens = FakeCloudflare(), []
+    run(cf, tokens=tokens)
+    opened = copy.deepcopy(SPEC)
+    for e in opened["entries"]:
+        e["public"] = True
+    changed = run(cf, opened, tokens)["changed"]
+    assert {"access_app_removed", "access_policy_removed", "tunnel_route"} <= set(changed)
+    assert cf.apps == [] and cf.policies == []
+    assert all("originRequest" not in r for r in cf.configs["id1"]["ingress"])
+    assert sorted(r["name"] for r in cf.records) == ["demo-chat-01-argocd.example.ai", "platform-argocd.example.ai"]
+    cf.writes.clear()
+    assert run(cf, opened, tokens)["changed"] == [] and cf.writes == []
+
+
+def test_mixed_entries_keep_access_only_on_protected_hosts():
+    cf = FakeCloudflare()
+    mixed = copy.deepcopy(SPEC)
+    mixed["entries"][0]["public"] = True
+    run(cf, mixed)
+    assert [d["uri"] for d in cf.apps[0]["destinations"]] == ["demo-chat-01-argocd.example.ai"]
+    route = {r.get("hostname"): r for r in cf.configs["id1"]["ingress"]}
+    assert "originRequest" not in route["platform-argocd.example.ai"]
+    assert route["demo-chat-01-argocd.example.ai"]["originRequest"]["access"]["required"] is True
+
+
+def test_public_must_be_a_boolean():
+    spec = copy.deepcopy(SPEC)
+    spec["entries"][0]["public"] = "yes"
+    with pytest.raises(Refused):
+        validate(spec)

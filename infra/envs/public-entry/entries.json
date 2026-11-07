@@ -3,6 +3,6 @@
   "tunnel": "bravo-platform-entry",
   "access": {"app": "Bravo platform entry", "policy": "Team Bravo members", "session_duration": "8h"},
   "entries": [
-    {"hostname": "platform-argocd.mangowhois.ai", "service": "http://bravo-gitops-server.bravo-gitops.svc:80"}
+    {"hostname": "platform-argocd.mangowhois.ai", "service": "http://bravo-gitops-server.bravo-gitops.svc:80", "public": true}
   ]
 }
