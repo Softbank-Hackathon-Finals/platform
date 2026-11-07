@@ -27,8 +27,8 @@
       "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
     },
     "tailnet": {
-      "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
-      "enum": ["join", "none"],
+      "description": "목적지가 tailnet에 합류하는 방식. join은 미리 만든 operator-oauth Secret(기존 환경), wif는 T48 연합 신원(ADR-0035, secret 없음), none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
+      "enum": ["join", "wif", "none"],
       "default": "join"
     },
     "iac_revision": {
@@ -50,6 +50,21 @@
       "description": "목적지 demo-chat의 https 공개 주소(경로 없음). realm의 redirect URI와 web origin",
       "pattern": "^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$",
       "required_when": {"param": "login", "in": ["edge"]}
+    },
+    "tailnet_env": {
+      "description": "tailnet 태그의 환경 이름(tag:bravo-<env>-operator · -db, ADR-0035). 기본 target은 기존 target-dev 태그",
+      "pattern": "^[a-z][a-z0-9-]{0,40}$",
+      "default": "target"
+    },
+    "tailscale_client_id": {
+      "description": "tailnet=wif일 때 T48 operator 연합 신원의 client ID(비밀 값 아님). 그 밖에는 -",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "default": "-"
+    },
+    "tailscale_audience": {
+      "description": "tailnet=wif일 때 그 연합 신원의 audience. 그 밖에는 -",
+      "pattern": "^[A-Za-z0-9:/._-]{1,256}$",
+      "default": "-"
     }
   },
   "charts": {
@@ -440,9 +455,10 @@
       "id": "tailscale",
       "kind": "gitops_publish",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
-      "description": "Tailscale operator chart 1.104.4를 올린다",
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
+      "description": "Tailscale operator chart 1.104.4를 올린다. wif는 projected ServiceAccount token을 연합 신원과 교환한다(oauth Secret 없음)",
       "needs": [
+        "base-sync",
         "tailscale-oauth"
       ],
       "path": "tailscale",
@@ -457,7 +473,15 @@
             "args": [
               "values",
               "--side",
-              "target"
+              "target",
+              "--env",
+              "${tailnet_env}",
+              "--auth",
+              "${tailnet}",
+              "--client-id",
+              "${tailscale_client_id}",
+              "--audience",
+              "${tailscale_audience}"
             ]
           },
           "include_crds": true
@@ -468,7 +492,7 @@
       "id": "tailscale-sync",
       "kind": "gitops_sync",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
       "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
       "needs": [
         "tailscale"
@@ -569,6 +593,17 @@
       ],
       "instruction": "target-login이 Ready인 뒤에 연다(먼저 열면 502). target-dev에 Edge Tunnel(infra/envs/edge-tunnels, app=bravo-edge-tunnel)이 연결돼 있는지 확인하고, infra/envs/edge-cloudflare에 hostnames.login=<login_public_url의 호스트>를 넣어 plan → apply한다. 바뀌는 것은 목적지 Tunnel ingress 1건 수정과 DNS 1건 추가뿐이어야 한다. /admin/ · /realms/master/는 404여야 하며, 다르면 hostnames.login을 빼고 다시 apply해 닫는다.",
       "confirm": "login-public"
+    },
+    {
+      "id": "tailscale-joined",
+      "kind": "probe",
+      "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
+      "description": "operator가 tailnet에 로그인했는지 상태 Secret의 키 이름으로 확인한다(값은 읽지 않는다). Synced만으로 합류로 보지 않는다",
+      "needs": [
+        "tailscale-sync"
+      ],
+      "check": "tailscale-joined"
     },
     {
       "id": "openbao-image",
@@ -855,7 +890,7 @@
       "description": "구축 결과를 실제로 확인한다(probes.py · verify.py, login=edge면 로그인 공개 주소 탐침). Synced만으로 완료로 보지 않는다",
       "needs": [
         "app-sync",
-        "tailscale-sync",
+        "tailscale-joined",
         "iac-application-check",
         "login-edge"
       ],

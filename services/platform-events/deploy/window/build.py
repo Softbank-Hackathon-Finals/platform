@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parents[2]
-REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
+REVISION = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63"
 
 
 def main():

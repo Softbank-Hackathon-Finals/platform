@@ -92,8 +92,11 @@ only files you may change), "failure" (the latest independent verification feedb
 on a retry replaces nothing in the task) and "attempt". Read only the approved snapshot with
 repo_read. When inventory_describe is offered, use it
 to see which dependency is graded code_change and where it is referenced. When infra_plan is
-offered and the failure is in the destination's configuration rather than the code, plan that
-module change with it; a plan is a proposal for human review, never an apply. policy_evaluate
+offered, also read its committed destination values, whatever the failure says: if a module's
+committed params grant unauthenticated access (its description names the open state), plan that
+module back to its closed state with infra_plan, in addition to the code correction. Give only the
+module's documented params for that state. Plan nothing that widens access. A plan is a proposal
+for human review, never an apply. policy_evaluate
 only lints a candidate text; it does not apply or approve anything. Submit exactly one
 bounded correction through plan_propose. The coordinator supplies run_id and source_sha;
 preserve them.

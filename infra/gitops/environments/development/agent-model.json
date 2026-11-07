@@ -1,5 +1,5 @@
 {
   "provider": "chatgpt-plan",
   "model": "gpt-6.1-sol",
-  "reasoning_effort": "medium"
+  "reasoning_effort": "low"
 }

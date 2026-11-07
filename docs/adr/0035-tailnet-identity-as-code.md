@@ -79,14 +79,23 @@ Tailscale에 "이 OIDC 발급자의 이 주체(ServiceAccount 또는 CI 작업)"
   * T45(전동훈): `tailscale-oauth` 단계를 연합 신원 확인 단계로 바꾸고 operator 값을 WIF로 렌더한다. 2026-11-07 시험에서 찾은 고정값 두 개(`object-secrets`의 원하는 상태 파일이 `target-dev.json` 고정, Tailscale 단계의 `--side target` 고정)를 환경 기준으로 바꾼다.
   * T2 · T30(김태현): cloud-init의 ServiceAccount 발급자 렌더.
 * **기존 환경:** 운영 중인 플랫폼 · 대상 operator는 별도 실행 창에서 WIF로 옮긴다. 이 ADR만으로 기존 Secret을 지우지 않는다.
+* **실측으로 확인됨(2026-11-08 KST):**
+  * **합류 순서와 토큰 교환:** bravo-t49(온프렘 RKE2)에서 다음 순서로 확인했다. 각 단계가 끝난 뒤에 다음을 진행했다.
+    1. 공개 발급자 게시(#723)
+    2. API 서버 발급자 drop-in(#753, 공개 발급자는 첫 번째로 서명하고 내부 발급자는 두 번째로 수용)
+    3. 태그 소유자·deny 시험(#735, #671 적용)
+    4. 연합 신원(콘솔, #662 형식)
+    5. T45 `tailnet=wif`(#717)
+    결과: 장치 `bravo-t49-operator`가 `tag:bravo-t49-operator`로 Connected였고, 그 장치는 t49 연합 신원이 만든 것이었다(콘솔 `oauthclient:` 필터). 같은 방식으로 GKE(`target-gke`, Google 공개 발급자)도 합류했다.
+  * **audience:** Tailscale이 생성한 `api.tailscale.com/<client id>`를 쓴다. chart 1.104.4는 `oauth.audience`로 projected token을 만들고 `oauth.clientId`로 교환한다. oauth Secret은 없다(#717).
+  * **JWKS를 쓰는 주체:** 공개키는 Git(`infra/envs/oidc-issuer/issuers/<env>/jwks.json`)에서만 오고, 쓰는 주체는 그 스택의 적용자뿐이다. 비밀 멤버가 있으면 적용이 막힌다(#723).
+  * **공개 접근 차단:** 계정 수준 설정이 없고, 버킷 정책이 환경마다 문서 2개만 연다. 나머지·목록·평문 HTTP는 403이다.
+  * **operator 태그의 도달:** 새 operator 태그(t49·target-gke·target-gce)를 출발지로 하는 grant·acl·ssh는 0개다. deny 시험 7개(수집기, 출발지·목적지 DB와 풀러, 다른 operator)는 정책을 저장할 때마다 Tailscale이 검증한다.
+  * 발급자를 바꾸는 노드 적용은 rke2-server 재시작 중 포트 경합을 충돌로 오판해 한 번 되돌렸다. 이 오판은 #774로 고쳤다.
 * **남은 확인:**
-  * T45 앞 단계를 VM 로컬 kubeconfig로 실행한다는 결정에 맞춰 ADR-0033 표 9행과 `operator_action`의 "Tailscale OAuth 입력" 예시를 갱신한다(T45). T45가 T48 출력 `operator_identities.<env>`를 어디서 읽을지 정한다.
+  * ADR-0033 표 9행과 `operator_action`의 "Tailscale OAuth 입력" 예시를 #717(wif 단계, `tailscale-joined` 관찰)에 맞춘다. `object-secrets`의 원하는 상태가 `target-dev.json`에 고정된 것을 환경 기준으로 바꾼다(T45). `tailscale-joined`가 operator 기동 직후에 읽는 경합을 대기·재시도로 고친다(#717 후속).
   * 원본 일원화: `identities.json`과 환경 원하는 상태가 따로 있다. 신원만 지우면 grant · 태그 소유자가 남으므로, 신원 목록을 환경 원하는 상태에서 만들거나 두 파일의 일치를 시험으로 고정한다.
-  * 공개 발급자 JWKS 객체에 쓰는 주체(쓸 수 있으면 그 환경 operator 토큰을 위조할 수 있다)와 합류 순서(VM → JWKS 게시 → 신원 적용 → T45 Tailscale 단계).
-  * 분리: 장치를 지울 신원(`devices:core`), 이미 발급된 토큰(최대 1시간)과 키 만료를 끈 장치 처리, 고객 쪽 operator · CRD · ProxyGroup 제거를 신원 삭제보다 먼저 하는 순서.
+  * 연합 신원 스택의 CI와 첫 실행용 신원(`federated_keys`)의 관리자 절차. 그 전까지 t49·target-gke 신원은 콘솔에만 있다(`docs/legacy.md` 레거시 후보).
+  * 분리: 장치를 지울 신원(`devices:core`), 이미 발급된 토큰(최대 1시간)과 키 만료를 끈 장치 처리, 고객 쪽 operator · CRD · ProxyGroup 제거를 신원 삭제보다 먼저 하는 순서. 실제 분리 시험은 아직 하지 않았다.
   * 연합 신원을 만드는 신원이 자기보다 넓은 범위 · 태그의 신원을 만들 수 있는지(Tailscale이 부분집합만 허용하는지).
-  * 공개 발급자에 대한 실제 Tailscale 토큰 교환.
-  * 연합 신원의 `audience` 처리(Tailscale 생성 권장, operator Helm 값과의 대응).
-  * 처음 Terraform 실행용 신원을 만드는 관리자 절차.
-  * 정적 호스팅 계정의 공개 접근 차단 설정과의 충돌 여부.
 * 이 결정은 해피패스 이후 고도화다. 설계 문서 반영은 버전을 올려 따로 한다.
