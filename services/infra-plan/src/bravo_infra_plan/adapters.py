@@ -27,6 +27,7 @@ from .stack import StackError, canonical, sha256_text
 # Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
 # after it created them exactly as the step declares. The value binds the attestation to that declaration.
 HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+TAILSCALE_LOGGED_IN = {"_current-profile"}  # tailscale ipn/store/kubestore key after login
 
 
 def host_paths_digest(paths):
@@ -397,9 +398,10 @@ class T10Approvals:
     def read(self, plan_id, approval_id):
         return self._call("GET", f"/v1/plans/{plan_id}/infra-approvals/{approval_id}")
 
-    def claim(self, plan_id, approval_id, *, run_id, plan_digest):
+    def claim(self, plan_id, approval_id, *, run_id, binding):
+        """`binding` is the whole expected `{infra_plan_id, plan_digest, requested_by}`; T10 compares all."""
         return self._call("POST", f"/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims",
-                          {"run_id": run_id, "plan_digest": plan_digest})
+                          {"run_id": run_id, "binding": binding})
 
 
 class AuditLedger:
@@ -474,8 +476,19 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster, repo_root=None):
+    def __init__(self, cluster, repo_root=None, *, join_wait_s=120, sleep=time.sleep, monotonic=time.monotonic):
         self.cluster, self.repo_root = cluster, repo_root
+        # The operator logs in some seconds after its Pod is Ready; re-read for a bounded time, not once.
+        self.join_wait_s, self._sleep, self._monotonic = join_wait_s, sleep, monotonic
+
+    def _eventually(self, observe, wait_s, interval_s=3):
+        deadline = self._monotonic() + wait_s
+        while True:
+            if observe():
+                return True
+            if self._monotonic() >= deadline:
+                return False
+            self._sleep(interval_s)
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
@@ -494,6 +507,10 @@ class ClusterChecks:
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
             "app-metrics-client": lambda: c.secret_exists("target-dev", "bravo-app-metrics-client"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
+            # The operator's state Secret gets a current profile only after it logged in to the tailnet
+            # (OAuth secret or WIF alike). Synced/Healthy does not show that.
+            "tailscale-joined": lambda: self._eventually(
+                lambda: TAILSCALE_LOGGED_IN <= set(c.secret_keys("tailscale-system", "operator") or ()), self.join_wait_s),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")

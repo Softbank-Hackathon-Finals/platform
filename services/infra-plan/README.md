@@ -44,7 +44,7 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 
 ## 실행 규칙 (ADR-0032 3.4)
 
-- 실행 시작 때 대상 클러스터 UID와 설정 저장소 head를 다시 읽어 계획을 다시 렌더한다. T10 승인의 `plan_digest`와 다르면 `REFUSED`이고 아무것도 바꾸지 않는다. 같으면 T10에서 승인을 이 실행 하나로 소비한다(T10이 digest · 만료 · 회수 · `apply_infra` · 원 승인자 권한을 다시 확인).
+- 실행 시작 때 대상 클러스터 UID와 설정 저장소 head를 다시 읽어 계획을 다시 렌더한다. 기대 binding은 계획 기록의 `infra_plan_id` · `requested_by`와 다시 계산한 `plan_digest` 세 필드다. T10 승인의 `plan_digest`와 다르면 `plan_digest_mismatch`, digest는 같지만 다른 계획 · 요청자의 승인이면 `binding_mismatch`로 `REFUSED`이고 아무것도 바꾸지 않는다. 같으면 T10에서 그 binding 전체로 승인을 이 실행 하나로 소비한다(T10이 binding 세 필드 · 만료 · 회수 · `apply_infra` · 원 승인자 권한을 다시 확인). CLI `run`은 `--infra-plan-id`와 `--requested-by`로 승인한 binding을 받는다. 재개도 실행 기록에 저장한 binding으로 다시 소비하고, binding이 없는 옛 실행 기록은 `HOLD`(`run_binding_missing`)다.
 - 의존이 끝난 단계는 동시에 시작한다(기본 4개). 실패 · `HOLD` · 사람 대기는 그 단계에 의존하는 단계만 멈춘다.
 - `gitops_publish`는 설정 저장소가 실행이 아는 head에서 움직이지 않았을 때만, 그 경로만 담은 커밋 하나를 fast-forward로 push하고(작업 폴더 파일 잠금, 사용자 git 설정 무시), 그 커밋 SHA를 Application에 고정한다. Argo CD가 이미 같은 내용을 따르고 있으면 커밋 · Application 변경 없이 `SKIPPED`.
 - `gitops_sync`는 Application이 그 SHA로 `Synced` · `Healthy`일 때만 통과한다. 시간 상한을 넘기면 `HOLD`. 뒤 단계 전에는 Ready일 수 없는 워크로드만 `health`로 받을 상태를 적는다(`openbao-sync`: init · unseal 전 `Progressing`, Ready는 `openbao-init`이 확인).

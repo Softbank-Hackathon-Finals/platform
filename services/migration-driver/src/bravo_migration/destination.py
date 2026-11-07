@@ -188,8 +188,12 @@ class Destination:
             approval_id = self.approve(binding)
             self.log(f"plan {plan.plan_digest[:12]} approved ({approval_id}); omitted: "
                      f"{[s['id'] for s in plan.document['steps'] if s.get('omitted')]}")
+            # T10 claims compare the whole binding. The driver fixed the plan id; the requester is the one
+            # T10 recorded for the approval this driver just requested.
+            approved = executor.approvals.read(self.cfg["t10"]["plan_id"], approval_id)["binding"]
             run = executor.start(request=self.request(), migration_plan_id=self.cfg["t10"]["plan_id"],
-                                 approval_id=approval_id, run_id=run_id, started_by="migration-driver")
+                                 approval_id=approval_id, run_id=run_id, started_by="migration-driver",
+                                 infra_plan_id=binding["infra_plan_id"], requested_by=approved["requested_by"])
         adapter_retries = 0
         for _ in range(max_rounds):
             self._report(run)

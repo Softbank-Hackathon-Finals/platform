@@ -38,7 +38,17 @@ class PublicEntryChart(unittest.TestCase):
         self.assertTrue(kind(docs, "Deployment", "bravo-gitops-server"))
         cm = kind(docs, "ConfigMap", "argocd-cm")[0]["data"]
         self.assertEqual((cm["admin.enabled"], cm["exec.enabled"], cm["users.anonymous.enabled"]), ("false", "false", "true"))
-        self.assertEqual(kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]["policy.default"], "role:readonly")
+        rbac = kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]
+        # Anonymous sees Applications and projects only: no logs, no other resource kinds.
+        self.assertEqual(rbac["policy.default"], "role:platform-viewer")
+        self.assertNotIn("logs", rbac["policy.csv"])
+        # Every kind an Application ships must be tracked, or Argo skips it (ExcludedResourceWarning).
+        inclusions = yaml.safe_load(cm["resource.inclusions"])
+        tracked = {(g, k) for row in inclusions for g in row["apiGroups"] for k in row["kinds"]}
+        for group, kinds in (("rbac.authorization.k8s.io", ("Role", "RoleBinding")), ("external-secrets.io", ("ExternalSecret",)),
+                             ("networking.k8s.io", ("NetworkPolicy",)), ("", ("ConfigMap", "Service", "ServiceAccount"))):
+            for k in kinds:
+                self.assertIn((group, k), tracked)
         self.assertFalse(kind(docs, "ClusterRole") + kind(docs, "ClusterRoleBinding"))
 
         app = kind(docs, "Application", "platform-public-entry")[0]["spec"]
@@ -61,6 +71,11 @@ class PublicEntryChart(unittest.TestCase):
         app = kind(docs, "Application", "platform-observability")[0]["spec"]
         self.assertEqual(app["source"]["path"], "services/observability/deploy/platform-gitops")
         self.assertFalse(app["syncPolicy"]["automated"]["prune"])
+        # Argo rejects an Application whose destination namespace is not in its project (an empty one included).
+        allowed = {d["namespace"] for d in kind(docs, "AppProject", "platform-observability")[0]["spec"]["destinations"]}
+        for name in ("platform-observability", "platform-public-entry"):
+            self.assertIn(kind(docs, "Application", name)[0]["spec"]["destination"].get("namespace"),
+                          allowed if name == "platform-observability" else {"platform-state"})
         project = kind(docs, "AppProject", "platform-observability")[0]["spec"]
         self.assertCountEqual([d["namespace"] for d in project["destinations"]],
                               ["bravo-observability", "platform-telemetry", "platform-state"])
