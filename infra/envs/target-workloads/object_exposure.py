@@ -152,7 +152,11 @@ def plan(state: str, bucket: str) -> dict:
     _bucket(bucket)
     if state not in STATES:
         raise ValueError("unknown exposure state")
-    return {"state": state, "steps": [
+    # Reopening for a new demo run is this explicit operator reset, which also ends T31's single-writer
+    # claim (bravo.dev/exposure-owner) so the object-operations worker may open/close again.
+    release = (["kubectl -n target-dev annotate secret target-seaweedfs-auth bravo.dev/exposure-owner-"]
+               if state == "open-demo" else [])
+    return {"state": state, "steps": release + [
         f"object_exposure.py render --state {state} --bucket {bucket} --output /dev/shm/s3.json (keys from env)",
         "kubectl -n target-dev create secret generic target-seaweedfs-auth --from-file=s3.json=/dev/shm/s3.json --dry-run=client -o json | kubectl apply -f -",
         "kubectl -n target-dev rollout restart deployment/target-seaweedfs && kubectl -n target-dev rollout status deployment/target-seaweedfs",

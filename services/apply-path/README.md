@@ -139,6 +139,8 @@ kind 실측에서 앱 버킷에 공개 버킷 정책이 남아 있으면 `s3.jso
 
 T44(ADR-0032)는 목적지 첨부 버킷의 공개 상태를 `infra/iac/environments/<환경>.json`의 모듈 `target-object-exposure`로 둔다. 버킷 계정 Secret은 비밀 값이 있어 T44 차트에 들어가지 않으므로, 원하는 상태가 바뀐 뒤의 적용과 IAM-01.1 재대조는 이 분기를 재사용한다(#646 합의). 같은 Secret을 고치는 적용기는 이것 하나다. 처음 구축 때 Secret 생성은 T45가 맡는다.
 
+닫을 때 같은 교체로 Secret에 `bravo.dev/exposure-owner`(`policy.ANNOTATION_OWNER`)를 남긴다. 표시가 있는 동안 T9 object-operations는 버킷을 열지 않는다([쓰는 주체](../../docs/object-operations.md)). 표시는 운영자의 데모 초기화만 지운다.
+
 `bravo-apply desired-exposure`는 T10 접수 영수증 대신 **검토된 Git 커밋**을 입력으로 받는다. 사람의 검토·병합이 승인이다.
 
 | 확인 | 거부 코드 (기록 없음 · 클러스터 접촉 없음) |

@@ -178,5 +178,17 @@ class DeliveryBoundaryTests(unittest.TestCase):
         self.assertEqual(expression, {"key": "kubernetes.io/hostname", "operator": "In", "values": ["fixture-node"]})
 
 
+class T14OtherRoleTests(unittest.TestCase):
+    def test_comparison_role_binds_one_account_and_reads_nothing_of_the_app(self):
+        role = cli("t14-other-auth-role")
+        self.assertEqual(role["bound_service_account_names"], ["t14-other"])
+        self.assertEqual(role["bound_service_account_namespaces"], [render.APP_NAMESPACE])
+        self.assertEqual(role["audience"], "openbao")
+        # default only: no policy that names the app's paths (policy() is target-app-reader's)
+        self.assertEqual(role["token_policies"], ["default"])
+        self.assertNotIn("target-app-reader", json.dumps(role))
+        self.assertEqual((role["token_ttl"], role["token_max_ttl"]), ("300s", "900s"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -318,6 +318,17 @@ def rehearsal_writer_identity():
     return {"apiVersion": "v1", "kind": "List", "items": [namespace, account]}
 
 
+def t14_other_auth_role():
+    """Body for ``auth/kubernetes/role/t14-other``: T14 SEC-01.1's comparison identity.
+
+    SA ``t14-other`` (T30 #666, no permissions) in ``target-dev`` logs in but gets only the
+    ``default`` policy, so reading the app path (``secret/data/`` + DB_PATH) is denied. A failed
+    login would make SEC-01.1 UNKNOWN, a successful login with a denied read makes it PASS. The app
+    side stays ``target-app-reader`` (SA ``target-eso-reader``); nothing else is added."""
+    return {"bound_service_account_names": ["t14-other"], "bound_service_account_namespaces": [APP_NAMESPACE],
+            "audience": "openbao", "token_policies": ["default"], "token_ttl": "300s", "token_max_ttl": "900s"}
+
+
 def rehearsal_delivery(namespace):
     """Objects for one rehearsal namespace: reader ServiceAccount, a SecretStore bound to this
     namespace's role, and an ExternalSecret that projects the synthetic credentials under the
@@ -452,6 +463,7 @@ def main(argv=None):
         "policy", "delivery", "network", "eso-network",
         "rehearsal-reader-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
         "rehearsal-writer-policy", "rehearsal-writer-auth-role", "rehearsal-writer-identity",
+        "t14-other-auth-role",
     ])
     parser.add_argument("--node-name")
     parser.add_argument("--namespace")
@@ -485,7 +497,8 @@ def main(argv=None):
                  "rehearsal-delivery": lambda: rehearsal_delivery(args.namespace),
                  "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.namespace, image),
                  "rehearsal-writer-auth-role": rehearsal_writer_auth_role,
-                 "rehearsal-writer-identity": rehearsal_writer_identity}[args.stage]()
+                 "rehearsal-writer-identity": rehearsal_writer_identity,
+                 "t14-other-auth-role": t14_other_auth_role}[args.stage]()
         print(json.dumps(value, indent=2))
 
 
