@@ -87,7 +87,8 @@ def test_browser_cannot_submit_an_attack_command_or_target(local):
 
 
 @pytest.mark.parametrize(
-    "change", [None, "signature", "plan", "synthetic", "authority", "public_file"]
+    "change",
+    [None, "signature", "plan", "synthetic", "authority", "public_file", "older_observation"],
 )
 def test_signed_trial_feed_is_scope_bound_and_never_execution_authority(tmp_path, change):
     root = tmp_path / "state"
@@ -132,7 +133,10 @@ def test_signed_trial_feed_is_scope_bound_and_never_execution_authority(tmp_path
         (root / "feed.private.json").chmod(0o644)
     host = object.__new__(module.TerminalTrialHost)
     host.manager = SimpleNamespace(
-        status=lambda: {"session_id": "owned-session"},
+        status=lambda: {
+            "session_id": "owned-session",
+            "observation_revision": doc["revision"] + (change == "older_observation"),
+        },
         session=tmp_path,
         settings=SimpleNamespace(producer_revision="a" * 40),
     )

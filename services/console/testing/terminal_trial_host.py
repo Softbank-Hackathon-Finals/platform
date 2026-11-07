@@ -105,8 +105,11 @@ class TerminalTrialHost:
         validate_projection(body, plan, datetime.now(UTC))
         if private_read(root / "feed-key.private", 32) != key:
             raise ValueError("trial_key_changed")
-        if self.manager.status()["session_id"] != status["session_id"]:
+        current = self.manager.status()
+        if current["session_id"] != status["session_id"]:
             raise ValueError("trial_session_changed")
+        if body["revision"] < current.get("observation_revision", 0):
+            raise ValueError("trial_observation_superseded")
         return {
             "qualification_only": True,
             "plan_connected": False,
