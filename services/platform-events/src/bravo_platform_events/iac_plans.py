@@ -24,6 +24,7 @@ from bravo_iac.plan import plan as iac_plan
 
 from .contract import validate_identifier
 from .cutover import _get, _put
+from .github_app import GitHubError
 from .plan_api import Principal, authorized_plan
 from .plans import _canonical
 from .store import EventError
@@ -60,7 +61,10 @@ class IacPlanService:
         self.store, self.repository, self.infra, self.check_access = store, repository, infra_service, check_access
 
     def _plan(self, environment, module_id, params):
-        state, base_sha = self.repository.state(environment)
+        try:
+            state, base_sha = self.repository.state(environment)
+        except (GitHubError, OSError):
+            raise EventError("iac_repository_unavailable") from None
         if state["environment"] != environment:
             raise IacError("IAC_STATE_UNREADABLE")
         # API requests come from operators; an agent plans through its own tool (infra.plan).
@@ -124,8 +128,12 @@ class IacPlanService:
             raise EventError("iac_plan_stale")  # the committed state moved: plan again, approve again
         # apply_infra now, the approver still holds approve_infra, the digest is the approved one.
         self.infra.claim(principal, plan_id, approval_id, run_id=iac_plan_id, plan_digest=plan["plan_digest"])
-        opened = self.repository.open(value["environment"], _proposed(state, value["module"], value["params"]),
-                                      base_sha=base_sha, iac_plan_id=iac_plan_id, plan=plan)
+        try:
+            opened = self.repository.open(value["environment"], _proposed(state, value["module"], value["params"]),
+                                          base_sha=base_sha, iac_plan_id=iac_plan_id, plan=plan)
+        except (GitHubError, OSError):
+            # Claimed already: a retry with the same approval resumes the same branch (see open).
+            raise EventError("iac_repository_unavailable") from None
         receipt = dict(iac_plan_id=iac_plan_id, approval_id=approval_id, base_sha=base_sha,
                        plan_digest=plan["plan_digest"], number=opened["number"], url=opened["url"],
                        head_sha=opened["head_sha"], opened_by=principal.subject_id)
@@ -181,6 +189,14 @@ class GitHubIacRepository:
                        if e["type"] == "file" and e["name"].endswith(".json"))
         return [catalog.check_state(self._file(f"{ENVIRONMENTS}/{name}", sha)) for name in names], sha
 
+    def _ref(self, branch):
+        try:
+            return self._json("GET", f"git/ref/heads/{branch}")["object"]["sha"]
+        except GitHubError as error:
+            if error.status == 404:
+                return None
+            raise
+
     def open(self, environment, proposed, *, base_sha, iac_plan_id, plan):
         branch = f"bravo-iac/{iac_plan_id}"
         owner = self.repository.split("/")[0]
@@ -194,10 +210,16 @@ class GitHubIacRepository:
         new_tree = self._json("POST", "git/trees", {"base_tree": tree, "tree": [
             {"path": path, "mode": "100644", "type": "blob", "content": text}
             for path, text in sorted(generated_files(states, environment).items())]})["sha"]
-        commit = self._json("POST", "git/commits", {
-            "tree": new_tree, "parents": [base_sha],
-            "message": f"[T44] {environment} 원하는 상태: {plan['plan_digest'][:16]} ({iac_plan_id})"})["sha"]
-        self._json("POST", "git/refs", {"ref": f"refs/heads/{branch}", "sha": commit})
+        commit = self._ref(branch)
+        if commit is None:
+            commit = self._json("POST", "git/commits", {
+                "tree": new_tree, "parents": [base_sha],
+                "message": f"[T44] {environment} 원하는 상태: {plan['plan_digest'][:16]} ({iac_plan_id})"})["sha"]
+            self._json("POST", "git/refs", {"ref": f"refs/heads/{branch}", "sha": commit})
+        else:  # pushed before a failure: open the PR for it only if it is exactly this change
+            existing = self._json("GET", f"git/commits/{commit}")
+            if existing["tree"]["sha"] != new_tree or [p["sha"] for p in existing["parents"]] != [base_sha]:
+                raise EventError("iac_branch_conflict")
         body = ("T10 infra 승인을 받은 IaC 계획의 원하는 상태입니다(T44, ADR-0032). 병합해도 클러스터에는 바로 적용되지 않고, "
                 "검토한 커밋 SHA를 Argo에 지정할 때 적용됩니다.\n\n"
                 f"- 환경: `{environment}`\n- plan_digest: `{plan['plan_digest']}`\n- IaC 계획: `{iac_plan_id}`\n"

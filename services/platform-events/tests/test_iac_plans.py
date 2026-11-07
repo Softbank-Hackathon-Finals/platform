@@ -15,6 +15,7 @@ from test_infra_approval import infra
 from test_workflow_recovery import collect, service
 
 from bravo_platform_events.cutover_api import create_cutover_app
+from bravo_platform_events.github_app import GitHubError
 from bravo_platform_events.iac_plans import WRITER_PERMISSIONS, GitHubIacRepository, IacPlanService
 from bravo_platform_events.plan_api import Principal
 from bravo_platform_events.store import EventError
@@ -36,14 +37,19 @@ class Repository:
 
     def __init__(self):
         self.data, self.sha, self.opened = copy.deepcopy(COMMITTED), "1" * 40, []
+        self.failures = {"state": [], "open": []}
 
     def state(self, environment):
+        if self.failures["state"]:
+            raise self.failures["state"].pop()
         return copy.deepcopy(self.data[environment]), self.sha
 
     def states(self):
         return [copy.deepcopy(s) for _, s in sorted(self.data.items())], self.sha
 
     def open(self, environment, proposed, *, base_sha, iac_plan_id, plan):
+        if self.failures["open"]:
+            raise self.failures["open"].pop()
         self.opened.append((environment, proposed, base_sha, iac_plan_id, plan["plan_digest"]))
         return {"number": 700 + len(self.opened), "url": "https://example.invalid/pull", "head_sha": "2" * 40}
 
@@ -107,6 +113,23 @@ def test_an_approval_of_another_digest_or_by_the_requester_opens_nothing(backend
     assert repository.opened == []
 
 
+def test_a_repository_failure_is_one_code_and_the_claimed_approval_resumes(backend):
+    repository, approvals, iac = setup(backend)
+    repository.failures["state"].append(GitHubError(502, "repos/x/contents"))
+    with pytest.raises(EventError, match="iac_repository_unavailable"):
+        iac.create(PRINCIPAL, PLAN, environment="target-dev", module="target-object-exposure", params=CLOSED,
+                   command_key="close-bucket")
+    view = iac.create(PRINCIPAL, PLAN, environment="target-dev", module="target-object-exposure", params=CLOSED,
+                      command_key="close-bucket")
+    approval_id = approve(approvals, view)
+    repository.failures["open"].append(OSError("connection lost before PR"))
+    with pytest.raises(EventError, match="iac_repository_unavailable"):
+        iac.open_pull_request(PRINCIPAL, PLAN, view["iac_plan_id"], approval_id=approval_id)
+    assert approvals.read(PRINCIPAL, PLAN, approval_id)["claimed_run_id"] == view["iac_plan_id"]
+    receipt = iac.open_pull_request(PRINCIPAL, PLAN, view["iac_plan_id"], approval_id=approval_id)
+    assert receipt["number"] == 701 and len(repository.opened) == 1
+
+
 @pytest.mark.parametrize(("module", "params", "code"), [
     ("tailnet-ingress", {}, "iac_module_not_in_environment"),
     ("target-object-exposure", {"state": "public"}, "iac_params_invalid"),
@@ -144,11 +167,19 @@ class FakeApp:
     def __init__(self, files):
         self.repository, self.permissions = "Softbank-Hackathon-Finals/platform", dict(WRITER_PERMISSIONS)
         self.files, self.trees, self.commits, self.refs, self.pulls = files, {}, {}, {"develop": "base"}, []
+        self.fail_once = set()
 
     def call(self, method, path, body=None):
         path = path.removeprefix(f"repos/{self.repository}/")
-        if method == "GET" and path == "git/ref/heads/develop":
-            return json.dumps({"object": {"sha": self.refs["develop"]}}).encode()
+        if (method, path) in self.fail_once:
+            self.fail_once.discard((method, path))
+            raise OSError("connection lost")
+        if method == "GET" and path.startswith("git/ref/heads/"):
+            name = path.removeprefix("git/ref/heads/")
+            sha = self.refs.get(name) or self.refs.get(f"refs/heads/{name}")
+            if sha is None:
+                raise GitHubError(404, path)
+            return json.dumps({"object": {"sha": sha}}).encode()
         if method == "GET" and path.startswith("contents/infra/iac/environments?"):
             return json.dumps([{"type": "file", "name": p.rsplit("/", 1)[1]} for p in self.files
                                if p.startswith("infra/iac/environments/")]).encode()
@@ -156,8 +187,14 @@ class FakeApp:
             content = self.files[path.removeprefix("contents/").split("?")[0]]
             return json.dumps({"content": base64.b64encode(content.encode()).decode()}).encode()
         if method == "GET" and path.startswith("pulls?"):
-            return json.dumps(self.pulls).encode()
+            head = path.split("head=", 1)[1].split("&", 1)[0]
+            owner = self.repository.split("/")[0]
+            return json.dumps([p for p in self.pulls if f"{owner}:{p['head']['ref']}" == head]).encode()
         if method == "GET" and path.startswith("git/commits/"):
+            made = self.commits.get(path.removeprefix("git/commits/"))
+            if made:
+                return json.dumps({"tree": {"sha": made["tree"]},
+                                   "parents": [{"sha": sha} for sha in made["parents"]]}).encode()
             return json.dumps({"tree": {"sha": "tree-base"}}).encode()
         if method == "POST" and path == "git/trees":
             self.trees["tree-new"] = body
@@ -206,3 +243,26 @@ def test_the_writer_holds_only_contents_and_pull_requests_on_the_platform_reposi
     app.permissions = dict(WRITER_PERMISSIONS)
     with pytest.raises(ValueError, match="iac_writer_permissions_invalid"):
         GitHubIacRepository(app, "Softbank-Hackathon-Finals/demo-chat")
+
+
+def test_a_branch_pushed_before_a_failed_pull_request_is_reused_only_if_it_is_this_change():
+    files = {f"infra/iac/environments/{name}.json": json.dumps(state) for name, state in COMMITTED.items()}
+    app = FakeApp(files)
+    repository = GitHubIacRepository(app, app.repository)
+    state, sha = repository.state("target-dev")
+    proposed = copy.deepcopy(state)
+    proposed["modules"][0]["params"] = CLOSED
+    plan = {"plan_digest": "e" * 64, "effects": []}
+    app.fail_once.add(("POST", "pulls"))
+    with pytest.raises(OSError):
+        repository.open("target-dev", proposed, base_sha=sha, iac_plan_id="iac-1", plan=plan)
+    assert app.refs["refs/heads/bravo-iac/iac-1"] == "c" * 40 and app.pulls == []
+    # The retry finds the pushed branch, checks its parent and tree, and opens the PR for it.
+    opened = repository.open("target-dev", proposed, base_sha=sha, iac_plan_id="iac-1", plan=plan)
+    assert opened["head_sha"] == "c" * 40 and len(app.pulls) == 1 and len(app.commits) == 1
+    # A branch with the same name but another tree (or base) is never opened as this change.
+    app.refs["refs/heads/bravo-iac/iac-2"] = "c" * 40
+    app.commits["c" * 40]["tree"] = "tree-other"
+    with pytest.raises(EventError, match="iac_branch_conflict"):
+        repository.open("target-dev", proposed, base_sha=sha, iac_plan_id="iac-2", plan=plan)
+    assert len(app.pulls) == 1
