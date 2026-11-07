@@ -1,5 +1,7 @@
 # AWS 플랫폼에서 목적지 API에 접속하기
 
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`platform`·`network`·`collector-platform`·`collector-network`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: `target-apply`·`kubeconfig`와 포트 대조 함수(진단용).
+
 T15 실행 도구와 T31 배포기는 서로 다른 egress·ServiceAccount를 쓴다. 이 디렉터리는 기존 operator와 별도 워크로드 tailnet을 이용하는 설치 입력을 만들고, 등록된 신원에 한해 표준 exec 인증으로 단기 자격을 발급한다. 설치 객체 적용은 운영자 경계에서 수행한다. T15 planner·T10 승인·T31 제품 로직도 변경하지 않는다.
 
 사람의 개발 장치 접속과 사전 생성 namespace의 시험 권한은 [개인 접속 프로필](PERSONAL.md)을 사용한다. 인증 프록시·개인 인증서·ExecCredential 설정을 환경별 입력으로 구분한다.
