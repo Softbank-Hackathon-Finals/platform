@@ -234,6 +234,7 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 - 서버 권한은 읽기(get · list · watch)뿐이고, 화면은 로그 없이 `bravo-iac` 프로젝트 Application만 보는 `role:bravo-viewer`다.
 - 로그인이 없어 Argo에는 모든 요청이 anonymous로 남는다. 누가 봤는지는 Cloudflare Access 로그에만 있다. 공개 주소는 플랫폼 공개 입구(`infra/envs/public-entry`)가 Access 뒤에서 중계한다.
 - 지금 장치 이름 · 태그 · Access 정책은 고객 하나 기준이다. 두 번째 고객부터는 이름 · 태그에 환경을 넣고 고객별 Access 정책을 둔다(후속).
+- 남는 위험: 서버 SA의 ClusterRole(`*` get · list · watch)은 클러스터 전체 Secret도 읽는다. 화면은 Secret 값을 가리지만, 익명 서버에 인증 우회 같은 결함이 생기면 그 범위가 읽힌다. Secret을 뺀 자원 목록으로 줄이는 것은 T44 권한 세분화의 후속이다.
 
 **적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
 클러스터에 닿지 않는다(develop은 승인 0이다). 승격은 검토한 커밋 SHA로 이 값 한 줄을 바꾸는 것이다.
