@@ -1,7 +1,7 @@
 {
   "image": {
     "repository": "ghcr.io/softbank-hackathon-finals/platform-product-reader",
-    "digest": "sha256:90d20f87d1e76912f60697839443770b3df358d91e3e49795f59658586ce5756"
+    "digest": "sha256:81d52c0f698f6844a202bbac228f8a4808288f124ef6e660c3c96ba55782c341"
   },
-  "sourceRevision": "6731cb97dc24e97c78f9a82bf1ae78ae2a518f98"
+  "sourceRevision": "c1504a26e717229a93f7fe88a2ccb4035ec55c92"
 }
