@@ -185,7 +185,7 @@ def test_redirects_are_not_followed_with_credentials():
     assert [r.url.host for r in seen] == ["login.example.com", "login.example.com"]
 
 
-@pytest.mark.parametrize("issuer", ["http://login.example.com/realms/bravo", "ftp://x", "https://u:p@login.example.com"])
+@pytest.mark.parametrize("issuer", ["http://login.example.com/realms/bravo", "ftp://x", "https://u:p@login.example.invalid"])
 def test_issuer_must_be_https_except_on_this_machine(issuer):
     with pytest.raises(SignInError):
         signin.fetcher(issuer, "demo-chat-loadgen", "loadgen", ENV)
