@@ -7,6 +7,13 @@ repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
 # a merge alone must never reach a customer cluster. Promotion = changing this one value.
 targetRevision: ""
 
+# Bootstrap installs the controller only. Promote a reviewed revision explicitly;
+# enabling the Application and automated sync are separate operator decisions.
+application:
+  enabled: false
+  autoSync: false
+  prune: false
+
 argo-cd:
   fullnameOverride: bravo-iac-gitops
   crds:

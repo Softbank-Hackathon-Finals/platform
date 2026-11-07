@@ -1,0 +1,37 @@
+{
+  "source_revision": "d19f77c0d519781b673b1bdd2f6bfcac9bdd02dc",
+  "source_files": [
+    {
+      "path": "infra/iac/argocd/Chart.yaml",
+      "sha256": "1d2c2f38dd38093851edbd38de89db7233a04949eb2702523f4f93e4d8d0f0b1"
+    },
+    {
+      "path": "infra/iac/argocd/templates/application.yaml",
+      "sha256": "131d8fe03328c47109e1a77e1b697efeaddbd6df10b7730f1fb3bf7693b77e34"
+    },
+    {
+      "path": "infra/iac/argocd/templates/project.yaml",
+      "sha256": "310b01c927f2c2dfeb0a2702d2aae0d28f15eefd68f7cc72fb5aba7189cbc957"
+    },
+    {
+      "path": "infra/iac/argocd/values.schema.json",
+      "sha256": "dac1c4074563a65031de89893f9184c69e1cc6b62a622c219e282359b9f88870"
+    },
+    {
+      "path": "infra/iac/argocd/values.yaml",
+      "sha256": "2bb12830daaa89e17b76041364ad2dc5dc27a5a68f3dfa218ff9a86af23fa314"
+    },
+    {
+      "path": "infra/iac/customer_status.py",
+      "sha256": "22f212e3bd3ed28184ccca7e4e1b0895d80bc0c2be0c22e06a4553ff9ba61c09"
+    },
+    {
+      "path": "infra/iac/test_customer_chart.py",
+      "sha256": "3ab1a55dc724e3f51ec9dc572b75d75e8b6a1d8d54a44e0379cec5d1801ba011"
+    },
+    {
+      "path": "services/iac/tests/test_customer_status.py",
+      "sha256": "8cf63f81833c65ce78a129ea4dd2628f27dd35eb6a8ef022f6c99cf7aca6ec23"
+    }
+  ]
+}

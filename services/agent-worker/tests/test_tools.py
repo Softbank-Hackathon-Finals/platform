@@ -223,10 +223,9 @@ def test_inventory_describe_is_denied_until_a_summary_is_attached(context):
 # ---- T44 infra.plan: the agent plans destination IaC through the control path's port, never applies
 
 def _iac_port(state="open-demo"):
-    import sys
-    repo = Path(__file__).resolve().parents[3]
-    sys.path.insert(0, str(repo / "services/iac/src"))  # pure stdlib package, not an image dependency
     from bravo_iac.agent import AgentPlanner
+
+    repo = Path(__file__).resolve().parents[3]
 
     committed = json.loads((repo / "infra/iac/environments/target-dev.json").read_text())
     if state == "closed":
@@ -246,7 +245,8 @@ def test_infra_plan_returns_a_plan_and_audits_only_its_digest(context):
     result = tools.dispatch("mcp__bravo__infra_plan", CLOSE)
     assert result["accepted"] and result["origin"] == "agent" and result["authorizes_apply"] is False
     assert result["effects"][0]["anonymous_access"]["after"] == []
-    assert tools.infra_plans == [result]
+    assert tools.infra_plans == [{"module": "target-object-exposure", "params": json.loads(CLOSE["params_json"]),
+                                  "plan": result}]
     event = tools.events[-1]
     assert (event["tool"], event["outcome"], event["refusal"]) == ("infra.plan", "ALLOWED", "NONE")
     assert event["plan_digest"] == result["plan_digest"] and "demo-chat-attachments" not in json.dumps(tools.events)

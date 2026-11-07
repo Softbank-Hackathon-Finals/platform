@@ -7,6 +7,10 @@ Application at install. Resources that need
 credentials (``secret_inputs``) are not in the chart; their own applier injects them. Access bindings
 (``applier``) are not in it either: a cluster administrator applies them (``held_objects``), so the
 cluster's Argo CD never needs the rights those bindings grant.
+
+The chart never declares a Namespace. Namespaces belong to whoever builds the cluster (T45 for a new
+destination, the existing platform and source setup otherwise); one owner per object, and Argo CD
+never labels, prunes or deletes a namespace that holds other workloads.
 """
 
 import json
@@ -18,11 +22,6 @@ from .plan import digest
 API = {"ProxyGroup": "tailscale.com/v1alpha1", "Service": "v1", "NetworkPolicy": "networking.k8s.io/v1",
        "ClusterRoleBinding": "rbac.authorization.k8s.io/v1"}
 TOP_LEVEL = {"ClusterRoleBinding"}  # RBAC objects carry roleRef/subjects beside metadata, not under spec
-# Namespaces the chart uses are declared so a fresh cluster gets them; Argo never deletes one (it may
-# already hold other workloads) and creates them before anything else.
-NAMESPACE_ANNOTATIONS = {"argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-                         "argocd.argoproj.io/sync-wave": "-1"}
-SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
 TAILNET_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$"
 KEYED = re.compile(r"\{tailnet:([a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)\}")
 
@@ -60,11 +59,7 @@ def held_objects(state) -> list[dict]:
 def manifests(state) -> tuple[list[dict], list[str]]:
     """(Kubernetes objects, modules or resources left to another applier)."""
     objects, unmanaged = _objects(state, held=False)
-    namespaces = sorted({o["metadata"]["namespace"] for o in objects if "namespace" in o["metadata"]} - SYSTEM_NAMESPACES)
-    declared = [{"apiVersion": "v1", "kind": "Namespace",
-                 "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "bravo-iac"},
-                              "annotations": dict(NAMESPACE_ANNOTATIONS)}} for name in namespaces]
-    return declared + objects, sorted(unmanaged)
+    return objects, sorted(unmanaged)
 
 
 def files(state) -> dict[str, str]:
