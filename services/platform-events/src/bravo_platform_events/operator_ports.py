@@ -215,8 +215,34 @@ def create(store, config_file=CONFIG):
         if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
             failback["edge"] = _edge(config["edge"])
     iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
+    delegation = config.get("delegation", False)
+    if not (type(delegation) is bool or (type(delegation) is dict and set(delegation) == {"shift_profile"}
+                                         and "edge" in config)):
+        raise ValueError("operator_ports_configuration_invalid")
+    shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate)
+             } if type(delegation) is dict else {}
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback, **iac,
-                            delegation=config.get("delegation") is True)
+                            delegation=delegation is not False, **shift)
+
+
+def _delegated_shift(edge, profile_file, records, load_gate):
+    """T49 `delegation: {"shift_profile": ...}`: the SHIFT weights run as the delegated approver over this
+    process's one LB journal (the `edge` mounts FAILBACK already uses) and the reviewed T36 profile."""
+    from bravo_edge_control.provider import Binding, Cloudflare
+
+    from .approval_delegation import DelegatedShift
+
+    journal, token = Path(edge["journal"]), Path(edge["token_file"])
+    profile = json.loads(Path(profile_file).read_text())
+    provider = Cloudflare(Binding(**edge["lb_binding"]), token=lambda: token.read_text().strip())
+
+    def load_session(c, actor, plan):  # as bravo_edge_control.deployment_ports
+        view = records.view(c, actor, plan)
+        service, readiness = load_gate(view)
+        return view.session(service, readiness)
+
+    return lambda store, delegations: DelegatedShift(store, delegations, provider=provider, journal=journal,
+                                                     profile=profile, load_session=load_session)
 
 
 def _iac(value):

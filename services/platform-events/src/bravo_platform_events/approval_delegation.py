@@ -158,10 +158,11 @@ class DelegatedGates:
     this version. Anything unmet or refused is a wait: the next sweep or a person on the same routes decides.
     """
 
-    def __init__(self, store, delegations, *, cutover, failback=None, rehearsal=None, list_tasks=None):
+    def __init__(self, store, delegations, *, cutover, failback=None, rehearsal=None, list_tasks=None, shift=None):
         self.store, self.delegations, self.cutover, self.failback = store, delegations, cutover, failback
         # T49: REHEARSE starts the plan's one registered rehearsal (RehearsalService, list_tasks(plan_id) -> ids)
         self.rehearsal, self.list_tasks = rehearsal, list_tasks
+        self.shift = shift  # DelegatedShift: SHIFT weights before the cutover (demo), optional
 
     def sweep(self):
         from .operator_ports import (
@@ -185,7 +186,9 @@ class DelegatedGates:
             due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and edge_at_full(c, p)]
             due += [(p, "failback", self.failback) for p in plans if p["state"] == "WATCH" and self.failback
                     and _get(c, p["plan_id"], watch_fail_key(p["version"]))]
-        decided = {}
+            shifting = [p for p in plans if self.shift and p["state"] == "SHIFT" and not edge_at_full(c, p)
+                        and "shift" in gates[p["plan_id"]]]
+        decided = {p["plan_id"]: {"shift": self.shift(p)} for p in shifting}
         for step, plan in [(self._rehearse, p) for p in rehearsing] + [(self._fail_back, p) for p in failing_back]:
             try:
                 decided[plan["plan_id"]] = step(plan)
@@ -247,3 +250,60 @@ class DelegatedGates:
                                    command_key=f"delegated-{gate}-{version}")
         return service.submit(principal, plan_id, approval_id=approval["approval_id"],
                               command_key=f"delegated-{gate}-submit-{version}")
+
+
+class DelegatedShift:
+    """SHIFT 10 -> 50 -> 100% as the delegated approver (T49 demo), in the operator process that holds the
+    Edge journal and LB token: register this version's run, then sequence and hold at 100% for the cutover.
+
+    One thread per plan version. The Edge journal lock keeps it single beside an operator's own run; T36
+    still decides every advance and an SLI failure still restores 0% (bravo_edge_control.ShiftRuntime).
+    ponytail: one attempt per version; a stopped run is rerun by a person (bravo_edge_control.run).
+    """
+
+    def __init__(self, store, delegations, *, provider, journal, profile, load_session):
+        self.store, self.delegations, self.provider = store, delegations, provider
+        self.journal, self.profile, self.load_session = journal, profile, load_session
+        self.runs = {}
+
+    def __call__(self, plan):
+        import threading
+
+        key = (plan["plan_id"], plan["version"])
+        if key in self.runs:
+            return "running" if self.runs[key].is_alive() else "finished"
+        self.runs[key] = threading.Thread(target=self.run, args=key, name="t49-delegated-shift", daemon=True)
+        self.runs[key].start()
+        return "started"
+
+    def run(self, plan_id, version):
+        import logging
+        from threading import Event
+
+        from bravo_edge_control.authority import ShiftAuthority
+        from bravo_edge_control.control import _now
+        from bravo_edge_control.host import ShiftHost
+        from bravo_edge_control.runtime import ShiftRuntime
+
+        log = logging.getLogger(__name__)
+        run_id = f"t49-{plan_id}-v{version}"
+
+        def principal():
+            return self.delegations.principal_for(plan_id, "shift", binding={"edge_run": run_id}, version=version)
+
+        authority = ShiftAuthority(self.store, run_id=run_id, load_session=self.load_session, clock=_now)
+        host = ShiftHost(self.store, self.provider, self.journal, authority=authority, clock=_now)
+        try:
+            try:
+                authority.register(principal(), plan_id, run_id=run_id, profile=self.profile,
+                                   binding=self.provider.binding)
+            except Exception as error:  # noqa: BLE001  (an earlier attempt registered it; sequence rechecks it)
+                log.info("delegated shift %s: registration not made (%s); sequence rechecks it", plan_id,
+                         getattr(error, "code", type(error).__name__))
+            result = ShiftRuntime(host, principal=principal, plan_id=plan_id, run_id=run_id).sequence(
+                stop=Event(), hold_at_full=True)
+            log.info("delegated shift %s: %s", plan_id, result.get("status"))
+            return result
+        except Exception as error:  # noqa: BLE001  (the plan stays in SHIFT; a person decides)
+            log.info("delegated shift %s stopped: %s", plan_id, getattr(error, "code", type(error).__name__))
+            return None
