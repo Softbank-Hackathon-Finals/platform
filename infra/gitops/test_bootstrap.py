@@ -1,5 +1,6 @@
 """Bootstrap Helm calls: settled-release guard and server-side apply ownership."""
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -53,6 +54,13 @@ def main(status, catalog=None):
 
 def profiles(*ids):
     return {"evaluation_profiles": [{"tenant_id": "bravo", "profile_id": i, "profile_version": "1"} for i in ids]}
+
+
+class WorkflowHostKeys(unittest.TestCase):
+    def test_bootstrap_accepts_exactly_the_runtime_keys_the_chart_accepts(self):
+        template = (Path(bootstrap.__file__).parent / "argocd/templates/workflow-host-application.yaml").read_text()
+        chart = set(re.findall(r'"(\w+)"', re.search(r"has \$key \(list ([^)]*)\)", template)[1]))
+        self.assertEqual(bootstrap.WORKFLOW_KEYS, chart)
 
 
 class InitialProposal(unittest.TestCase):

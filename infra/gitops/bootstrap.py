@@ -68,7 +68,9 @@ def verify_initial_proposal(get, value):
     get("secret", INITIAL_PROPOSAL_REGISTRY, "bravo-initial")
 
 
-WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "applyCredential"}
+# Same list as templates/workflow-host-application.yaml (test_bootstrap keeps them equal).
+WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "applyCredential", "initialProposalAuto",
+                 "candidatePull"}
 APPLY_PLUGIN, APPLY_CONFIG = "/usr/local/bin/bravo-credential", "/t31/registration.json"
 
 
