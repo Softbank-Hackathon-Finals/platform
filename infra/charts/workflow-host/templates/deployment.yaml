@@ -4,6 +4,7 @@
 {{- if not .Values.stateClaim }}{{ fail "stateClaim is required" }}{{- end }}
 {{- if not .Values.secrets.executor }}{{ fail "secrets.executor is required" }}{{- end }}
 {{- if and .Values.applyCredential.existingConfigMap .Values.secrets.applyKubeconfig }}{{ fail "use applyCredential or secrets.applyKubeconfig, not both" }}{{- end }}
+{{- with .Values.gateSigner.roleArn }}{{- if not (regexMatch "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]+$" .) }}{{ fail "gateSigner.roleArn must be one IAM role ARN" }}{{- end }}{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,6 +56,13 @@ spec:
             - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
             - {name: PYTHONUNBUFFERED, value: "1"}
             - {name: HOME, value: /tmp}
+            {{- if .Values.gateSigner.roleArn }}
+            # T19 platform signer (ADR-0038): boto3's web identity provider, nothing stored.
+            - {name: AWS_ROLE_ARN, value: {{ .Values.gateSigner.roleArn | quote }}}
+            - {name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/sts/token}
+            - {name: AWS_REGION, value: {{ .Values.gateSigner.region | quote }}}
+            - {name: AWS_STS_REGIONAL_ENDPOINTS, value: regional}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -85,8 +93,19 @@ spec:
             # Only for creating and reading initial-proposal Jobs in bravo-initial (Role there allows nothing else).
             - {name: kube-api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
             {{- end }}
+            {{- if .Values.gateSigner.roleArn }}
+            - {name: sts-token, mountPath: /var/run/secrets/sts, readOnly: true}
+            {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        {{- if .Values.gateSigner.roleArn }}
+        # Audience sts.amazonaws.com only: this token cannot call the Kubernetes API.
+        - name: sts-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken: {path: token, audience: sts.amazonaws.com, expirationSeconds: 3600}
+        {{- end }}
         {{- if .Values.initialProposalAuto.enabled }}
         - name: kube-api-token
           projected:
