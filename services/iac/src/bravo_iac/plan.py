@@ -65,14 +65,21 @@ def plan(current, proposed, *, origin: str) -> dict:
             effects.append({"module": module_id, "anonymous_access": {"before": was["anonymous"],
                                                                        "after": now["anonymous"]},
                             "checks": now["checks"]})
-        widens = widens or not set(now["anonymous"]) <= set(was["anonymous"])
+        reach_was, reach_now = set(was.get("reach", [])), set(now.get("reach", []))
+        if reach_was != reach_now:
+            effects.append({"module": module_id, "reach": {"added": sorted(reach_now - reach_was),
+                                                           "removed": sorted(reach_was - reach_now)}})
+        widens = widens or not set(now["anonymous"]) <= set(was["anonymous"]) or not reach_now <= reach_was
     if origin == "agent" and widens:
         refusals.append("IAC_WIDENING_REFUSED")
+    grants = sorted({json.dumps(g, sort_keys=True) for m in new["modules"]
+                     for g in module(m["id"], m["version"]).grants(m["params"])})
     doc = {
         "kind": "iac-plan.v1", "environment": cur["environment"], "origin": origin,
         "base_digest": digest(cur), "proposed_digest": digest(new),
         "changes": changes, "effects": effects, "widens": widens,
         "refusals": refusals, "accepted": not refusals,
+        "tailnet_grants": [json.loads(g) for g in grants],  # what the tailnet policy must allow
         # A plan is not an approval and never applies anything by itself.
         "authorizes_apply": False,
     }

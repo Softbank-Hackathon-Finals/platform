@@ -22,6 +22,11 @@ DB_SECRET_ID = "bravo/target/precutover/database"
 COMPAT_SCRIPT = "secrets_manager_compat.py"
 COMPAT_CONFIG = NAME + "-secrets-manager-compat"
 PYTHON = "/app/.venv/bin/python"
+# T37: HTTP metrics to the in-cluster Collector over mTLS. The client certificate Secret is made by the
+# observability owner; demo-chat refuses to start if the files are missing or OTEL_EXPORTER_OTLP* is set.
+METRICS_SECRET = "bravo-app-metrics-client"
+METRICS_DIR = "/etc/bravo-metrics"
+METRICS_ENDPOINT = "https://bravo-collector.bravo-observability.svc:4318/v1/metrics"
 # The one place that names the image to deploy. A new publication changes that file alone.
 PIN = json.loads(Path(__file__).with_name("app-image.json").read_text())
 REPOSITORY = "ghcr.io/softbank-hackathon-finals/demo-chat"
@@ -80,6 +85,10 @@ def application(image, pull_secret=None, arch="amd64"):
         "S3_ENDPOINT_URL": f"http://seaweedfs.{NAMESPACE}.svc.cluster.local:8333",
         "AWS_REGION": "us-east-1", "AWS_DEFAULT_REGION": "us-east-1", "AWS_EC2_METADATA_DISABLED": "true",
         "PGSSLMODE": "verify-full", "PGSSLROOTCERT": "/etc/cnpg-ca/ca.crt", "WRITE_BLOCKED": "true",
+        "BRAVO_METRICS_ENDPOINT": METRICS_ENDPOINT,
+        "BRAVO_METRICS_CA_FILE": f"{METRICS_DIR}/ca.crt",
+        "BRAVO_METRICS_CLIENT_CERT": f"{METRICS_DIR}/tls.crt",
+        "BRAVO_METRICS_CLIENT_KEY": f"{METRICS_DIR}/tls.key",
     }
     sidecar = {
         "name": "secrets-manager-compat", "image": image, "imagePullPolicy": pull_policy,
@@ -120,6 +129,7 @@ def application(image, pull_secret=None, arch="amd64"):
         "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
                       "limits": {"cpu": "500m", "memory": "512Mi"}},
         "volumeMounts": [{"name": "ca", "mountPath": "/etc/cnpg-ca", "readOnly": True},
+                         {"name": "app-metrics", "mountPath": METRICS_DIR, "readOnly": True},
                          {"name": "tmp", "mountPath": "/tmp"}],
     }
     pod = {
@@ -138,6 +148,9 @@ def application(image, pull_secret=None, arch="amd64"):
                 "items": [{"key": "credentials.json", "path": "credentials.json"}]}},
             {"name": "ca", "secret": {"secretName": "target-db-ca",
                                       "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
+            {"name": "app-metrics", "secret": {
+                "secretName": METRICS_SECRET, "defaultMode": 0o440,
+                "items": [{"key": k, "path": k} for k in ("ca.crt", "tls.crt", "tls.key")]}},
             {"name": "tmp", "emptyDir": {}},
         ],
     }

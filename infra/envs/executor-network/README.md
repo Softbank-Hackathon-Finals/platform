@@ -1,5 +1,7 @@
 # T12 platform state DB network path
 
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`routes`·`network`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: `values`·`pooler-ingress`.
+
 `render.py` creates two additional policies. `platform-state` accepts TCP 5432
 from `bravo-platform` Pods with the exact
 `app.kubernetes.io/name=cutover-executor` label. Those caller Pods get egress to

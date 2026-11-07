@@ -1,5 +1,7 @@
 # Collector → 플랫폼 지표 저장소 tailnet 경로 (T37)
 
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`proxy-quarantine`·`routes`·`collector-egress`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: 없음(정책 조각 `tailnet-fragment.json`과 함수는 시험·진단용으로 남김).
+
 출발지 · 목적지 Collector가 플랫폼 지표 저장소(`bravo-metrics`, [tailnet 노출](../../../services/observability/README.md#tailnet-노출-다른-클러스터의-collector--지표-저장소))로 가는 경로를 렌더링한다. 노드 · ACL · operator를 바꾸지 않는다. 적용은 각 클러스터와 tailnet 담당(T7 · T30)이 한다.
 
 ## 왜 Collector 전용 egress인가
@@ -20,7 +22,7 @@ T30 [`network.py`](../target-workloads/network.py)의 역할별 ProxyGroup + Ext
 | `routes --side S --metrics-fqdn F --policy-readback R --route-readback E` | 클러스터 범위 ProxyGroup `bravo-S-collector`(egress, 1개, 태그 `tag:bravo-S-collector`)와 `bravo-observability/bravo-metrics` ExternalName Service(TCP 9090만) |
 | `collector-egress --side S` | `bravo-collector-tailnet` NetworkPolicy: Collector Pod → `tailscale-system`의 이 ProxyGroup Pod만, 9090과 관찰한 재매핑 포트만 |
 | `proxy-ingress --side S --transport-port P` | proxy Pod 수신 제한: Collector에서 오는 업무 포트, operator 상태 확인 9002, WireGuard UDP |
-| [`tailnet-fragment.json`](tailnet-fragment.json) | 기존 tailnet 정책에 **합칠 추가분**. 태그 소유, 두 Collector 태그 → `tag:bravo-metrics` TCP 9090 grant, 허용 2 · 거부 시험 16 |
+| [`tailnet-fragment.json`](tailnet-fragment.json) | 기존 tailnet 정책에 **합칠 추가분**. 태그 소유, 두 Collector 태그 → `tag:bravo-metrics` TCP 9090 grant, 허용 2 · 거부 시험 18 |
 
 Collector 기본 정책([`resources.yaml`](../../../services/observability/deploy/collector/resources.yaml))에서 "어느 목적지든 9090" 규칙을 없앴다. 같은 클러스터의 `app: bravo-prometheus` Pod(시험 · 플랫폼 배치)로만 9090이 열리고, 다른 클러스터의 저장소로는 이 디렉터리의 `bravo-collector-tailnet` 정책으로만 나간다.
 

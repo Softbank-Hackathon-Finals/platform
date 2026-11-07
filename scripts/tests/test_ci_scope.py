@@ -47,6 +47,7 @@ class MergeGroupTest(unittest.TestCase):
         self.first = self.commit()
         (self.root / "services/b/api.py").write_text("# later queued PR\n")
         self.head = self.commit()
+        self.git("branch", "develop", self.base)  # the queue's target branch, before both queued PRs
 
     def git(self, *args):
         return subprocess.check_output(["git", *args], cwd=self.root, stderr=subprocess.DEVNULL).decode().strip()
@@ -58,7 +59,7 @@ class MergeGroupTest(unittest.TestCase):
 
     def run_plan(self, **overrides):
         env = dict(os.environ, EVENT="merge_group", GROUP_ACTION="checks_requested", BASE=self.base,
-                   GROUP_HEAD=self.head, GITHUB_STEP_SUMMARY=str(self.root / "summary"),
+                   GROUP_HEAD=self.head, TARGET_BRANCH="refs/heads/develop", GITHUB_STEP_SUMMARY=str(self.root / "summary"),
                    GITHUB_OUTPUT=str(self.root / "output"))
         env.update(overrides)
         return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", workflow_shell("Plan affected checks")],
@@ -70,10 +71,9 @@ class MergeGroupTest(unittest.TestCase):
                 result = self.run_plan(BASE=base)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 plan = json.loads((self.root / "ci-plan.json").read_text())
+                # The whole group from the target branch, whatever base_sha says; not the full suite.
                 self.assertEqual([p["path"] for p in plan["projects"]], ["services/a", "services/b"])
-                self.assertTrue(plan["full"])
-                self.assertTrue(plan["infra"])
-                self.assertTrue(plan["scripts"])
+                self.assertFalse(plan["full"])
 
     def test_previous_group_base_still_runs_combination_failure(self):
         self.git("checkout", "-qb", "candidate-a", self.base)
@@ -124,7 +124,8 @@ class MergeGroupTest(unittest.TestCase):
         self.git("checkout", "-q", self.head)
         for values in ({"BASE": ""}, {"BASE": "not-a-sha"}, {"GROUP_HEAD": ""},
                        {"GROUP_HEAD": self.first}, {"BASE": "f" * 40},
-                       {"BASE": unrelated}, {"GROUP_ACTION": "destroyed"}):
+                       {"BASE": unrelated}, {"GROUP_ACTION": "destroyed"},
+                       {"TARGET_BRANCH": "refs/heads/missing"}, {"TARGET_BRANCH": "refs/heads/$(id)"}):
             with self.subTest(values=values):
                 self.assertNotEqual(self.run_plan(**values).returncode, 0)
 
@@ -149,6 +150,49 @@ class MergeGroupTest(unittest.TestCase):
 
 
 class ScopeTest(unittest.TestCase):
+    def test_queue_does_not_widen_by_local_links(self):
+        # PR runs widen scope for local project links; the queue checks the group's own changes.
+        files = FILES
+        with patch.object(scope, "git", side_effect=lambda *a: (
+                "\0".join(files).encode() if a[0] == "ls-files" else
+                b"base" if a[0] == "merge-base" else b"services/a/api.py")), \
+             patch.object(scope, "local_dependencies", return_value=True):
+            self.assertTrue(scope.plan("a" * 40)["full"])
+            queued = scope.plan("a" * 40, queue=True)
+        self.assertFalse(queued["full"])
+        self.assertEqual(queued["projects"], [{"path": "services/a", "kind": "python"}])
+
+    def test_other_workflow_runs_infra_only(self):
+        plan = scope.select(FILES, [".github/workflows/dependency-watch.yml"])
+        self.assertEqual((plan["full"], plan["infra"], plan["projects"]), (False, True, []))
+
+    def test_ci_definition_runs_one_project_per_language(self):
+        files = FILES + ["services/web/package.json", "services/tool/go.mod", "services/web2/package.json"]
+        for changed in ([".github/workflows/ci.yml"], ["scripts/ci_scope.py"], ["scripts/tests/test_ci_scope.py"]):
+            with self.subTest(changed=changed):
+                plan = scope.select(files, changed)
+                self.assertFalse(plan["full"])
+                self.assertTrue(plan["infra"] and plan["scripts"])
+                self.assertEqual(sorted(p["kind"] for p in plan["projects"]), ["go", "node", "python"])
+        mixed = scope.select(files, [".github/workflows/ci.yml", "schemas/x.json"])
+        self.assertTrue(mixed["full"])
+        with patch.object(scope, "git", side_effect=lambda *a: (
+                "\0".join(files).encode() if a[0] == "ls-files" else
+                b"base" if a[0] == "merge-base" else b".github/workflows/ci.yml")), \
+             patch.object(scope, "local_dependencies", return_value=True):
+            self.assertFalse(scope.plan("a" * 40)["full"])  # local links widen project changes, not a canary
+
+    def test_pin_only_change_runs_only_the_gitops_contract(self):
+        pins = ["infra/gitops/environments/development/registration-image.json",
+                "infra/gitops/environments/development/registration-publication.json"]
+        plan = scope.select(FILES, pins)
+        self.assertEqual((plan["pins"], plan["infra"], plan["full"], plan["projects"]), (True, False, False, []))
+        self.assertTrue(plan["scripts"])
+        for mixed in (pins + ["infra/gitops/argocd/values.yaml"], pins + ["services/a/api.py"],
+                      ["infra/gitops/environments/development/runtime.json"]):
+            with self.subTest(mixed=mixed):
+                self.assertFalse(scope.select(FILES, mixed)["pins"])
+
     def test_prose_only_still_produces_explicit_empty_plan(self):
         plan = scope.select(FILES, ["docs/tasks.md", "services/a/README.md"])
         self.assertEqual(plan["projects"], [])
@@ -218,7 +262,8 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(plan["projects"], [{"path": "services/a", "kind": "python"}])
 
     def test_shared_unknown_and_deleted_manifest_select_all(self):
-        for path in ["scripts/ci_scope.py", ".github/workflows/ci.yml", "schemas/proposal.json",
+        # The CI definition itself (ci.yml, scripts/ci_*) now runs a per-language canary instead; see below.
+        for path in ["schemas/proposal.json",
                      "new-system/main.py", "services/removed/pyproject.toml", "docs/examples/contract.json"]:
             with self.subTest(path=path):
                 plan = scope.select(FILES, [path])

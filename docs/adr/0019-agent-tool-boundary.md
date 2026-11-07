@@ -43,6 +43,14 @@
 
 로컬 `services/agent-worker` 시험 323개 통과(새 시험: 소스 경로 정책 9, inventory.describe 3, policy.evaluate 6, 파괴 시도 기록 5). 실제 모델 호출 실측은 아직 없다.
 
+## 6. 보완: 재시작 뒤 시도 이어 가기 (2026-11-06)
+
+* **배경:** coordinator의 시도 수·상태·제안·영수증이 프로세스 메모리에만 있어, 러너가 재시작하면 2~3번째 시도를 이어 갈 수 없었다. 새 프로세스가 시도 수를 0부터 세면 3회 상한이 무너진다.
+* **결정:** T11은 `Coordinator.export_state()`·`Coordinator.restore()`와 상태 전이마다 부르는 `checkpoint`를 제공한다. 저장은 T10/T15가 한다. 모델 호출 전에 `ANALYZING`을 먼저 저장(write-ahead)하고, 그 저장이 실패하면 모델을 부르지 않는다. `ANALYZING`으로 저장된 상태는 결과를 모르므로 `NEEDS_HUMAN`으로 복원하고 그 시도를 쓴 것으로 센다. 복원은 `state_digest`와 내용 규칙(시도 기록 수, 3회 상한, snapshot·inventory digest, 저장된 영수증마다 `verify()`와 같은 규칙으로 다시 계산한 판정과 기록된 상태·다음 입력의 일치, 앞선 시도는 모두 영수증이 있는 `RETRY_ALLOWED`)을 모두 확인하고, 하나라도 어긋나면 이어 가지 않는다. 결속이 어긋난 영수증은 시도 기록에 넣지 않고 사유만 남겨, 정상 경로가 만든 상태는 항상 복원된다. 필드 목록은 [T11 README](../../services/agent-worker/README.md#재시작과-상태-보존).
+* **감사 사유 추가:** `RESTART_OUTCOME_UNKNOWN`, `STATE_CHECKPOINT_FAILED`(`tool=coordinator`, `outcome=STOPPED`). 이 이벤트는 그 시도의 `audit_event_count`에 더해, T15 `attempt_tool_events`의 개수 검사(검증기 외 이벤트 수 = `audit_event_count`)를 깨지 않는다.
+* **한계:** `state_digest`는 서명이 아니다. 위조 방지와 단일 실행(같은 `revision`에서 두 프로세스가 동시에 시작하는 것)은 T10 저장소의 접근 제어와 `revision` 비교 후 쓰기에 달려 있다. 마지막 시도 기록과 그 감사 이벤트를 함께 지우고 `attempt`를 2로 낮춘 문서는 정상 경로의 2회째 `RETRY_ALLOWED` 문서와 같아 내용 검사로 찾을 수 없다. 이것도 저장소의 `revision` 비교와 접근 제어가 막아야 한다. T10·T15 저장 연결과 실제 재시작 운영은 미검증이다.
+* **실측:** 로컬 시험 `tests/test_coordinator_state.py`(왕복, 변조 거부, 영수증 재판정·입력 교체 거부, 결속 불일치 영수증 상태의 복원, ANALYZING→NEEDS_HUMAN, 재시작을 넘는 3회 상한, OpenAI 모의 전송으로 실패→재시도→통과, 별도 프로세스 재개, `bravo-agent analyze --state-output`의 심볼릭 링크·남은 임시 파일·덮어쓰기 거부). 실제 모델·T10 저장소 연결 실측은 없다.
+
 ## 7. 보완: 시도별 도구 기록 추출과 T38 응답 연결 제안 (2026-11-06)
 
 열린 PR #372(재시작 상태)와 #373(T42 `rehearsal.exec`)이 각각 §6을 쓰고 있어 번호 충돌을 피하려고 §7로 둔다.

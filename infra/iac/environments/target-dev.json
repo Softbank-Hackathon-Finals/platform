@@ -10,6 +10,37 @@
         "bucket": "demo-chat-attachments",
         "demo_run_id": "demo-2026-11-08"
       }
+    },
+    {
+      "id": "tailnet-egress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-target-operator",
+        "groups": [
+          {
+            "name": "bravo-target-collector",
+            "tag": "tag:bravo-target-collector",
+            "clients": [
+              {
+                "namespace": "bravo-observability",
+                "labels": {
+                  "app": "bravo-collector"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-metrics",
+                "namespace": "bravo-observability",
+                "destination": "bravo-metrics",
+                "destination_tag": "tag:bravo-metrics",
+                "port": 9090,
+                "port_name": "otlp"
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

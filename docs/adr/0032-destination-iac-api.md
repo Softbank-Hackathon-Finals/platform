@@ -54,6 +54,22 @@
 * 설계 8.3: 에이전트는 JSON으로 검증되는 제안만 내고 실행하지 않는다. `infra.plan`은 같은 입력에 같은 digest를 내는 순수 함수이며, 에이전트는 노출 확대(`IAC_WIDENING_REFUSED`)와 모듈 추가·삭제(`IAC_MODULE_SET_CHANGE_REFUSED`)를 계획할 수 없다.
 * 에이전트 이미지는 IaC 라이브러리를 가져오지 않는다. 계획 포트(`bravo_iac.agent.AgentPlanner`)를 제어 경로가 주입한다(inventory와 같은 방식, 네트워크 없음).
 
+### 네트워크 경로 (`tailnet-egress`)
+
+* 해피패스에서 에이전트가 경로마다 들어가 Tailscale operator가 매긴 proxy 포트를 관찰하고 NetworkPolicy를 맞추느라 오래 걸렸다. 경로를 Git에 선언해 미리 깐다.
+* **클러스터 쪽은 그 그룹 proxy Pod의 TCP 10000–10999를 연다.** 관찰 단계가 사라지는 대신, 기존 rehearsal-access의 "할당된 포트만 연다"보다 넓다. 그룹은 용도별 전용이고 목적지·포트는 tailnet grant가 정하므로, 열린 범위로 닿을 수 있는 것은 그 용도의 grant뿐이다.
+* tailnet 정책 조각은 원하는 상태에서 생성하고 Tailscale 정책 `tests`로 불변식을 건다. 실검증은 Tailscale(`tailscale status`)로 한다.
+* 이 맥의 첫 실행에서 목적지 API 장치 태그가 선언과 달랐다(`tag:bravo-target-operator` vs `tag:bravo-target-api`). 선언과 실제가 어긋나는 곳을 적용 전에 드러내는 것이 목적이다.
+
+### 적용 위치: 고객 클러스터마다 Argo CD
+
+* 플랫폼 Argo CD가 고객 클러스터들을 밀어 넣으면 플랫폼이 고객 클러스터마다 자격·API 경로를 쥐고, 고객이 늘수록 한곳에 부담과 권한이 모인다. **각 고객 클러스터에 Argo CD를 두고(pull), 그 클러스터의 환경 경로 한 곳만 끌어온다.**
+* 원하는 상태는 환경별 Helm 차트로 생성한다. tailnet 접미사는 차트의 유일한 값이며 설치 때 Application에만 들어간다(공개 저장소에 두지 않는다).
+* 권한은 1단계로 넉넉하게 시작한다(AppProject: 이 저장소·이 클러스터·모든 namespace·종류). 해피패스가 안정되면 README의 순서로 좁힌다. 팀 의견(먼저 넉넉하게, 이후 세분화)을 따른다.
+* 단, **적용 커밋은 처음부터 고정한다.** develop은 승인 0이라 "사람이 검토·병합한 상태만 적용"이 병합만으로는 성립하지 않는다. 고객 클러스터는 설치 값 `targetRevision`(검토한 전체 커밋 SHA)만 적용하고, 승격은 그 값을 바꾸는 것이다(#592 리뷰 P1).
+* 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform`을 Application으로 붙인다. 고객용 설치 차트는 고객 클러스터 전용이다.
+* 같은 자원의 주인은 하나다. 이 모듈을 적용하는 클러스터에서는 같은 경로를 만드는 기존 렌더러(rehearsal-access·executor-network·collector-network)를 쓰지 않고, 렌더러 경로는 담당 합의로 이 모듈로 옮긴다.
+
 ## 4. 결과
 
 * `services/iac`(`bravo_iac`): 카탈로그, 원하는 상태 검사, plan, CLI(`modules`·`check`·`plan`·`stage`), 읽기·제안 API(`/v1/iac/modules`, `/v1/iac/environments/{id}`, `/v1/iac/plan`).

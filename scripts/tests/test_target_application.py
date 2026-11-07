@@ -586,3 +586,47 @@ class CompatServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+workloads_render = load(WORKLOADS / "render.py", "target_workloads_render")
+METRICS_ENV = {
+    "BRAVO_METRICS_ENDPOINT": "https://bravo-collector.bravo-observability.svc:4318/v1/metrics",
+    "BRAVO_METRICS_CA_FILE": "/etc/bravo-metrics/ca.crt",
+    "BRAVO_METRICS_CLIENT_CERT": "/etc/bravo-metrics/tls.crt",
+    "BRAVO_METRICS_CLIENT_KEY": "/etc/bravo-metrics/tls.key",
+}
+
+
+class AppMetricsTests(unittest.TestCase):
+    """T37: the app sends its HTTP metrics to the in-cluster Collector over mTLS, nothing else."""
+
+    def test_app_names_the_collector_and_its_own_certificate_files(self):
+        values = env_values(app_container())
+        self.assertEqual({k: values.get(k) for k in METRICS_ENV}, METRICS_ENV)
+
+    def test_no_generic_otlp_setting_reaches_the_app(self):
+        # demo-chat refuses to start when an OTEL_EXPORTER_OTLP* variable is present.
+        for container in (app_container(), sidecar()):
+            self.assertFalse([e["name"] for e in container["env"] if e["name"].startswith("OTEL_EXPORTER_OTLP")])
+
+    def test_client_certificate_is_a_read_only_file_mount_of_the_agreed_secret(self):
+        volumes = {v["name"]: v for v in pod_spec()["volumes"]}
+        self.assertEqual(volumes["app-metrics"]["secret"], {
+            "secretName": "bravo-app-metrics-client", "defaultMode": 0o440,
+            "items": [{"key": k, "path": k} for k in ("ca.crt", "tls.crt", "tls.key")]})
+        mounts = {m["name"]: m for m in app_container()["volumeMounts"]}
+        self.assertEqual(mounts["app-metrics"], {"name": "app-metrics", "mountPath": "/etc/bravo-metrics",
+                                                 "readOnly": True})
+        # The key stays a file: no environment variable carries certificate material.
+        self.assertFalse([e for e in app_container()["env"] if "valueFrom" in e
+                          and e["valueFrom"]["secretKeyRef"]["name"] == "bravo-app-metrics-client"])
+
+    def test_sidecar_gets_no_metrics_certificate(self):
+        self.assertNotIn("app-metrics", {m["name"] for m in sidecar()["volumeMounts"]})
+        self.assertFalse([e for e in sidecar()["env"] if e["name"].startswith("BRAVO_METRICS")])
+
+    def test_target_namespace_is_marked_for_the_collector(self):
+        items = workloads_render.database("bravo-target-node")
+        namespace = next(i for i in items if i["kind"] == "Namespace")
+        self.assertEqual(namespace["metadata"]["labels"]["bravo.observability/send"], "true")
+        self.assertEqual(namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"], "restricted")

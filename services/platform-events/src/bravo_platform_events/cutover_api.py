@@ -46,6 +46,27 @@ class FailbackApprovalInput(BaseModel):
     expected_version: StrictInt = Field(ge=1)
 
 
+class InfraBindingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    infra_plan_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requested_by: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+class InfraApprovalInput(BaseModel):
+    """T44 destination build plan approval (infra_approval, ADR-0032)."""
+    model_config = ConfigDict(extra="forbid")
+    approval_kind: Literal["infra"]
+    binding: InfraBindingInput
+    expires_at: str = Field(max_length=40)
+
+
+class InfraClaimInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class RehearsalInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -63,8 +84,9 @@ def create_cutover_app(service: CutoverService, *,
                        change_service: ChangeApprovalService | None = None,
                        failback_service: FailbackService | None = None,
                        shift_service=None,
-                       rehearsal_service: RehearsalService | None = None):
-    for other in (change_service, failback_service, rehearsal_service, shift_service):
+                       rehearsal_service: RehearsalService | None = None,
+                       infra_service=None):
+    for other in (change_service, failback_service, rehearsal_service, shift_service, infra_service):
         if other is not None and other.store is not service.store:
             raise ValueError("shared_plan_store_required")
     app = create_plan_app(service.store, resolve_principal=resolve_principal)
@@ -105,12 +127,13 @@ def create_cutover_app(service: CutoverService, *,
             return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
     @app.post("/v1/plans/{plan_id}/approvals")
-    async def approve(plan_id: str, body: ApprovalInput | ChangeInput | FailbackApprovalInput | ShiftApprovalInput,
+    async def approve(plan_id: str, body: ApprovalInput | ChangeInput | FailbackApprovalInput | ShiftApprovalInput
+                      | InfraApprovalInput,
                       request: Request,
                       idempotency_key: str = Header(max_length=128)):
         actor = principal(request)
         approval_service = {"change": change_service, "failback": failback_service,
-                            "shift": shift_service}.get(body.approval_kind, service)
+                            "shift": shift_service, "infra": infra_service}.get(body.approval_kind, service)
         if approval_service is None:
             raise HTTPException(422, detail={"code": "unsupported_approval_kind"})
         receipt = await asyncio.to_thread(approval_service.approve, actor, plan_id,
@@ -121,8 +144,27 @@ def create_cutover_app(service: CutoverService, *,
             fields = ("approval_id", "approval_kind", "actor_id", "approved_at", "expires_at")
         if isinstance(body, ChangeInput):
             fields += ("run_id",)
+        if isinstance(body, InfraApprovalInput):
+            fields += ("expires_at",)
         return JSONResponse({k: receipt[k] for k in fields},
                             headers={"Cache-Control": "no-store"})
+
+    def infra():
+        if infra_service is None:
+            raise HTTPException(503, detail={"code": "infra_approval_unavailable"})
+        return infra_service
+
+    @app.get("/v1/plans/{plan_id}/infra-approvals/{approval_id}")
+    async def read_infra_approval(plan_id: str, approval_id: str, request: Request):
+        receipt = await asyncio.to_thread(infra().read, principal(request), plan_id, approval_id)
+        return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
+
+    @app.post("/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims")
+    async def claim_infra_approval(plan_id: str, approval_id: str, body: InfraClaimInput, request: Request):
+        """The T44 executor claims an approval once for one run, after recomputing its plan digest."""
+        receipt = await asyncio.to_thread(infra().claim, principal(request), plan_id, approval_id,
+                                         **body.model_dump())
+        return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
     @app.post("/v1/plans/{plan_id}/cutover")
     async def submit(plan_id: str, body: SubmitInput, request: Request,
