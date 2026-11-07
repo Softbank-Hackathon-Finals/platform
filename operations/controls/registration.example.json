@@ -12,7 +12,7 @@
   "tests": {
     "IAM-01.1": {
       "adapter": "s3-endpoint",
-      "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333",
+      "endpoint": "http://127.0.0.1:18333",
       "bucket": "demo-chat-attachments",
       "key": "attachments/t14-canary.txt",
       "identity": "client",
@@ -21,7 +21,8 @@
     },
     "SEC-01.1": {
       "adapter": "openbao",
-      "origin": "https://openbao.target.example.invalid:8200",
+      "origin": "https://127.0.0.1:18200",
+      "server_hostname": "target-openbao.bravo-secrets.svc",
       "ca_file": "/private/target-openbao-ca.pem",
       "auth_mount": "kubernetes",
       "mount": "secret",

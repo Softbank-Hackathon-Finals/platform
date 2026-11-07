@@ -8,11 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from test_openbao import identity, secret
 
-from bravo_controls import Observation
+from bravo_controls import Environment, Observation
 from bravo_controls.aws_qualification import QualifiedAwsProbe
 from bravo_controls.object_endpoint import EndpointAnonymousReadProbe
-from bravo_controls.openbao import OpenBaoSecretAccessProbe
+from bravo_controls.openbao import OpenBaoClient
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("controls_run", ROOT / "operations/controls/run.py")
@@ -53,22 +54,54 @@ def test_main_prints_the_verdicts_and_the_record_command(tmp_path, capsys, monke
     assert tool.main(["--registration", str(path), "--out", str(tmp_path / "run")]) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["verdicts"] == {"IAM-01.1": "UNKNOWN", "SEC-01.1": "UNKNOWN", "AUD-01.1": "UNKNOWN"}
-    assert printed["record"].startswith("operations/gate/run.py record --side source --run ")
+    assert printed["record"].startswith("uv run --directory services/control-gate python ../../operations/gate/run.py "
+                                        "record --context <platform kube context> --plan-id <plan id> --side source --run /")
 
 
-@pytest.mark.parametrize(("tests", "code"), [
-    ({"AUD-01.1": {"adapter": "cloudwatch"}}, "unknown_adapter:AUD-01.1"),   # not wired: refused, never faked
-    ({"IAM-01.1": {"adapter": "aws-secret"}}, "unknown_adapter:IAM-01.1"),
-    ({"IAM-01.1": "s3-endpoint"}, "unknown_adapter:IAM-01.1"),
+def test_a_failure_before_the_run_prints_one_code_and_leaves_no_directory(tmp_path, capsys, monkeypatch):
+    from botocore.exceptions import ProfileNotFound
+
+    path = tmp_path / "registration.json"
+    path.write_text(json.dumps(registration({})))
+
+    def missing_profile(*_):
+        raise ProfileNotFound(profile="operator-sso")
+
+    monkeypatch.setattr(tool, "build_probes", missing_profile)
+    assert tool.main(["--registration", str(path), "--out", str(tmp_path / "run")]) == 1
+    printed = capsys.readouterr().out
+    assert json.loads(printed) == {"status": "FAILED", "reason": "ProfileNotFound"} and "operator-sso" not in printed
+    assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.parametrize(("out", "code"), [
+    ("runs/x", "out_must_be_absolute"),
+    (str(ROOT / "runs" / "x"), "out_inside_repository"),
+    (str(ROOT / "services" / ".." / "x"), "out_inside_repository"),
 ])
-def test_an_unknown_adapter_is_refused(tmp_path, tests, code):
+def test_the_output_is_an_absolute_path_outside_the_repository(out, code):
     with pytest.raises(ValueError, match=code):
-        tool.build_probes(registration(tests), None, tool.Evidence(tmp_path))
+        tool.run(registration({}), out, build=lambda *_: pytest.fail("nothing is built"))
+    assert not (ROOT / "runs").exists() and not (ROOT / "x").exists()
+
+
+@pytest.mark.parametrize(("role", "tests", "code"), [
+    ("target", {"AUD-01.1": {"adapter": "cloudwatch"}}, "unknown_adapter:AUD-01.1"),  # not wired: refused
+    ("target", {"IAM-01.1": {"adapter": "aws-secret"}}, "unknown_adapter:IAM-01.1"),
+    ("target", {"IAM-01.1": "s3-endpoint"}, "unknown_adapter:IAM-01.1"),
+    # A source registration copied with only its role changed measures the source: refused.
+    ("target", {"IAM-01.1": {"adapter": "aws-object"}}, "unknown_adapter:IAM-01.1"),
+    ("target", {"SEC-01.1": {"adapter": "aws-secret"}}, "unknown_adapter:SEC-01.1"),
+    ("source", {"IAM-01.1": {"adapter": "s3-endpoint"}}, "unknown_adapter:IAM-01.1"),
+    ("source", {"SEC-01.1": {"adapter": "openbao"}}, "unknown_adapter:SEC-01.1"),
+])
+def test_an_adapter_outside_the_environments_role_is_refused(tmp_path, role, tests, code):
+    env = Environment(f"env-{role}", role, f"ref:{role}")
+    with pytest.raises(ValueError, match=code):
+        tool.build_probes(registration(tests, role=role), env, tool.Evidence(tmp_path))
 
 
 def test_the_target_object_adapter_takes_its_credentials_from_named_variables_only(tmp_path, capsys):
-    from bravo_controls import Environment
-
     env = Environment("env-target", "target", "ref:target")
     entry = {"adapter": "s3-endpoint", "endpoint": "https://objects.target.example:8333",
              "bucket": "demo-chat-attachments", "key": "attachments/canary.txt",
@@ -85,8 +118,6 @@ def test_the_target_object_adapter_takes_its_credentials_from_named_variables_on
 
 
 def test_the_aws_adapters_use_the_operator_profile_and_registered_roles(tmp_path):
-    from bravo_controls import Environment
-
     profiles = []
     env = Environment("env-source", "source", "ref:source")
     tests = {"IAM-01.1": {"adapter": "aws-object", "account_id": "123456789012", "region": "ap-northeast-2",
@@ -101,29 +132,109 @@ def test_the_aws_adapters_use_the_operator_profile_and_registered_roles(tmp_path
     assert profiles == ["operator", "operator"]  # nothing contacted AWS yet: credentials come at run time
 
 
-def test_the_openbao_adapter_logs_in_each_service_account_and_binds_the_accessor(tmp_path):
-    from bravo_controls import Environment
-
-    env = Environment("env-target", "target", "ref:target")
+def bao_entry(tmp_path, mode=0o600, **extra):
     (tmp_path / "ca.pem").write_text(CA)
     for name in ("app", "other"):
         (tmp_path / f"{name}.jwt").write_text(f"jwt-{name}\n")
-    logins = []
-
-    def login(origin, ca_pem, mount, role, jwt):
-        logins.append((origin, mount, role, jwt))
-        return f"token-{role}", f"accessor-{role}"
-
+        (tmp_path / f"{name}.jwt").chmod(mode)
     who = lambda name: {"namespace": "target-dev", "service_account": name, "uid": f"uid-{name}",  # noqa: E731
                         "role": f"{name}-role", "jwt_file": str(tmp_path / f"{name}.jwt")}
-    entry = {"adapter": "openbao", "origin": "https://localhost:8200", "ca_file": str(tmp_path / "ca.pem"),
-             "auth_mount": "kubernetes", "mount": "secret", "path": "demo-chat/db", "version": 3,
-             "app": who("app"), "other": who("other")}
-    probes = tool.build_probes(registration({"SEC-01.1": entry}), env, tool.Evidence(tmp_path), bao_login=login)
-    assert isinstance(probes["SEC-01.1"], OpenBaoSecretAccessProbe)
-    assert logins == [("https://localhost:8200", "kubernetes", "app-role", "jwt-app"),
-                      ("https://localhost:8200", "kubernetes", "other-role", "jwt-other")]
-    assert probes["SEC-01.1"].app_client.principal.accessor == "accessor-app-role"
+    return {"adapter": "openbao", "origin": "https://127.0.0.1:18200", "ca_file": str(tmp_path / "ca.pem"),
+            "server_hostname": "target-openbao.bravo-secrets.svc", "auth_mount": "kubernetes", "mount": "secret",
+            "path": "demo-chat/db", "version": 3, "app": who("app"), "other": who("other")} | extra
+
+
+class Bao:
+    """The OpenBao an operator run talks to: Kubernetes logins, lookup-self, one KV read, revoke-self."""
+
+    def __init__(self, monkeypatch, refuse=()):
+        self.logins, self.revoked, self.refuse = [], [], refuse
+
+        def get(client, path):
+            if path.endswith("lookup-self"):
+                return 200, identity(client.principal)
+            if client.principal.service_account == "app":
+                return 200, secret()
+            return 403, {"errors": ["permission denied"]}
+
+        monkeypatch.setattr(OpenBaoClient, "_get", get)
+
+    def login(self, origin, ca_pem, mount, role, jwt, *, server_hostname):
+        self.logins.append((origin, server_hostname, mount, role, jwt))
+        if role in self.refuse:
+            raise PermissionError("openbao_login_refused")
+        return f"token-{role}", f"accessor-{role}"
+
+    def revoke(self, origin, ca_pem, token, *, server_hostname):
+        self.revoked.append(token)
+
+
+def run_with_bao(tmp_path, bao, tests, extra=None):
+    def build(registration_, environment, evidence):
+        probes = tool.build_probes(registration_, environment, evidence, bao_login=bao.login,
+                                   bao_revoke=bao.revoke)
+        return probes | (extra or {})
+    return tool.run(registration(tests), tmp_path / "run", build=build)
+
+
+def test_the_openbao_adapter_logs_in_when_called_binds_the_accessor_and_revokes_after(tmp_path, monkeypatch):
+    bao = Bao(monkeypatch)
+    entry = bao_entry(tmp_path)
+    tool.build_probes(registration({"SEC-01.1": entry}), Environment("env-target", "target", "ref:target"),
+                      tool.Evidence(tmp_path), bao_login=bao.login, bao_revoke=bao.revoke)
+    assert bao.logins == []  # building contacts nothing
+    document, _ = run_with_bao(tmp_path, bao, {"SEC-01.1": entry})
+    assert {r["test_id"]: r["verdict"] for r in document["results"]}["SEC-01.1"] == "PASS"
+    assert bao.logins == [
+        ("https://127.0.0.1:18200", "target-openbao.bravo-secrets.svc", "kubernetes", "app-role", "jwt-app"),
+        ("https://127.0.0.1:18200", "target-openbao.bravo-secrets.svc", "kubernetes", "other-role", "jwt-other")]
+    assert bao.revoked == ["token-app-role", "token-other-role"]
+
+
+def test_a_refused_login_makes_only_sec_unknown_and_revokes_what_was_issued(tmp_path, monkeypatch):
+    bao = Bao(monkeypatch, refuse={"other-role"})
+    document, _ = run_with_bao(tmp_path, bao, {"SEC-01.1": bao_entry(tmp_path)}, extra={"IAM-01.1": passing})
+    rows = {r["test_id"]: r for r in document["results"]}
+    assert rows["IAM-01.1"]["verdict"] == "PASS"
+    assert rows["SEC-01.1"]["verdict"] == "UNKNOWN" and rows["SEC-01.1"]["unknown_reason"] == "OBSERVATION_DENIED"
+    assert bao.revoked == ["token-app-role"]
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o640])
+def test_a_service_account_token_file_must_be_private(tmp_path, monkeypatch, mode):
+    bao = Bao(monkeypatch)
+    with pytest.raises(ValueError, match="token_file_not_private:SEC-01.1:app"):
+        tool.build_probes(registration({"SEC-01.1": bao_entry(tmp_path, mode)}),
+                          Environment("env-target", "target", "ref:target"), tool.Evidence(tmp_path),
+                          bao_login=bao.login, bao_revoke=bao.revoke)
+
+
+@pytest.mark.parametrize("extra", [{"server_hostname": "localhost", "origin": "https://bao.example.invalid:8200"},
+                                   {"server_hostname": "Not A Name"}])
+def test_a_server_name_is_only_for_a_loopback_port_forward(tmp_path, monkeypatch, extra):
+    bao = Bao(monkeypatch)
+    with pytest.raises(ValueError, match="server name"):
+        tool.build_probes(registration({"SEC-01.1": bao_entry(tmp_path, **extra)}),
+                          Environment("env-target", "target", "ref:target"), tool.Evidence(tmp_path),
+                          bao_login=bao.login, bao_revoke=bao.revoke)
+    with pytest.raises(ValueError, match="server name"):  # the login itself checks before connecting
+        tool.openbao_login(extra.get("origin", "https://127.0.0.1:18200"), CA, "kubernetes", "r", "jwt",
+                           server_hostname=extra["server_hostname"])
+
+
+def test_the_example_registration_is_a_valid_target_registration(tmp_path, monkeypatch):
+    example = json.loads((ROOT / "operations/controls/registration.example.json").read_text())
+    bao_entry(tmp_path)  # the CA and private token files the example points at, here
+    entry = example["tests"]["SEC-01.1"]
+    entry["ca_file"] = str(tmp_path / "ca.pem")
+    for side in ("app", "other"):
+        entry[side]["jwt_file"] = str(tmp_path / f"{side}.jwt")
+    env = example["environment"]
+    iam = example["tests"]["IAM-01.1"]
+    probes = tool.build_probes(example, Environment(env["id"], env["role"], env["ref"]), tool.Evidence(tmp_path),
+                               environ={iam["access_key_env"]: "a", iam["secret_key_env"]: "b"})
+    assert set(probes) == {"IAM-01.1", "SEC-01.1"} and probes["IAM-01.1"].target.endpoint == iam["endpoint"]
+    assert set(example) == {"app", "environment", "profile", "tests"}
 
 
 def test_the_registration_has_exactly_the_documented_fields(tmp_path):
