@@ -1,5 +1,5 @@
-# 팀원 리뷰 알림용. develop은 T40 적용 후 승인 없이 Merge Queue와 필수 CI로 병합한다.
-# main의 기존 승인 조건은 유지한다. 실제 적용 상태는 docs/merge-queue.md와 GitHub ruleset에서 확인.
+# 팀원 리뷰 알림용. 병합 필수 승인이 아니다. develop·main은 필수 CI 통과 후 직접 병합한다(2026-11-07).
+# 실제 적용 상태는 GitHub ruleset에서 확인한다.
 # docs/tasks.md 전용 PR의 전원 알림은 생략한다. 마지막으로 일치하는 패턴을 사용한다.
 *               @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126
 /docs/tasks.md

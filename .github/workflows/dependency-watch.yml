@@ -41,8 +41,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          title='develop 의존성 취약점: PR·병합 큐 검사가 실패합니다'
-          body="develop 정기 스캔(project-checks와 같은 기준)이 HIGH/CRITICAL 취약점을 찾았습니다. 수정 버전으로 올리기 전에는 모든 PR의 project-checks와 병합 큐 항목이 실패합니다. 결과: $RUN_URL"
+          title='develop 의존성 취약점: PR 검사가 실패합니다'
+          body="develop 정기 스캔(project-checks와 같은 기준)이 HIGH/CRITICAL 취약점을 찾았습니다. 수정 버전으로 올리기 전에는 모든 PR의 project-checks가 실패합니다. 결과: $RUN_URL"
           number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
           if [ -n "$number" ]; then gh issue comment "$number" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
       - name: Fail the run when develop is affected

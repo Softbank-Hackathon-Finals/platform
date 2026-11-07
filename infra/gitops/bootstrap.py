@@ -7,7 +7,9 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[2]
 NAMESPACE = "bravo-gitops"
@@ -49,15 +51,42 @@ def verify_rehearsal_host(get, host):
         raise ValueError("published_rehearsal_host_image_required")
 
 
-def verify_initial_proposal(value):
-    """#503 Job path: namespace, SA, admission policy and the PUBLIC broker CA only."""
+INITIAL_PROPOSAL_REGISTRY = "platform-ghcr-reader"
+
+
+def verify_initial_proposal(get, value):
+    """#503 Job path: namespace, SA, admission policy and the PUBLIC broker CA only.
+
+    The Job Pod pulls the Reader image with the existing registry Secret in its own namespace; it must
+    exist before the path is turned on, or the first Job fails on the image pull."""
     pem = value.get("brokerCaPem") if isinstance(value, dict) else None
     if (set(value) != {"enabled", "brokerCaPem"} or value["enabled"] is not True or not isinstance(pem, str)
             or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
         raise ValueError("initial_proposal_public_ca_required")
+    get("secret", INITIAL_PROPOSAL_REGISTRY, "bravo-initial")
 
 
-WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval"}
+WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "applyCredential"}
+APPLY_PLUGIN, APPLY_CONFIG = "/usr/local/bin/bravo-credential", "/t31/registration.json"
+
+
+def verify_apply_credential(get, name, secrets):
+    """T31 apply without a stored token: the ConfigMap holds only the registration and the kubeconfig
+    that credentials.kubeconfig() makes for the in-Pod paths (exec plugin, 600 s Secret-bound tokens)."""
+    sys.path.insert(0, str(ROOT / "infra/envs/rehearsal-access"))
+    import credentials
+
+    if secrets.get("applyKubeconfig"):
+        raise ValueError("workflow_host_apply_credential_exclusive")
+    data = get("configmap", name, "platform-state").get("data", {})
+    if set(data) != {"kubeconfig", "registration.json"}:
+        raise ValueError("workflow_host_apply_credential_fields")
+    config = json.loads(data["registration.json"])
+    if set(config) != {"registration", "anchor_uid"} or str(UUID(config["anchor_uid"])) != config["anchor_uid"]:
+        raise ValueError("workflow_host_apply_credential_fields")
+    registration = credentials.Registration.parse(config["registration"])
+    if json.loads(data["kubeconfig"]) != credentials.kubeconfig(registration, APPLY_CONFIG, APPLY_PLUGIN):
+        raise ValueError("workflow_host_apply_credential_exec_only")
 
 
 def verify_workflow_host(get, host):
@@ -89,6 +118,8 @@ def verify_workflow_host(get, host):
         get("pvc", claim, "platform-state")
     for name in {v for v in runtime["secrets"].values() if v}:
         get("secret", name, "platform-state")
+    if runtime.get("applyCredential", {}).get("existingConfigMap"):
+        verify_apply_credential(get, runtime["applyCredential"]["existingConfigMap"], runtime["secrets"])
     image = json.loads((ROOT / "infra/gitops/environments/development/registration-image.json").read_text())
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
         raise ValueError("published_registration_image_required")
@@ -257,7 +288,7 @@ def main():
         if "rehearsalHost" in value:
             verify_rehearsal_host(get, value["rehearsalHost"])
         if "initialProposal" in value:
-            verify_initial_proposal(value["initialProposal"])
+            verify_initial_proposal(get, value["initialProposal"])
         if "workflowHost" in value:
             verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]

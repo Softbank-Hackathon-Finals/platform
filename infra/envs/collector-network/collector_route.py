@@ -197,6 +197,11 @@ def proxy_ingress(side, observed_services, *, transport_ports):
     return _labels(policy, side)
 
 
+# Every stage renders a resource the tailnet-egress IaC module now owns (same ProxyGroup, Service and
+# "<group>-ingress" policy names).
+MOVED_TO_IAC = {"proxy-quarantine", "routes", "collector-egress", "proxy-ingress"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["proxy-quarantine", "routes", "collector-egress", "proxy-ingress"])
@@ -209,6 +214,9 @@ def main(argv=None):
     parser.add_argument("--service-ip-egress", action="store_true",
                         help="also permit exact observed child ClusterIP:9090 for pre-DNAT CNI enforcement")
     args = parser.parse_args(argv)
+    if args.stage in MOVED_TO_IAC:
+        parser.exit(2, f"{args.stage} no longer renders this route: it is declared in infra/iac/environments "
+                       "(tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
     if args.stage == "proxy-quarantine":
         result = proxy_quarantine(args.side)
     elif args.stage == "routes":

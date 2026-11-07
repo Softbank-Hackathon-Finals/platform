@@ -60,6 +60,10 @@ class SourceCoverage(unittest.TestCase):
                                 "build input missing from promotion source check")
         paths.extend(("scripts/registration_delivery.py", "scripts/image_delivery/oci.py",
                       ".github/workflows/publish-registration-image.yml"))
+        # The workflow host ships the T31 exec credential plugin: a change to it must rebuild and re-pin.
+        workflow = (ROOT / ".github/workflows/publish-registration-image.yml").read_text()
+        self.assertIn("infra/envs/rehearsal-access/credentials.py", delivery.REGISTRATION.inputs)
+        self.assertIn("      - infra/envs/rehearsal-access/credentials.py\n", workflow)
         for service in delivery.SERVICES.values():
             workflow = (ROOT / (".github/workflows/publish-" + service.slug + "-image.yml")).read_text()
             section = workflow.split("    paths:\n", 1)[1].split("  workflow_dispatch:", 1)[0]

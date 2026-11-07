@@ -45,10 +45,12 @@ def pooler_items() -> list[dict]:
 
 
 def network_items() -> list[dict]:
-    return [
-        *render("network.py", "egress", "--side", "target", "--peer-fqdn", "bravo-source-db.example.ts.net"),
-        *render("network.py", "ingress", "--side", "target"),
-    ]
+    # The routes are declared in infra/iac (T44) and its tests pin them equal to these functions; the
+    # old `network.py ingress|egress` CLI exits 2, so call the functions in a separate interpreter.
+    code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import network; "
+            "print(json.dumps([*network.egress('target', 'bravo-source-db.example.ts.net'), network.ingress('target')]))")
+    done = subprocess.run([sys.executable, "-c", code, str(WORKLOADS)], capture_output=True, text=True, check=True)
+    return json.loads(done.stdout)
 
 
 def deployment_pod(items: list[dict], name: str) -> dict:
