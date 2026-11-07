@@ -437,3 +437,33 @@ def test_hostname_mismatch_never_sends_token(cert, tls_server):
     with pytest.raises(ValueError, match="OpenBao read failed"):
         app.identity_matches()
     assert not requests
+
+
+def test_a_port_forward_verifies_the_registered_server_name(cert, tls_server):
+    origin, config, requests = tls_server
+    config["reply"] = lambda path, headers: (
+        200, json.dumps(identity(APP)).encode(), {"Content-Type": "application/json"})
+    forwarded = origin.replace("localhost", "127.0.0.1")  # the loopback end of kubectl port-forward
+    app = replace(clients(cert, forwarded)[0], server_hostname="localhost")  # the name the cert carries
+    assert app.identity_matches() is True and len(requests) == 1
+    with pytest.raises(ValueError, match="OpenBao read failed"):
+        replace(app, server_hostname="target-openbao.bravo-secrets.svc").identity_matches()
+    assert len(requests) == 1  # a name the certificate does not carry never receives the token
+
+
+@pytest.mark.parametrize(("origin", "name"), [
+    ("https://openbao.example.invalid:8200", "localhost"),   # a name override only for a port-forward
+    ("https://127.0.0.1:8200", "Target-OpenBao"),
+    ("https://127.0.0.1:8200", "a/b"),
+])
+def test_a_server_name_needs_a_loopback_origin_and_a_dns_name(cert, origin, name):
+    with pytest.raises(ValueError):
+        OpenBaoClient(origin, cert[0].read_text(), "fixture-app-token", APP, server_hostname=name)
+
+
+def test_both_clients_use_the_same_server_name(cert):
+    app, other = clients(cert, "https://127.0.0.1:8200")
+    with pytest.raises(ValueError, match="same server"):
+        OpenBaoSecretAccessProbe(TARGET, app_client=replace(app, server_hostname="localhost"), other_client=other,
+                                 evidence_sink=lambda _: None)
+
