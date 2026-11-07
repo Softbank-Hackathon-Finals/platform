@@ -1,7 +1,7 @@
 {
   "image": {
     "repository": "ghcr.io/softbank-hackathon-finals/platform-rehearsal-host",
-    "digest": "sha256:84d80ea356e9dae01f89ac78dcdcd521bf0e955234c928f2d4db4f769837ef3d"
+    "digest": "sha256:f275bed2f7d036d551db22926f9159361e2a8abf74784ccffe2f333ff6626885"
   },
-  "sourceRevision": "db16f1403e125ae7831d07e63318f818790242bf"
+  "sourceRevision": "2e2471e674a644642f8f52fb9cb02bbe2268d017"
 }
