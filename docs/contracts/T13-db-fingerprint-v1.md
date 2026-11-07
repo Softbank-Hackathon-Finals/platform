@@ -161,8 +161,14 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | `tables[].schema_hash`, `primary_key` | `schema_fingerprint(conn, 표)` |
 | `source_next`, `target_next`, `target_max_id` | `sequence_state()`의 `next_value`, `max_id` |
 | `proposed_next` | `next_safe_value(출발지, 목적지)`. 쓰지 않고 읽기만 한다 |
-| `readback_next` | 리허설에서 `correct_sequence()`가 돌려준 `dst_set` |
+| `readback_next` | GATE 사전 관찰(Executor `POST /v1/readiness`) 또는 리허설에서 `correct_sequence()`가 돌려준 `dst_set` |
 | `increment`, `cycle` | `1`, `false`. 다르면 `sequence_state()`가 `Unconfirmed`를 던진다 |
+
+사전 관찰은 컷오버 밖에서 목적지 시퀀스를 실제로 올린다([ADR-0036](../adr/0036-gate-readiness-capture.md) 결정 1). 논리 복제는 시퀀스를 옮기지 않으므로 읽기만 하면 `readback_next`가 늘 비고 게이트가 막힌다. 그래서 위 컷오버 소비자 2번(비교가 MATCH일 때만, lease 안에서만 올림)의 예외로 둔다. 조건은 셋이다.
+
+- 올리기만 한다. 실제 목적지는 `cutover.raise_messages_sequence`가 advisory lock 안에서 `greatest(원하는 값, max(id)+1, 지금 다음 값)`로 정하므로 겹쳐 불러도 내려가지 않는다. 모의 구현은 원자적이지 않아, 실행과 겹치면 내려갈 수 있다(모의 환경 한정).
+- 목적지 앱 역할이 로그인할 수 없고 붙은 세션이 없을 때만 올린다. 아니면 행을 빼고 `target_open`(확인 못 하면 `target_state_unconfirmed`)을 남긴다. 끝나지 않은 실행이 있으면 관찰 전·후 모두 409로 거부한다.
+- 올린 값은 컷오버 근거가 아니다. 컷오버 5단계가 쓰기를 막은 뒤 같은 `correct_sequence`로 다시 맞추고 그 영수증을 남긴다.
 
 게이트는 `schema_hash`만 비교하므로 제공자 버전이나 메이저만 다른 경우도 `SCHEMA_MISMATCH`로 막힌다. 최종 비교의 `UNKNOWN`과 값은 다르지만 둘 다 진행하지 않는다.
 
