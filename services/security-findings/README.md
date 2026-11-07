@@ -71,7 +71,7 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 | 출처 | 코드 · 테스트 | 실제 확인 |
 |---|---|---|
 | AWS Security Hub | 계정/리전·Hub 전후 대조, 페이지·SDK 형식 검증 | 11/6 실제 401을 FAILED로 저장·조회. 양성 탐지 인수 필요 |
-| GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/4 팀 계정 서울 리전에서 `NOT_ENABLED` 확인. 양성 탐지 수집은 미검증 |
+| GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/8 팀 계정 서울 리전에서 샘플 탐지 3건 수집 → `THREAT` 칸 `OK`, 계정 불일치로 끊으면 `UNKNOWN`([증빙](../../docs/evidence/t33-guardduty-live-2026-11-08/README.md)). 실제(비샘플) 탐지는 미검증 |
 | Google Cloud SCC | v2 응답 형식 · 다중 페이지 · 범위(번호 parent) · 시간 창 결속 · 연합 자격만 · 실패 시 커서 유지 | GCP 프로젝트에서 SCC 활성 필요. 필터(`eventTime` 밀리초)와 탐지 수집은 미검증 |
 | Kyverno · Falco | 예시 PolicyReport(두 형태) · Falco 이벤트 | 온프렘 클러스터에 설치 필요 (T2 · T30 · T9) |
 
