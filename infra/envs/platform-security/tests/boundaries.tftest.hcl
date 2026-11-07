@@ -27,17 +27,22 @@ run "only_the_puller_service_account_assumes_the_role" {
   }
 }
 
-run "guardduty_read_only_in_one_region" {
+run "guardduty_read_only_in_one_account_and_region" {
   command = apply
   assert {
-    condition = toset(jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement[0].Action) == toset([
+    condition = toset(flatten([for s in jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement : s.Action])) == toset([
       "guardduty:ListDetectors", "guardduty:GetDetector", "guardduty:ListFindings", "guardduty:GetFindings"
     ])
     error_message = "Read actions only: no detector, sample, archive or update calls."
   }
   assert {
-    condition     = jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement[0].Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2"
-    error_message = "One region."
+    condition = (jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement[0].Action == ["guardduty:ListDetectors"]
+    && jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement[0].Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2")
+    error_message = "Only ListDetectors (no resource type) is unscoped, and only in one region."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.guardduty_read.policy).Statement[1].Resource == "arn:aws:guardduty:ap-northeast-2:111122223333:detector/*"
+    error_message = "Detector and finding reads are bound to this account and region."
   }
 }
 

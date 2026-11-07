@@ -25,7 +25,7 @@ kubectl apply --dry-run=server -f "$PRIVATE/platform-security.json" && kubectl a
 
 | 무엇 | 어디서 | 비고 |
 |---|---|---|
-| IAM 역할 `bravo-findings-pull` | 이 폴더의 terraform(`main.tf`) | 신뢰: 플랫폼 발급자의 `system:serviceaccount:bravo-security:bravo-findings-pull` · `aud=sts.amazonaws.com` 하나. 권한: `guardduty:ListDetectors` · `GetDetector` · `ListFindings` · `GetFindings`만, 한 리전 |
+| IAM 역할 `bravo-findings-pull` | 이 폴더의 terraform(`main.tf`) | 신뢰: 플랫폼 발급자의 `system:serviceaccount:bravo-security:bravo-findings-pull` · `aud=sts.amazonaws.com` 하나. 권한: `guardduty:ListDetectors`(자원 유형이 없어 `*`, 한 리전 조건) · `GetDetector` · `ListFindings` · `GetFindings`(이 계정 · 리전의 `detector/*`)만 |
 | 플랫폼 발급자 OIDC provider | `infra/envs/platform-gate-signer`(먼저 적용) | 계정에 발급자 URL마다 하나뿐이라 이 스택은 읽기만 한다 |
 | ConfigMap `bravo-findings-aws` | 운영자(Git 밖) | `account_id`, `role_arn`(terraform 출력). 비밀은 아니지만 계정 식별자라 Git에 두지 않는다 |
 
@@ -37,6 +37,6 @@ kubectl -n bravo-security create configmap bravo-findings-aws \
   --from-literal=account_id="$ACCOUNT_ID" --from-literal=role_arn="$(terraform -chdir=infra/envs/platform-security output -raw role_arn)"
 ```
 
-GuardDuty 제어 API에는 인터페이스 엔드포인트가 없어서 수집 Pod만 443 바깥 방향을 연다(GuardDuty 읽기 자격만 가진다). 수집이 실패하면 출처가 `FAILED`가 되고 화면 칸은 "확인 불가"다.
+GuardDuty 제어 API에는 인터페이스 엔드포인트가 없어서 수집 Pod만 443 바깥 방향을 연다(GuardDuty 읽기 자격만 가진다). 클러스터 안(Pod 10.42/16 · Service 10.43/16)과 링크 로컬(IMDS)은 뺀다. 수집 Job과 API가 같은 SQLite에 쓴다(`BEGIN IMMEDIATE` · `busy_timeout` 5초). CronJob은 `startingDeadlineSeconds: 120`이라 컨트롤러가 오래 멈춰도 놓친 일정을 쌓지 않는다. 수집이 실패하면 출처가 `FAILED`가 되고 화면 칸은 "확인 불가"다.
 
 온프렘 수집 경로는 T44 선언(`platform.json` tailnet-ingress `bravo-findings`, `target-dev.json` egress 그룹 `bravo-target-findings`)으로 따로 연다.

@@ -89,6 +89,10 @@ class FindingsBundle(unittest.TestCase):
         self.assertIn("command: [python, -m, bravo_findings.aws_pull]", self.resources)
         self.assertIn("--environment-id, env-aws", self.resources)
         self.assertIn("concurrencyPolicy: Forbid", self.resources)
+        self.assertIn("startingDeadlineSeconds: 120", self.resources)
+        # 443 out, but not to Pods, Services or link-local (IMDS) of the platform cluster
+        self.assertIn("ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}", self.resources)
+        self.assertNotIn("ipBlock: {cidr: 0.0.0.0/0}", self.resources)
 
     def test_role_matches_the_puller_subject(self):
         main = (ROOT / "infra/envs/platform-security/main.tf").read_text()

@@ -27,9 +27,16 @@ resource "aws_iam_role" "pull" {
 resource "aws_iam_role_policy" "guardduty_read" {
   name = "guardduty-read"
   role = aws_iam_role.pull.id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{
-    Sid      = "ReadFindingsInOneRegion", Effect = "Allow",
-    Action   = ["guardduty:ListDetectors", "guardduty:GetDetector", "guardduty:ListFindings", "guardduty:GetFindings"],
-    Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
-  }] })
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    {
+      # ListDetectors has no resource type.
+      Sid      = "ListDetectorsInOneRegion", Effect = "Allow", Action = ["guardduty:ListDetectors"],
+      Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+    },
+    {
+      Sid      = "ReadFindingsOfThisAccountAndRegion", Effect = "Allow",
+      Action   = ["guardduty:GetDetector", "guardduty:ListFindings", "guardduty:GetFindings"],
+      Resource = "arn:aws:guardduty:${var.region}:${var.account_id}:detector/*"
+    }
+  ] })
 }

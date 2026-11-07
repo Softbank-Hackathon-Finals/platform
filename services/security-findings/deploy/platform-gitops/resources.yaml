@@ -29,7 +29,7 @@ metadata:
   labels: {app: bravo-findings, component: platform}
 spec:
   replicas: 1
-  # SQLite 하나와 RWO 볼륨: 두 인스턴스가 겹치지 않게 내렸다 올린다
+  # API 인스턴스는 하나: 내렸다 올린다. 같은 SQLite에 GuardDuty 수집 Job도 쓴다(BEGIN IMMEDIATE · busy_timeout 5초로 직렬화)
   strategy: {type: Recreate}
   selector:
     matchLabels: {app: bravo-findings}
@@ -185,6 +185,8 @@ metadata:
 spec:
   schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
+  # 컨트롤러가 오래 멈춰도 놓친 일정을 쌓지 않는다(100회를 넘으면 CronJob이 멈춘다)
+  startingDeadlineSeconds: 120
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   jobTemplate:
@@ -204,6 +206,8 @@ spec:
             runAsUser: 10001
             runAsGroup: 10001
             fsGroup: 10001
+            # API Pod가 없을 때 이 Pod가 먼저 마운트해도 findings.db 권한을 바꾸지 않는다(API와 같은 이유)
+            fsGroupChangePolicy: OnRootMismatch
             seccompProfile: {type: RuntimeDefault}
           containers:
             - name: pull
@@ -258,8 +262,9 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
-    # STS와 GuardDuty API(GuardDuty 제어 API에는 인터페이스 엔드포인트가 없다). 이 Pod는 GuardDuty 읽기 자격만 가진다
+    # STS와 GuardDuty API(GuardDuty 제어 API에는 인터페이스 엔드포인트가 없다). 이 Pod는 GuardDuty 읽기 자격만 가진다.
+    # 클러스터 안(RKE2 Pod 10.42/16 · Service 10.43/16, 11-08 플랫폼 실측)과 링크 로컬(IMDS)은 뺀다. VPC(STS 엔드포인트)는 남긴다
     - to:
-        - ipBlock: {cidr: 0.0.0.0/0}
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}
       ports:
         - {port: 443, protocol: TCP}
