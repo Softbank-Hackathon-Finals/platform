@@ -23,7 +23,9 @@ resource "aws_ecr_repository" "application" {
 }
 
 locals {
-  github_subjects = ["repo:Softbank-Hackathon-Finals@${var.github_owner_id}/demo-chat@${var.github_repository_id}:ref:refs/heads/main"]
+  # The repository was renamed demo-chat -> demo-app (11/8); the OIDC subject carries the current name and the
+  # same immutable repository ID. The ECR repository name bravo/demo-chat stays.
+  github_subjects = ["repo:Softbank-Hackathon-Finals@${var.github_owner_id}/demo-app@${var.github_repository_id}:ref:refs/heads/main"]
   pull_actions    = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
 }
 
