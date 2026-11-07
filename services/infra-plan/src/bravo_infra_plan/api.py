@@ -126,7 +126,7 @@ def create_app(*, stack, plans, executor_for, resolve_principal):
         # The executor re-renders and refuses unless the result equals the approved digest.
         launch(run_id, executor.start, request=saved["document"]["request"],
                migration_plan_id=body.migration_plan_id, approval_id=body.approval_id, run_id=run_id,
-               started_by=who.subject_id)
+               started_by=who.subject_id, infra_plan_id=plan_id, requested_by=saved["requested_by"])
         return {"run_id": run_id, "status": "ACCEPTED"}
 
     @app.get("/v1/infra/runs/{run_id}")
