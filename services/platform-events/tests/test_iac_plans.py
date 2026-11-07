@@ -160,7 +160,7 @@ def test_a_repository_failure_is_one_code_and_the_claimed_approval_resumes(backe
 
 
 @pytest.mark.parametrize(("module", "params", "code"), [
-    ("tailnet-ingress", {}, "iac_module_not_in_environment"),
+    ("no-such-module", {}, "iac_module_not_in_environment"),  # every catalog module may be in target-dev
     ("target-object-exposure", {"state": "public"}, "iac_params_invalid"),
 ])
 def test_invalid_requests_are_refused_before_anything_is_stored(backend, module, params, code):
