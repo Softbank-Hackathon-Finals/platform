@@ -42,6 +42,7 @@ class WorkflowHostChart(unittest.TestCase):
         executor = next(v for v in pod["volumes"] if v["name"] == "executor")["secret"]["items"]
         self.assertEqual({i["key"] for i in executor}, {"ca.crt", "read-token"})  # never a command token
         self.assertEqual(deployment["spec"]["template"]["metadata"]["labels"]["bravo.dev/db-client"], "runtime")
+        self.assertEqual(deployment["spec"]["template"]["metadata"]["labels"]["bravo.dev/target-api-client"], "apply")
 
     def test_missing_required_inputs_are_refused(self):
         for key in ("image", "configuration", "reader", "stateClaim"):
