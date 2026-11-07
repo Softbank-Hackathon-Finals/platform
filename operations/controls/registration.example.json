@@ -1,0 +1,54 @@
+{
+  "app": "demo-chat",
+  "environment": {
+    "id": "env-onprem",
+    "role": "target",
+    "ref": "onprem:k8s/target-dev"
+  },
+  "profile": {
+    "id": "demo-gate",
+    "version": "1"
+  },
+  "tests": {
+    "IAM-01.1": {
+      "adapter": "s3-endpoint",
+      "endpoint": "http://127.0.0.1:18333",
+      "bucket": "demo-chat-attachments",
+      "key": "attachments/t14-canary.txt",
+      "identity": "client",
+      "access_key_env": "T14_OBJECT_ACCESS_KEY",
+      "secret_key_env": "T14_OBJECT_SECRET_KEY"
+    },
+    "SEC-01.1": {
+      "adapter": "openbao",
+      "origin": "https://127.0.0.1:18200",
+      "server_hostname": "target-openbao.bravo-secrets.svc",
+      "ca_file": "/private/target-openbao-ca.pem",
+      "auth_mount": "kubernetes",
+      "mount": "secret",
+      "path": "demo-chat/db",
+      "version": 1,
+      "app": {
+        "namespace": "target-dev",
+        "service_account": "demo-chat",
+        "uid": "aaaaaaaa-bbbb-4ccc-8ddd-exampleuid01",
+        "role": "demo-chat",
+        "jwt_file": "/private/demo-chat.jwt"
+      },
+      "other": {
+        "namespace": "target-dev",
+        "service_account": "t14-other",
+        "uid": "aaaaaaaa-bbbb-4ccc-8ddd-exampleuid02",
+        "role": "t14-other",
+        "jwt_file": "/private/t14-other.jwt"
+      }
+    },
+    "AUD-01.1": {
+      "adapter": "pod-log",
+      "kube_context": "<목적지 kube context>",
+      "namespace": "target-dev",
+      "cluster": "target-db",
+      "database": "chat"
+    }
+  }
+}
