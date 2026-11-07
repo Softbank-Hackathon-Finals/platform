@@ -21,6 +21,7 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 - 에이전트는 계획·제안만 하고 실행 권한이 없다. 도구 계층 차단(ADR-0019), 리허설 격리(ADR-0003·0025).
 - 감사 로그(ADR-0020, T24). 사람·collector·리허설·apply 자격 분리. 인증 프록시와 noauth 프록시. broker guard·TLS 검증·실행 ledger.
 - **대체 전까지 유일한 경로:** 플랫폼 API의 SSO → SSM 포트 포워딩 → 개인 인증서, 각 문서의 `kubectl port-forward` 절차, broker SSM 터널(`bravo-subscription-tunnel`). tailnet 사람 접근(T44)과 T38 대체가 들어온 뒤 한 PR에서 바꾼다.
+  2026-11-07에도 팀원 작업이 이 경로를 썼다(SSM 포트 포워딩 세션 이력으로 확인). 대체를 들인 뒤에도 쓰는 사람의 확인 없이 지우지 않는다.
 
 ## 레거시: 쓰지 않는다
 
@@ -30,7 +31,7 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 | `executor-network/control_network.py routes`·`network`·`proxy-ingress`·`pooler-ingress` | `tailnet-egress`(`platform`), `tailnet-ingress` | #608·#622 |
 | `collector-network/collector_route.py proxy-quarantine`·`routes`·`collector-egress`·`proxy-ingress` | `tailnet-egress` | #608 |
 | `rehearsal-access/access.py platform`·`network`·`collector-platform`·`collector-network` | `tailnet-egress` | #608 |
-| `workflow-host/network.py`의 T31 apply 경로(호스트 → apply egress proxy 규칙, `apply-proxy-ingress-workflow-host`) | `tailnet-egress` `bravo-apply-egress`의 client `platform-state/t10-workflow-host` | #631. 실환경의 옛 정책은 `infra/iac/charts/platform`이 적용된 뒤 지운다. |
+| `workflow-host/network.py`의 T31 apply 경로(호스트 → apply egress proxy 규칙, `apply-proxy-ingress-workflow-host`) | `tailnet-egress` `bravo-apply-egress`의 client `platform-state/t10-workflow-host` | #631. 실환경의 옛 정책은 위 '옛 고정 포트 NetworkPolicy' 행의 조건을 따른다. |
 | 위 렌더러 README의 경로 설명 절 | [`infra/iac/README.md`](../infra/iac/README.md) | 각 README 첫머리에 T44 표시가 있다. 함수는 점검 도구와 동치 시험용으로 남는다. |
 | Merge Queue와 자동 큐 등록(T40·T41), [ADR-0017 develop merge queue](adr/0017-develop-merge-queue.md) | 필수 검사 뒤 직접 병합 | #616·#623. `MERGE_QUEUE_BOT_ENABLED` 변수는 `operations/rollout/run.py`가 읽으므로 남긴다. |
 | GitHub Actions의 AI 제안 실행 | broker(T38) | 2026-11-06 제거, [`operations/subscription/README.md`](../operations/subscription/README.md) 첫머리 |
@@ -49,7 +50,7 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 | broker unit의 실환경 drop-in `node-role.conf` | 저장소 unit `operations/subscription/bravo-subscription.service`(#588) | T38. unit 적용을 확인한 뒤 지운다. |
 | T16 인벤토리 reader의 IAM 정책(사람이 역할을 하나씩 추가) | 없음(IaC에 정의 없음) | T16·T1. 대체가 없으니 지우지 않는다. 먼저 Terraform 선언이 필요하다. |
 | `infra/envs/rehearsal-access/rehearsal-host-network.yaml`(수동 YAML, `bootstrap.py`가 읽음) | IaC 모듈 하나 | T15·T44. 실환경의 매핑 포트와 다르다. 적용된 정책을 모두 조사한 뒤 바꾼다. |
-| 옛 고정 포트 NetworkPolicy(실환경 `t15-rehearsal-host-target-api`, `collector-target-api-client`, `cutover-executor-tailnet`, `apply-proxy-ingress-workflow-host`) | `infra/iac/charts/platform`의 NetworkPolicy | T44. workflow host apply 경로는 선언됐다. proxy UDP 포트를 선언하고 차트를 적용한 뒤 지운다. |
+| 옛 고정 포트 NetworkPolicy(실환경 `t15-rehearsal-host-target-api`, `collector-target-api-client`, `cutover-executor-tailnet`, `apply-proxy-ingress-workflow-host`) | `infra/iac/charts/platform`의 NetworkPolicy | T44. **삭제 금지:** T14 수집(collector → 목적지 API), T19 relay, T12 Executor 경로(#612)가 이 정책이 여는 경로를 쓴다. IaC 정책이 같은 경로를 열었지만 NetworkPolicy는 합집합이라 어느 정책으로 통과했는지 구분되지 않는다. 경로를 쓰는 담당(T14·T19·T12)이 새 정책만으로 동작을 확인한 뒤에만 지운다. |
 | `infra/iac/charts/platform`을 사람이 server-side apply(2026-11-07 13:37 KST) | T43 Argo Application 연결 | T44 할 일 |
 | 롤아웃·호스트 설정·S1/S2 실행부가 개인 실행 폴더에만 있다 | 저장소의 정식 실행부 | T28 |
 | 수동 토큰 교체·Secret 재배포 절차 | 자동 자격 경로 | 각 소비자. 인수 뒤 기본 안내에서 지운다. |

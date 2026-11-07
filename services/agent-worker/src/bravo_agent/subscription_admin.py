@@ -130,6 +130,9 @@ def _isolated_worker(provider, credential, args):
         # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
         if getattr(args, "inventory", None) is not None:
             command += ["--inventory", str(args.inventory.absolute())]
+        # Optional T44 desired state of the target environment: enables infra.plan.
+        if getattr(args, "iac_state", None) is not None:
+            command += ["--iac-state", str(args.iac_state.absolute())]
         if getattr(args, "reasoning_effort", None) is not None:
             command += ["--reasoning-effort", args.reasoning_effort]
         if getattr(args, "sandbox_image", None) is not None:

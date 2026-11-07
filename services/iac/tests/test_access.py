@@ -37,6 +37,13 @@ def test_platform_operators_are_one_group_bound_to_cluster_admin():
     assert "@" not in json.dumps(PLATFORM)
 
 
+def test_cli_held_prints_a_kubectl_list_of_the_bindings(capsys):
+    from bravo_iac.cli import main
+    assert main(["held", str(REPO / "infra/iac/environments/platform.json")]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "List" and out["items"] == held_objects(PLATFORM)
+
+
 SOURCES = ("autogroup:admin", "autogroup:owner")
 # Every operator-access grant (the platform's and the destination operator proxy's) carries the capability.
 MISSING = sorted(f"GRANT:{s}->{tag}:tcp:443+app" for tag in ("tag:bravo-platform-operator", "tag:bravo-target-operator")
@@ -62,12 +69,13 @@ def test_tailnet_admins_and_the_owner_get_one_grant_each_naming_the_impersonated
     assert check_policy(masters, STATES) == MISSING + undeclared
 
 
-def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check():
+@pytest.mark.parametrize("proxy", ["tag:bravo-platform-operator", "tag:bravo-target-operator"])
+def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check(proxy):
     # One policy edit must not hand out cluster rights: the proxy may impersonate any group.
     policy = fragment(STATES)
-    policy["grants"].append({"src": ["autogroup:member"], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"],
+    policy["grants"].append({"src": ["autogroup:member"], "dst": [proxy], "ip": ["tcp:443"],
                              "app": {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}})
-    assert check_policy(policy, STATES) == ["UNDECLARED_GRANT:autogroup:member->tag:bravo-platform-operator+app"]
+    assert check_policy(policy, STATES) == [f"UNDECLARED_GRANT:autogroup:member->{proxy}+app"]
 
 
 def test_a_role_change_is_a_new_binding_name():

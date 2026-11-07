@@ -11,7 +11,7 @@
 | `plan_id` · `run_id` | T10 식별자와 같은 형식. 한 체인은 한 실행만 담는다 |
 | `sequence` | 실행별 1부터 연속 정수. 타임스탬프로 정렬하지 않는다 |
 | `recorded_at` | writer가 기록한 UTC 시각(초). 순서 근거가 아니다 |
-| `source` | `platform.events` · `agent.tools` · `gate` · `executor` · `rehearsal` |
+| `source` | `platform.events` · `agent.tools` · `gate` · `executor` · `rehearsal` · `infra`(T45 목적지 구축 실행, ADR-0033) |
 | `kind` | T10은 `event_type`, T11은 사유 열거값(`DESTRUCTIVE_ATTEMPT_BLOCKED` 등) |
 | `origin_id` | 원 이벤트의 identity. T10은 `t10:<event_id>`, T11은 `t11:<run_id>:attempt<n>:<index>`. 같은 identity가 같은 내용으로 다시 오면 기록하지 않고 흡수하고, 다른 내용이면 충돌로 거부한다(T10 계약의 "T24는 이벤트 ID별 중복을 제거한다") |
 | `payload` | 원 이벤트의 내용. 16 KiB 이하, 비밀 패턴 금지(있으면 기록 거부) |
