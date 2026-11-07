@@ -11,8 +11,14 @@
 | UI를 켜는 Argo 값(읽기 전용, 로그인 없음) | `infra/gitops/environments/development/public-entry.json` (bootstrap이 함께 넘긴다) |
 | 플랫폼 노드의 Cloudflare 엣지 7844 바깥 방향 | `infra/envs/platform-aws` SG 규칙 `cloudflare_tunnel` |
 
-- 항목에 `"public": true`를 두면 그 호스트는 Access 없이 열린다(로그인 · origin Access 검사 없음). 플랫폼 Argo(`platform-argocd`)는 2026-11-08 사용자 결정으로 공개다: 읽기 전용 · 로그 없는 viewer라 Application · 프로젝트 상태와 라이브 매니페스트(Secret 값 제외)가 인터넷에 보인다. 보호 항목이 하나도 없으면 조정기가 소유한 Access 앱 · 정책을 지운다.
-- 사람 인증은 Cloudflare Access다. 모든 Tunnel 경로가 origin에서도 Access 토큰을 요구하므로, DNS를 우회한 요청도 Argo에 닿지 않는다.
+- 항목에 `"public": true`를 두면 그 호스트는 Access 없이 열린다(로그인 · origin Access 검사 없음). 보호 항목이 하나도 없으면 조정기가 소유한 Access 앱 · 정책을 지운다.
+  `"deny_paths"`(앵커 `^`로 시작하는 RE2 정규식)는 그 호스트의 경로를 Tunnel 엣지에서 403으로 끊는다.
+- 플랫폼 Argo(`platform-argocd`)는 2026-11-08 사용자 결정으로 공개다([ADR-0050](../../../docs/adr/0050-public-platform-argo-ui.md)). 인터넷에 보이는 것:
+  `platform-observability` · `platform-product-reader` · `platform-public-entry` · `platform-workflow-host` Application의 상태 · 리소스 트리 ·
+  관리 객체의 라이브 매니페스트(Secret은 추적 종류가 아니라 없음)와 프로젝트 설정. 숨기는 것: `platform-registration` · `platform-rehearsal-host`
+  (값에 사설 엔드포인트 · IP가 든 hostAliases, RBAC deny), 관리하지 않는 객체(AppProject `orphanedResources` 없음), 로그.
+  막는 API: `server-side-diff` · `manifests` · `manifestsWithFiles` · `revisions/…`(서버 자격 dry-run, repo-server 렌더링)와 gRPC · gRPC-web 경로 전부.
+- 보호 항목의 사람 인증은 Cloudflare Access다. 보호 항목의 Tunnel 경로는 origin에서도 Access 토큰을 요구하므로, DNS를 우회한 요청도 닿지 않는다.
   Argo 화면은 읽기 전용이고 바꾸는 계정이 없다. 변경은 계속 Git PR → 컨트롤러다.
 - 플랫폼 Argo의 경계는 그대로다: `platform-state`만, 이름으로 묶은 네 객체(Deployment · ConfigMap · NetworkPolicy · ExternalSecret)만,
   Kubernetes API 자격 없는 Pod만(이름 정책 VAP). Tunnel 토큰은 조정기와 연결기가 나누는 메모리 볼륨 파일에만 있다.

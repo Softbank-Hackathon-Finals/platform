@@ -7,6 +7,7 @@ Spec (ConfigMap rendered from infra/envs/public-entry/entries.json):
   {"zone": "...", "tunnel": "...", "access": {"app": "...", "policy": "...", "session_duration": "8h"},
    "entries": [{"hostname": "<label>.<zone>", "service": "http://<svc>.<ns>.svc:<port>", "public": false}]}
 "public": true leaves that host without Access (no login, no origin Access check); default is Access.
+"deny_paths": ["^/regex", ...] answers 403 at the edge for those paths of the host, before its route.
 Credential files: token, account_id, zone_id, access_emails (comma separated; never in Git).
 
 Only objects this reconciler owns change: the named tunnel, the named Access app and policy, and CNAMEs whose
@@ -53,6 +54,11 @@ def validate(spec: dict) -> dict:
             raise Refused("service:" + host)
         if not isinstance(entry.get("public", False), bool):
             raise Refused("public:" + host)
+        deny = entry.get("deny_paths", [])
+        if not (isinstance(deny, list) and all(isinstance(d, str) and d.startswith("^") for d in deny)):
+            raise Refused("deny_paths:" + host)
+        for d in deny:
+            re.compile(d)
         seen.add(host)
     if not seen:
         raise Refused("no entries")
@@ -144,8 +150,11 @@ def reconcile(cf: Cloudflare, spec: dict, account: str, zone: str, emails: list[
             changed.append("access_policy_removed")
 
     # A public entry has no Access in front and no Access check at the origin.
-    ingress = [{"hostname": e["hostname"], "service": e["service"], **({} if e.get("public") else origin)}
-               for e in spec["entries"]] + [{"service": "http_status:404"}]
+    # deny_paths answer 403 at the edge before the host's route (cloudflared matches rules in order, path is RE2).
+    ingress = [r for e in spec["entries"] for r in
+               [{"hostname": e["hostname"], "path": d, "service": "http_status:403"} for d in e.get("deny_paths", [])]
+               + [{"hostname": e["hostname"], "service": e["service"], **({} if e.get("public") else origin)}]] \
+        + [{"service": "http_status:404"}]
     current = (cf.call("GET", f"{acct}/cfd_tunnel/{tunnel['id']}/configurations").get("config") or {}).get("ingress")
     if _route(current) != _route(ingress):
         cf.call("PUT", f"{acct}/cfd_tunnel/{tunnel['id']}/configurations", {"config": {"ingress": ingress}})
@@ -179,7 +188,7 @@ def reconcile(cf: Cloudflare, spec: dict, account: str, zone: str, emails: list[
 def _route(ingress):
     if not ingress:
         return None
-    return [(r.get("hostname"), r.get("service"), json.dumps((r.get("originRequest") or {}).get("access"), sort_keys=True))
+    return [(r.get("hostname"), r.get("path"), r.get("service"), json.dumps((r.get("originRequest") or {}).get("access"), sort_keys=True))
             for r in ingress]
 
 

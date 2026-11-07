@@ -191,3 +191,26 @@ def test_public_must_be_a_boolean():
     spec["entries"][0]["public"] = "yes"
     with pytest.raises(Refused):
         validate(spec)
+
+
+def test_deny_paths_answer_403_before_the_host_route():
+    cf, tokens = FakeCloudflare(), []
+    spec = copy.deepcopy(SPEC)
+    spec["entries"][0].update(public=True, deny_paths=["^/api/v1/applications/[^/]+/server-side-diff"])
+    run(cf, spec, tokens)
+    route = cf.configs["id1"]["ingress"]
+    assert route[0] == {"hostname": "platform-argocd.example.ai", "path": "^/api/v1/applications/[^/]+/server-side-diff",
+                        "service": "http_status:403"}
+    assert route[1]["hostname"] == "platform-argocd.example.ai" and route[1]["service"].startswith("http://")
+    cf.writes.clear()
+    assert run(cf, spec, tokens)["changed"] == [] and cf.writes == []
+    spec["entries"][0]["deny_paths"] = []
+    assert "tunnel_route" in run(cf, spec, tokens)["changed"]
+
+
+@pytest.mark.parametrize("deny", ["no-anchor", ["/x"], [1], ["^("]])
+def test_deny_paths_must_be_anchored_regexes(deny):
+    spec = copy.deepcopy(SPEC)
+    spec["entries"][0]["deny_paths"] = deny
+    with pytest.raises((Refused, Exception)):
+        validate(spec)
