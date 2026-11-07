@@ -253,7 +253,7 @@ def _other_change():
     ("tampered", "IAC_PLAN_DIGEST_MISMATCH"),
     ("resealed", "IAC_PLAN_NOT_A_CLOSE"),
     ("more_than_close", "IAC_PLAN_NOT_A_CLOSE"),
-    ("other_base", "IAC_PLAN_NOT_THIS_BASE"),
+    ("widening", "IAC_PLAN_NOT_ACCEPTED"),
     ("base_closed", "PLANNED_BASE_NOT_OPEN"),
     ("no_origin", "IAC_PLAN_INVALID"),
     ("short_base", "REVISION_NOT_FULL_SHA"),
@@ -268,10 +268,8 @@ def test_only_the_approved_plan_that_only_closes_this_bucket_is_applied(repo, tm
         plan = resealed(plan, changes=[])
     elif case == "more_than_close":
         plan = _other_change()
-    elif case == "other_base":
-        other = environment("open-demo")
-        next(m for m in other["modules"] if m["id"] == "target-object-exposure")["params"]["demo_run_id"] = "demo-other"
-        plan = load_t44().plan(other, environment("closed"), origin="agent")
+    elif case == "widening":
+        plan = resealed(plan, widens=True)
     elif case == "base_closed":
         base = repo.closed
     elif case == "no_origin":
@@ -309,3 +307,24 @@ def test_a_missing_t9_renderer_is_a_recorded_refusal_not_an_exception(repo, tmp_
     assert (record["status"], record["reason"], record["cluster_mutation_attempted"]) == (
         "REFUSED", "T9_RENDERER_UNAVAILABLE", False)
     assert kube.secret_writes == [] and record["gate_recheck"] is None
+
+
+def test_a_plan_from_another_commit_that_only_closes_this_bucket_still_closes_it(repo, tmp_path):
+    """The desired-state file also carries the network modules and changes often; the host's configured
+    base can lag the proposal's checkout. The plan still only closes this bucket, so it is applied and the
+    record says the base was not the one it named."""
+    drifted = environment("open-demo")
+    next(m for m in drifted["modules"] if m["id"] == "tailnet-ingress")["params"]["devices"].pop()
+    closed = json.loads(json.dumps(drifted))
+    next(m for m in closed["modules"] if m["id"] == "target-object-exposure")["params"] = {"state": "closed",
+                                                                                      "bucket": BUCKET}
+    plan = load_t44().plan(drifted, closed, origin="agent")
+    assert plan["base_digest"] != iac_plan("open-demo", "closed")["base_digest"]
+    record, kube = planned(repo, tmp_path, plan)
+    assert (record["status"], record["desired"]["base_verified"]) == ("APPLIED", False)
+    assert "anonymous" not in identities(kube)
+
+
+def test_the_configured_base_is_verified_when_it_is_the_one_the_plan_names(repo, tmp_path):
+    record, _ = planned(repo, tmp_path)
+    assert record["desired"]["base_verified"] is True
