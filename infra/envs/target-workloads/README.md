@@ -94,6 +94,8 @@ TCP 5432 경로만 추가한다. 기존 광역 허용 규칙이 이 제한을 �
 | `bravo-source-replication` | `bravo-target-db` | `chat_replicator` |
 | `bravo-target-pooler` | `bravo-source-db` | `chat_app` |
 
+> **2026-11-07 · T44:** DB 장치(`ingress`)와 복제·Pooler egress(`egress`)는 [`infra/iac`](../../iac/README.md)의 `tailnet-ingress`·`tailnet-egress` 모듈로 옮겼다(`source-dev.json`·`target-dev.json`). CLI의 두 명령은 종료 코드 2로 거부하고 `values`만 남는다. 아래는 옮기기 전의 설명이다.
+
 `network.py ingress`는 기존 CNPG 서비스의 primary selector와 일치하는 별도 DB
 서비스를 만든다. 실제 등록된 상대 DB의 전체 MagicDNS 이름을 확인한 다음에만
 `network.py egress --peer-fqdn ...`를 사용한다. 역할별로 별도의 단일 replica

@@ -71,12 +71,19 @@ def egress(side, peer_fqdn):
     return result
 
 
+# The DB devices and the replication/pooler egress routes are owned by the tailnet-ingress and
+# tailnet-egress IaC modules (infra/iac/environments/{source,target}-dev.json).
+MOVED_TO_IAC = {"ingress", "egress"}
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["values", "ingress", "egress"])
     parser.add_argument("--side", required=True, choices=["source", "target"])
     parser.add_argument("--peer-fqdn")
     args = parser.parse_args()
+    if args.stage in MOVED_TO_IAC:
+        parser.exit(2, f"{args.stage} no longer renders this route: it is declared in infra/iac/environments "
+                       "(tailnet-ingress/tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
     if args.stage == "values":
         result = values(args.side)
     else:

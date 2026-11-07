@@ -2,81 +2,6 @@
 {{- $_ := required "tailnets.workload (the <name>.ts.net suffix) is required" (index (.Values.tailnets | default dict) "workload") }}
 ---
 {
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "bravo-apply-control"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "bravo-platform"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "bravo-rehearsal-control"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "platform-state"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "tailscale-system"
-  }
-}
----
-{
   "apiVersion": "tailscale.com/v1alpha1",
   "kind": "ProxyGroup",
   "metadata": {
@@ -109,6 +34,34 @@
       "bravo.dev/iac-module": "tailnet-egress"
     },
     "name": "target-api",
+    "namespace": "bravo-rehearsal-control"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "https",
+        "port": 443,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-rehearsal-egress",
+      "tailscale.com/tailnet-fqdn": "bravo-target-credentials.{{ index .Values.tailnets "workload" }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "target-credentials",
     "namespace": "bravo-rehearsal-control"
   },
   "spec": {
@@ -393,6 +346,34 @@
 }
 ---
 {
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-apply-egress",
+      "tailscale.com/tailnet-fqdn": "bravo-target-credentials.{{ index .Values.tailnets "workload" }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "target-credentials",
+    "namespace": "bravo-apply-control"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "https",
+        "port": 443,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
   "apiVersion": "networking.k8s.io/v1",
   "kind": "NetworkPolicy",
   "metadata": {
@@ -470,6 +451,77 @@
       "app.kubernetes.io/managed-by": "bravo-iac",
       "bravo.dev/iac-module": "tailnet-egress"
     },
+    "name": "bravo-apply-egress-client",
+    "namespace": "platform-state"
+  },
+  "spec": {
+    "egress": [
+      {
+        "ports": [
+          {
+            "port": 53,
+            "protocol": "UDP"
+          },
+          {
+            "port": 53,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kube-system"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "tailscale-system"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "tailscale.com/parent-resource": "bravo-apply-egress",
+                "tailscale.com/parent-resource-type": "proxygroup"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "t10-workflow-host",
+        "bravo.dev/target-api-client": "apply"
+      }
+    },
+    "policyTypes": [
+      "Egress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
     "name": "bravo-apply-egress-ingress",
     "namespace": "tailscale-system"
   },
@@ -502,6 +554,19 @@
             },
             "podSelector": {
               "matchLabels": {
+                "bravo.dev/target-api-client": "apply"
+              }
+            }
+          },
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "platform-state"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app.kubernetes.io/name": "t10-workflow-host",
                 "bravo.dev/target-api-client": "apply"
               }
             }

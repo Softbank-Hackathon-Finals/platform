@@ -12,17 +12,34 @@ locals {
     app = "system:serviceaccount:source-dev:demo-chat"
     eso = "system:serviceaccount:source-dev:source-secret-reader"
   }
+  # T14 demo-gate:1: the team SSO role takes the app role (and the t14-other role) for one
+  # operations/controls/run.py session. AWS caps that chained session at one hour; the tool asks 15 minutes.
+  t14_assume = { Effect = "Allow", Action = "sts:AssumeRole", Principal = { AWS = var.t14_operator_role_arn },
+  Condition = { StringLike = { "sts:RoleSessionName" = "bravo-t14-*" } } }
 }
+data "aws_iam_role" "t14_operator" { name = reverse(split("/", var.t14_operator_role_arn))[0] }
 resource "aws_iam_role" "workload" {
   for_each = local.subjects
   name     = "${var.name}-${each.key}"
-  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = concat([{
     Effect    = "Allow", Action = "sts:AssumeRoleWithWebIdentity",
     Principal = { Federated = data.aws_iam_openid_connect_provider.source.arn },
     Condition = { StringEquals = {
       "${local.issuer}:sub" = each.value, "${local.issuer}:aud" = "sts.amazonaws.com"
     } }
-  }] })
+  }], each.key == "app" ? [local.t14_assume] : []) })
+  lifecycle {
+    precondition {
+      condition     = data.aws_iam_role.t14_operator.arn == var.t14_operator_role_arn
+      error_message = "IAM must return the exact reviewed SSO role ARN, including its reserved path and suffix."
+    }
+  }
+}
+# SEC-01.1 "other role": same account, no policy, so it cannot read the T14 Secret.
+resource "aws_iam_role" "t14_other" {
+  name               = "${var.name}-t14-other"
+  description        = "T14 SEC-01.1 comparison role; holds no permissions"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [local.t14_assume] })
 }
 resource "aws_iam_role_policy_attachment" "ebs" {
   role       = aws_iam_role.workload["ebs"].name
@@ -59,11 +76,30 @@ resource "aws_kms_alias" "application" {
   target_key_id = aws_kms_key.application.key_id
 }
 resource "aws_secretsmanager_secret" "application" {
-  for_each                = toset(["db", "control"])
+  for_each                = toset(["db", "control", "t14"])
   name                    = "${var.name}/${each.key}"
   kms_key_id              = aws_kms_key.application.arn
   recovery_window_in_days = 7
   # Secret versions are created from memory by seed.py, never Terraform state.
+}
+# The T14 Secret holds no credential, so its fixed version may live in state (unlike db and control).
+# Only the app role may read it, whatever an identity policy grants.
+resource "aws_secretsmanager_secret_version" "t14" {
+  secret_id     = aws_secretsmanager_secret.application["t14"].id
+  secret_string = "bravo t14 canary"
+}
+resource "aws_secretsmanager_secret_policy" "t14" {
+  secret_arn = aws_secretsmanager_secret.application["t14"].arn
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Sid       = "AppRoleOnly", Effect = "Deny", Principal = "*", Action = "secretsmanager:GetSecretValue", Resource = "*",
+    Condition = { ArnNotEquals = { "aws:PrincipalArn" = aws_iam_role.workload["app"].arn } }
+  }] })
+}
+# IAM-01.1 canary: the probe pins this version and expects the app role 200 and anonymous 403.
+resource "aws_s3_object" "t14" {
+  bucket  = aws_s3_bucket.attachments.id
+  key     = "attachments/t14-canary.txt"
+  content = "bravo t14 canary\n"
 }
 resource "aws_s3_bucket" "attachments" {
   bucket        = "${var.name}-attachments-${var.account_id}"
@@ -170,7 +206,7 @@ resource "aws_iam_role_policy" "app" {
   name = "source-app-only"
   role = aws_iam_role.workload["app"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.application["db"].arn },
+    { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [for k in ["db", "t14"] : aws_secretsmanager_secret.application[k].arn] },
     { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.attachments.arn },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.attachments.arn}/*" },
     { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.application.arn,
@@ -194,5 +230,17 @@ output "workload_metadata" {
     db_secret_id      = aws_secretsmanager_secret.application["db"].name,
     control_secret_id = aws_secretsmanager_secret.application["control"].name,
     s3_bucket         = aws_s3_bucket.attachments.id
+  }
+}
+# Identifiers for the operations/controls/run.py registration (aws-object, aws-secret); no credential.
+output "t14_registration" {
+  sensitive = true
+  value = {
+    app_role          = { arn = aws_iam_role.workload["app"].arn, role_id = aws_iam_role.workload["app"].unique_id }
+    other_role        = { arn = aws_iam_role.t14_other.arn, role_id = aws_iam_role.t14_other.unique_id }
+    secret_arn        = aws_secretsmanager_secret.application["t14"].arn
+    secret_version_id = aws_secretsmanager_secret_version.t14.version_id
+    bucket            = aws_s3_bucket.attachments.id, key = aws_s3_object.t14.key
+    object_version_id = aws_s3_object.t14.version_id
   }
 }

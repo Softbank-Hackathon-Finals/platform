@@ -36,6 +36,12 @@ def _exposure(entry) -> dict:
     return module(entry["id"], entry["version"]).exposure(entry["params"])
 
 
+def _grants(entry) -> set[str]:
+    if entry is None:
+        return set()
+    return {json.dumps(g, sort_keys=True) for g in module(entry["id"], entry["version"]).grants(entry["params"])}
+
+
 def plan(current, proposed, *, origin: str) -> dict:
     if origin not in ORIGINS:
         raise IacError("IAC_ORIGIN_INVALID")
@@ -69,7 +75,13 @@ def plan(current, proposed, *, origin: str) -> dict:
         if reach_was != reach_now:
             effects.append({"module": module_id, "reach": {"added": sorted(reach_now - reach_was),
                                                            "removed": sorted(reach_was - reach_now)}})
-        widens = widens or not set(now["anonymous"]) <= set(was["anonymous"]) or not reach_now <= reach_was
+        # A new tailnet grant (another group tag, tailnet or port) is a widening even when the cluster
+        # side reaches the same hosts: the tailnet policy would have to allow more.
+        grants_was, grants_now = _grants(before.get(module_id)), _grants(after.get(module_id))
+        if grants_now - grants_was:
+            effects.append({"module": module_id, "tailnet_grants": {"added": sorted(grants_now - grants_was)}})
+        widens = (widens or not set(now["anonymous"]) <= set(was["anonymous"]) or not reach_now <= reach_was
+                  or bool(grants_now - grants_was))
     if origin == "agent" and widens:
         refusals.append("IAC_WIDENING_REFUSED")
     grants = sorted({json.dumps(g, sort_keys=True) for m in new["modules"]

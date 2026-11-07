@@ -12,6 +12,7 @@
 | 8.1·8.3 모델 제공자와 S2 실패 분석 | [0007 모델 제공자와 S2 CI](0007-model-provider-and-s2-ci.md) |
 | 8.2·8.9 상태 저장·이벤트·계획 접근 | [0008 상태·이벤트 원자 저장](0008-plan-state-event-transaction.md), [0009 PostgreSQL 상태 저장](0009-postgres-state-adapter.md), [0012 데이터 접근 경계](0012-platform-data-access-boundary.md) |
 | 8.2·8.3 최초 PROPOSE 접수·단일 실행·저장 결과·후보 발행 결속 | [0028 최초 제안 접수와 저장](0028-initial-proposal-records.md) |
+| 8.2 계획 진행을 맡는 T10 워크플로 호스트(T10·T31) | [0031 워크플로 호스트](0031-workflow-host.md) |
 | 7.5·8.4 리허설 네트워크와 격리 | [0002 송신 허용 범위](0002-rehearsal-egress-allowlist.md), [0003 격리 구현과 시험](0003-rehearsal-namespace-isolation.md) |
 | FR-5 · 8.4 리허설 러너의 시도 실행 · 결과 기록 · 판정(T15) | [0023 리허설 러너 시도와 증거](0023-rehearsal-runner-attempt-evidence.md) |
 | 8.3 · 8.4 `rehearsal.exec` 동작 범위(정해진 동작 3종)와 실행 위치(API · 도구용 Pod)(T15) | [0024 rehearsal.exec 동작과 실행 위치](0024-rehearsal-exec-actions.md) |
@@ -27,6 +28,7 @@
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
+| 8.8·8.11 목적지를 처음 세우는 정형 단계 스택 · 실행기 · T10 승인 결속(T45) | [0033 목적지 처음 구축 실행기](0033-destination-bootstrap-executor.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
 | 7.2 목적지 개발 앱의 Secrets Manager 호환 (측정용, 출구 증거 아님) | [0017 호환 컨테이너](0017-target-app-secrets-manager-compat.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
