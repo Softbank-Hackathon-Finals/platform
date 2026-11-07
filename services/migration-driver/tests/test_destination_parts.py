@@ -52,3 +52,48 @@ def test_app_metrics_leaf_is_a_client_certificate_of_the_destination_ca():
     assert leaf.issuer == x509.load_pem_x509_certificate(ca["ca_crt"].encode()).subject
     usage = leaf.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
     assert list(usage) == [ExtendedKeyUsageOID.CLIENT_AUTH]
+
+
+def fake_gh(tmp_path, keys):
+    """A `gh api` stand-in: lists `keys`, records each POST body."""
+    log = tmp_path / "posted.jsonl"
+    script = tmp_path / "gh"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        f"keys = {json.dumps(keys)!r}\n"
+        "if '-X' in sys.argv:\n"
+        f"    open({str(log)!r}, 'a').write(sys.stdin.read() + '\\n')\n"
+        "    print('{}')\n"
+        "else:\n"
+        "    print(keys)\n")
+    script.chmod(0o755)
+    return script, log
+
+
+def test_the_deploy_key_is_ed25519_openssh_and_registered_read_only_once(tmp_path):
+    from cryptography.hazmat.primitives import serialization
+
+    from bravo_migration.destination import DestinationError, _register_read_only_key, _ssh_keypair
+
+    key = _ssh_keypair()
+    assert key["public"].startswith("ssh-ed25519 ") and "OPENSSH PRIVATE KEY" in key["private"]
+    loaded = serialization.load_ssh_private_key(key["private"].encode(), password=None)
+    assert loaded.public_key().public_bytes(serialization.Encoding.OpenSSH,
+                                            serialization.PublicFormat.OpenSSH).decode() == key["public"]
+    new, present, writable = (tmp_path / name for name in ("new", "present", "writable"))
+    for d in (new, present, writable):
+        d.mkdir()
+
+    gh, log = fake_gh(new, [])
+    _register_read_only_key("org/repo", "bravo-argocd-target-gce", key["public"], gh=str(gh))
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"title": "bravo-argocd-target-gce", "key": key["public"], "read_only": True}]
+
+    gh, log = fake_gh(present, [{"key": key["public"] + " comment", "read_only": True}])
+    _register_read_only_key("org/repo", "t", key["public"], gh=str(gh))
+    assert not log.exists()  # already registered read-only: nothing is posted
+
+    gh, _ = fake_gh(writable, [{"key": key["public"], "read_only": False}])
+    with pytest.raises(DestinationError, match="can write"):
+        _register_read_only_key("org/repo", "t", key["public"], gh=str(gh))

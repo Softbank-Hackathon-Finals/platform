@@ -7,9 +7,10 @@ records SKIPPED. Nothing runs outside the approved run's order, and the stack is
     step                what the platform does here (the person's instruction in stack.json)
     host-dirs           site host creates the declared directories; node annotation binds them
     openbao-image       site host imports the verified OCI archive under its tag and digest names
-    app-image           the same for the destination app on an arm64 node (amd64 pulls the pinned registry)
+    app-image           the same for the destination app (arm64: local build; amd64: the pinned GHCR index)
     argocd              helm installs T44's customer Argo CD (infra/iac/argocd), install-only
-    config-repo-access  registers the destination configuration repository, read-only
+    config-repo-access  registers the destination configuration repository, read-only (a hosted one with a
+                        deploy key the platform generates and registers read-only)
     object-secrets      renders s3.json for the plan's desired exposure (T44 state via T45) into the Secret
     openbao-tls         creates the OpenBao CA and leaf in memory; the CA key stays with the platform
     openbao-init        init once, unseal, KV v2 (CAS), Kubernetes auth, policies, source values (CAS 0)
@@ -48,6 +49,7 @@ from bravo_infra_plan.plan import HelmChartRenderer
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from bravo_migration.kube import Kube, KubeError
@@ -67,6 +69,32 @@ class DestinationError(Exception):
 def _random(n: int) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+def _ssh_keypair() -> dict:
+    """An Ed25519 deploy key: OpenSSH private key for Argo CD, public key for the repository."""
+    key = Ed25519PrivateKey.generate()
+    private = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+                                serialization.NoEncryption()).decode()
+    public = key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode()
+    return {"private": private, "public": public}
+
+
+def _register_read_only_key(repository: str, title: str, public: str, gh: str = "gh") -> None:
+    """Add the deploy key to the GitHub repository read-only, once. Only the public key leaves the platform."""
+    listed = subprocess.run([gh, "api", f"repos/{repository}/keys"], capture_output=True, text=True, check=False)
+    if listed.returncode != 0:
+        raise DestinationError("config_repo_keys_unreadable", "the repository deploy keys could not be read")
+    for existing in json.loads(listed.stdout):
+        if existing["key"].split()[:2] == public.split()[:2]:
+            if not existing["read_only"]:
+                raise DestinationError("config_repo_key_writable", "the registered deploy key can write")
+            return
+    body = json.dumps({"title": title, "key": public, "read_only": True})
+    added = subprocess.run([gh, "api", "-X", "POST", f"repos/{repository}/keys", "--input", "-"], input=body,
+                           capture_output=True, text=True, check=False)
+    if added.returncode != 0:
+        raise DestinationError("config_repo_key_unregistered", "the deploy key could not be registered")
 
 
 def _module(path: Path, name: str):
@@ -221,16 +249,20 @@ class Destination:
                             "--wait", "--timeout", "10m"], check=True, capture_output=True)
 
     def config_repo_access(self, run: dict) -> None:
-        url = self.cfg["config_repo"]["argo_url"]
-        secret = {"apiVersion": "v1", "kind": "Secret", "metadata": {
+        repo = self.cfg["config_repo"]
+        data = {"type": "git", "url": repo["argo_url"]}
+        # The local configuration repository is served read-only over HTTP and needs no credential. A hosted
+        # one (ADR-0033: one private repository per destination) is read with a deploy key the platform
+        # generates once, keeps in its vault and registers read-only; the private key goes to Argo CD only.
+        if repo.get("credential") == "deploy-key":
+            key = self.vault.put_once("config-repo-deploy-key", _ssh_keypair())
+            _register_read_only_key(repo["github_repo"], f"bravo-argocd-{self.cfg['environment_id']}", key["public"])
+            data["sshPrivateKey"] = key["private"]
+        elif repo.get("credential"):
+            raise DestinationError("config_repo_credential_unsupported", "only a read-only deploy key is supported")
+        self.kube.apply([{"apiVersion": "v1", "kind": "Secret", "metadata": {
             "name": "bravo-destination-config", "namespace": ARGO_NS,
-            "labels": {"argocd.argoproj.io/secret-type": "repository"}},
-            "stringData": {"type": "git", "url": url}}
-        # A read-only credential would go into this Secret from the platform vault; the local
-        # configuration repository is served read-only over HTTP and needs none.
-        if self.cfg["config_repo"].get("credential"):
-            raise DestinationError("config_repo_credential_unsupported", "add the read-only key path first")
-        self.kube.apply([secret])
+            "labels": {"argocd.argoproj.io/secret-type": "repository"}}, "stringData": data}])
 
     def object_secrets(self, run: dict) -> None:
         # The values come from T44's desired state as the approved plan bound them (T45 `desired`, #642).
