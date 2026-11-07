@@ -119,3 +119,12 @@ def test_the_in_cluster_calls_answer_like_kubectl():
     assert all("/namespaces/bravo-initial/" in path for _, path in calls)  # never another namespace
     with pytest.raises(ValueError):
         kube(["delete", "job", "bravo-initial-1"])
+
+
+def test_a_shared_host_runs_the_ai_only_for_the_plans_it_names(backend, tmp_path):
+    f = Fixture(backend, tmp_path)
+    auto = AutoInitialProposal(f.records, relay_config=CONFIG, state_dir=tmp_path / "host", image=IMAGE,
+                               source_revision=RUNTIME, principal=ACTOR, kubectl=Kubectl(), plans=["another-plan"])
+    assert not auto.covers(SPEC.plan_id) and auto.covers("another-plan")
+    assert AutoInitialProposal(f.records, relay_config=CONFIG, state_dir=tmp_path / "h2", image=IMAGE,
+                               source_revision=RUNTIME, principal=ACTOR, kubectl=Kubectl()).covers(SPEC.plan_id)
