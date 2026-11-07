@@ -68,6 +68,13 @@ class PublicEntryChart(unittest.TestCase):
         cluster = kind(docs, "Secret", "argocd-cluster-platform")[0]["stringData"]
         self.assertEqual(cluster["namespaces"], "platform-state,bravo-observability,platform-telemetry")
         self.assertNotEqual(cluster.get("clusterResources"), "true")
+        out = subprocess.run(["kubectl", "kustomize", str(ROOT / "services/observability/deploy/platform-gitops")], check=True,
+                             capture_output=True, text=True, timeout=60)
+        bundle = [d for d in yaml.safe_load_all(out.stdout) if d]
+        self.assertFalse(kind(bundle, "Namespace") + kind(bundle, "Secret"))
+        api = kind(bundle, "Deployment", "bravo-observability-api")[0]["spec"]["template"]["spec"]
+        self.assertRegex(api["containers"][0]["image"], r"^ghcr\.io/softbank-hackathon-finals/platform-observability-api@sha256:[0-9a-f]{64}$")
+        self.assertFalse(api["automountServiceAccountToken"])
 
     def test_workload_holds_no_api_credential_and_pins_the_image(self):
         out = subprocess.run(["kubectl", "kustomize", str(ROOT / "infra/envs/public-entry")], check=True,

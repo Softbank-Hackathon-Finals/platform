@@ -76,7 +76,7 @@ spec:
         {{- end }}))
         {{- if .Values.observability.enabled }}
         || (request.namespace == 'bravo-observability' &&
-        (object != null ? object.metadata.name : oldObject.metadata.name) in ['bravo-prometheus', 'bravo-prometheus-tailnet'])
+        (object != null ? object.metadata.name : oldObject.metadata.name) in ['bravo-prometheus', 'bravo-prometheus-tailnet', 'bravo-observability-api'])
         || (request.namespace == 'platform-telemetry' &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 'bravo-collector')
         {{- end }}
@@ -96,6 +96,7 @@ spec:
         {{- end }}
         {{- if .Values.observability.enabled }}
         object.metadata.name == 'bravo-prometheus' ? object.spec.template.spec.serviceAccountName == 'bravo-prometheus' :
+        object.metadata.name == 'bravo-observability-api' ? object.spec.template.spec.serviceAccountName == 'bravo-observability-api' :
         object.metadata.name == 'bravo-collector' ? object.spec.template.spec.serviceAccountName == 'bravo-collector' :
         {{- end }}
         object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
