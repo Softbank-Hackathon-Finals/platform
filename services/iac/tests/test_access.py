@@ -37,6 +37,13 @@ def test_platform_operators_are_one_group_bound_to_cluster_admin():
     assert "@" not in json.dumps(PLATFORM)
 
 
+def test_cli_held_prints_a_kubectl_list_of_the_bindings(capsys):
+    from bravo_iac.cli import main
+    assert main(["held", str(REPO / "infra/iac/environments/platform.json")]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "List" and out["items"] == held_objects(PLATFORM)
+
+
 SOURCES = ("autogroup:admin", "autogroup:owner")
 MISSING = [f"GRANT:{s}->tag:bravo-platform-operator:tcp:443+app" for s in SOURCES]
 

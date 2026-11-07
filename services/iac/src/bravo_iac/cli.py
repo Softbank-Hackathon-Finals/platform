@@ -11,6 +11,7 @@
     bravo-iac tailnet-merge --policy <tailnet policy JSON> [--out merged.json] infra/iac/environments/*.json
     bravo-iac tailnet-sync --tailnet-name <tailnet> --client-id <federated identity> [--apply] infra/iac/environments/*.json
     bravo-iac chart infra/iac/environments/target-dev.json --out infra/iac/charts/target-dev
+    bravo-iac held infra/iac/environments/platform.json | kubectl apply --server-side --field-manager bravo-iac -f -
     bravo-iac network infra/iac/environments/*.json             # every route, as GET /v1/iac/network
 
 stage writes the proposed state into the target file only if the file still has the plan's
@@ -52,6 +53,8 @@ def run(args) -> dict:
             path.write_text(content, encoding="utf-8")
             written.append(name)
         return {"chart": args.out, "files": written}
+    if args.command == "held":  # what a cluster administrator applies; never in a chart
+        return {"apiVersion": "v1", "kind": "List", "items": chart.held_objects(_load(args.state))}
     if args.command == "network":
         return network.view([_load(s) for s in args.states])
     if args.command == "tailnet-policy":
@@ -101,6 +104,8 @@ def main(argv=None) -> int:
     ch = sub.add_parser("chart")
     ch.add_argument("state")
     ch.add_argument("--out", required=True)
+    hd = sub.add_parser("held")
+    hd.add_argument("state")
     nw = sub.add_parser("network")
     nw.add_argument("states", nargs="+")
     tp = sub.add_parser("tailnet-policy")

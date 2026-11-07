@@ -92,6 +92,8 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 - 바인딩 추가, 역할·출발지·tailnet 변경은 에이전트에게 확대(`IAC_WIDENING_REFUSED`)다. 바인딩 삭제는 허용된다.
 - **바인딩은 차트 밖에서 적용한다.** ClusterRoleBinding을 만드는 주체는 그 역할을 가져야 한다(RBAC 확대 방지). 그래서 생성 차트와
   그 Argo Application은 이 바인딩을 갖지 않고(`bravo.dev/unmanaged`), 클러스터 관리자가 `chart.held_objects()`의 렌더 결과를 적용한다.
+  적용·변경·정리는 사람 몫이다. `bravo-iac held infra/iac/environments/platform.json > held.json` 뒤
+  `kubectl diff --server-side --field-manager bravo-iac -f held.json`으로 보고 `kubectl apply --server-side --field-manager bravo-iac -f held.json`으로 적용한다.
 - **역할을 바꾸면 새 바인딩이다.** `roleRef`는 바꿀 수 없으므로 이름은 `<그룹>-<역할>`(`bravo:operators` + `cluster-admin` →
   `bravo-operators-cluster-admin`)로 정해진다. 새 바인딩을 적용한 뒤 옛 바인딩은 사람이 지운다(prune 없음).
 - `tailnet-check`는 선언된 프록시 태그로 가는 **선언되지 않은** capability grant도 `UNDECLARED_GRANT`로 보고한다. 정책 편집만으로
