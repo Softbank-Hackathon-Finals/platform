@@ -287,13 +287,14 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
     # Pure; refused before a STARTED record exists.
     planned = binding_in.get("iac_plan_digest")
     if planned is not None or exposure is not None:
-        from .desired import DesiredRefused, check_closing_plan, load_t44
+        from .desired import DesiredRefused, read_planned
 
         try:
             if is_policy or planned is None or exposure is None:
                 raise DesiredRefused("EXPOSURE_SCOPE_MISMATCH")
-            if check_closing_plan(load_t44(), exposure["iac_plan"], exposure["environment_id"]) != planned:
-                raise DesiredRefused("EXPOSURE_PLAN_NOT_APPROVED")
+            # Git only: the plan is T44's exact close of the state it was planned against, and the approved one.
+            read_planned(Path(exposure["repo_root"]), exposure["environment_id"], exposure["base_revision"],
+                         exposure["iac_plan"], planned, exposure["target"].bucket)
         except DesiredRefused as exc:
             steps.append({"step": "exposure_plan", "status": "refused", "detail": exc.code})
             return first_record(outcome("REFUSED", exc.code, change=change, mutation=False))
@@ -337,10 +338,12 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
             # is after both. A failure holds the whole application; the image is not rolled back (8.2).
             from .desired import apply_planned_exposure
 
-            closed = apply_planned_exposure(exposure["environment_id"], iac_plan=exposure["iac_plan"],
-                                            approval_id=claim["approval_id"], kube=kube, receipts_dir=receipts_dir,
-                                            target=exposure["target"], plan_id=binding["plan_id"],
-                                            timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+            closed = apply_planned_exposure(exposure["iac_plan"], approved_iac_plan_digest=planned,
+                                            environment_id=exposure["environment_id"],
+                                            base_revision=exposure["base_revision"], repo_root=exposure["repo_root"],
+                                            kube=kube, receipts_dir=receipts_dir, target=exposure["target"],
+                                            plan_id=binding["plan_id"], timeout_seconds=timeout_seconds,
+                                            policy_hooks=policy_hooks)
             if closed["status"] not in ("APPLIED", "ALREADY_CLOSED"):
                 steps.append({"step": "exposure_close", "status": "failed",
                               "detail": f"{closed['application_id']} {closed['status']} {closed['reason']}"})

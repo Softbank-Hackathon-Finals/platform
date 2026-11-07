@@ -48,7 +48,8 @@ def test_configuration_names_only_and_builds_rehearse(backend, tmp_path):
 
 
 EXPOSURE = {"environment_id": "target-dev", "namespace": "target-dev", "bucket": "demo-chat-attachments",
-            "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "attachments/t14-canary.txt"}
+            "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "attachments/t14-canary.txt",
+            "base_revision": "a" * 40, "repo_root": "/platform-checkout"}
 
 
 def test_an_approval_binding_a_closing_plan_hands_t31_that_plan_and_the_configured_bucket(backend):
@@ -74,6 +75,7 @@ def test_an_approval_binding_a_closing_plan_hands_t31_that_plan_and_the_configur
         bound = {"binding": binding | {"iac_plan_digest": plan["plan_digest"]}}
         supplied = workflow_application.apply_input(c, SPEC.plan_id, bound, TARGET, EXPOSURE)
         assert supplied.exposure["iac_plan"] == plan and supplied.exposure["environment_id"] == "target-dev"
+        assert (supplied.exposure["base_revision"], supplied.exposure["repo_root"]) == ("a" * 40, "/platform-checkout")
         assert (supplied.exposure["target"].bucket, supplied.exposure["target"].namespace) == (
             "demo-chat-attachments", "target-dev")
         for claim, config in ((bound, None), ({"binding": binding | {"iac_plan_digest": "f" * 64}}, EXPOSURE)):
@@ -87,9 +89,10 @@ def test_the_exposure_configuration_is_names_only(backend, tmp_path):
     path.write_text(json.dumps(base | {"exposure": EXPOSURE}))
     assert set(workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))) == {
         "REHEARSE", "GATE"}
-    path.write_text(json.dumps(base | {"exposure": EXPOSURE | {"access_key": "x"}}))
-    with pytest.raises(ValueError):
-        workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
+    for bad in ({"access_key": "x"}, {"base_revision": "main"}, {"repo_root": "relative/checkout"}):
+        path.write_text(json.dumps(base | {"exposure": EXPOSURE | bad}))
+        with pytest.raises(ValueError):
+            workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
 
 
 def test_post_apply_prepare_binds_only_a_target_run_after_the_application(records):  # noqa: F811

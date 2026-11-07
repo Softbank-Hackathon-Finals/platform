@@ -7,10 +7,13 @@ Factory for ports.json `"application": "bravo_platform_events.workflow_applicati
      "target": {"namespace": "...", "deployment": "...", "container": "app",
                 "repository": "localhost/bravo-demo-chat-candidate"},
      "exposure": {"environment_id": "target-dev", "namespace": "target-dev", "bucket": "demo-chat-attachments",
-                  "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "..."}}
+                  "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "...",
+                  "base_revision": "<40 hex: the commit PROPOSE planned against (runtime_source_sha)>",
+                  "repo_root": "/platform-checkout"}}
 
 `exposure` (optional, ADR-0044): the T44 environment and attachment bucket this host closes when an approval
-binds a closing plan. Without it such an approval holds (application_exposure_unavailable).
+binds a closing plan, and the platform checkout holding `base_revision` (T31 `read_planned` checks the plan
+against that commit's desired state). Without it such an approval holds (application_exposure_unavailable).
 
 - Authority: the same S2 rules as the operator API, OperatorAccess.change_authority(ChangeIntake.current);
   the host applies as `workflow-host` (read, apply_change) and the approver is re-checked.
@@ -25,6 +28,7 @@ binds a closing plan. Without it such an approval holds (application_exposure_un
 
 import base64
 import json
+import re
 from pathlib import Path
 
 from .store import EventError
@@ -55,8 +59,10 @@ def apply_input(c, plan_id, claim, target, exposure=None):
         found = [p for p in record.get("infra_plans") or [] if type(p) is dict and p.get("plan_digest") == planned]
         if exposure is None or not found:
             raise EventError("application_exposure_unavailable")
+        names = {"namespace", "endpoint", "probe_key", "bucket"}
         closing = {"environment_id": exposure["environment_id"], "iac_plan": found[0],
-                   "target": PolicyTarget(**{k: v for k, v in exposure.items() if k != "environment_id"})}
+                   "base_revision": exposure["base_revision"], "repo_root": exposure["repo_root"],
+                   "target": PolicyTarget(**{k: v for k, v in exposure.items() if k in names})}
     return ApplyInput({"edits": record["edits"]}, diff, claim["binding"]["target_environment_id"],
                       target["namespace"], target["deployment"], target["container"], target["repository"],
                       exposure=closing)
@@ -119,8 +125,11 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None):
             or type(target) is not dict or set(target) != {"namespace", "deployment", "container", "repository"}
             or not all(isinstance(v, str) and v for v in target.values())
             or (exposure is not None and (type(exposure) is not dict
-                or set(exposure) != {"environment_id", "namespace", "endpoint", "probe_key", "bucket"}
-                or not all(isinstance(v, str) and v for v in exposure.values())))):
+                or set(exposure) != {"environment_id", "namespace", "endpoint", "probe_key", "bucket",
+                                     "base_revision", "repo_root"}
+                or not all(isinstance(v, str) and v for v in exposure.values())
+                or re.fullmatch(r"[0-9a-f]{40}", exposure["base_revision"]) is None
+                or not Path(exposure["repo_root"]).is_absolute()))):
         raise ValueError("workflow_application_configuration_invalid")
     access = OperatorAccess(store)
     changes = ChangeApprovalService(store, authority=access.change_authority(ChangeIntake.current),
