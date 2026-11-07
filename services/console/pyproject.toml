@@ -7,14 +7,20 @@ dependencies = ["starlette>=1.3.1,<2", "httpx>=0.28,<1", "jsonschema>=4.26,<5"]
 
 [project.optional-dependencies]
 t10 = ["bravo-control-gate[t10]==0.1.0"]
+workspace = ["bravo-inventory==0.1.0", "bravo-target-recommend==0.1.0", "bravo-audit-log==0.1.0", "bravo-platform-events==0.1.0", "bravo-apply-path==0.1.0"]
+initial-proposal = ["bravo-agent-worker==0.1.0", "bravo-platform-events==0.1.0", "bravo-apply-path==0.1.0"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.14,<0.18", "bravo-platform-events==0.1.0", "bravo-control-gate[t10]==0.1.0", "psycopg[binary]>=3.2,<4", "uvicorn>=0.30,<1", "bravo-audit-log==0.1.0"]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.14,<0.18", "bravo-platform-events==0.1.0", "bravo-control-gate[t10]==0.1.0", "psycopg[binary]>=3.2,<4", "uvicorn>=0.30,<1", "bravo-inventory==0.1.0", "bravo-target-recommend==0.1.0", "bravo-audit-log==0.1.0", "bravo-agent-worker==0.1.0", "bravo-apply-path==0.1.0"]
 
 [tool.uv.sources]
 bravo-platform-events = { path = "../platform-events" }
 bravo-control-gate = { path = "../control-gate" }
+bravo-inventory = { path = "../inventory" }
+bravo-target-recommend = { path = "../target-recommend" }
 bravo-audit-log = { path = "../audit-log" }
+bravo-agent-worker = { path = "../agent-worker" }
+bravo-apply-path = { path = "../apply-path" }
 
 [build-system]
 requires = ["hatchling>=1.25"]
