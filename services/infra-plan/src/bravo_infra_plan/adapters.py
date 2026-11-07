@@ -13,12 +13,31 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from .applications import ARGO_NAMESPACE
-from .stack import StackError
+from .stack import StackError, canonical, sha256_text
+
+# Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
+# after it created them exactly as the step declares. The value binds the attestation to that declaration.
+HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+
+
+def host_paths_digest(paths):
+    return sha256_text(canonical(paths))
+
+
+def expected_images(expect, params):
+    """The image names an `expect` names for this request (`images`, or `images_by_arch[arch]`)."""
+    if "images" in expect:
+        return expect["images"]
+    names = expect["images_by_arch"].get(params.get("arch"))
+    if not names:
+        raise StackError("image_unavailable_for_arch")
+    return names
 
 TIMEOUT = 600
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -182,12 +201,27 @@ class KubectlCluster:
         command = [self.kubectl, *(["--context", self.context] if self.context else []), *args]
         return _run(command, stdin=stdin, env=self._env(), check=check)
 
+    # The API was not reached at all (a dropped tunnel or forwarded connection), so nothing was decided.
+    TRANSPORT = ("Unable to connect to the server", "broken pipe", "connection reset by peer", "unexpected EOF",
+                 "i/o timeout", "TLS handshake timeout", "connection refused")
+
+    def _read(self, *args, stdin=None, attempts=3):
+        """A read-only kubectl call, retried a few times only when the request never reached the API."""
+        for attempt in range(attempts):
+            result = self._k(*args, stdin=stdin, check=False)
+            if result.returncode == 0 or not any(t in result.stderr for t in self.TRANSPORT):
+                return result
+            if attempt + 1 < attempts:
+                time.sleep(1 + attempt)
+        return result
+
     def _get(self, kind, namespace, name):
-        result = self._k("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json", check=False)
+        result = self._read("get", kind, name, *(["-n", namespace] if namespace else []), "-o", "json")
         if result.returncode != 0:
             if "NotFound" in result.stderr or "not found" in result.stderr:
                 return None
-            raise RuntimeError("kubectl get failed")
+            first = (result.stderr.strip().splitlines() or [""])[0][:120]  # a read: no value in it
+            raise RuntimeError(f"kubectl get {kind} failed: {first}")
         return json.loads(result.stdout)
 
     def identity(self, node_name):
@@ -202,11 +236,20 @@ class KubectlCluster:
         return any(c.get("type") == "Ready" and c.get("status") == "True"
                    for c in node.get("status", {}).get("conditions", []))
 
+    def node_annotation(self, node_name, key):
+        node = self._get("node", None, node_name) or {}
+        return node.get("metadata", {}).get("annotations", {}).get(key)
+
+    def node_image_names(self, node_name):
+        """Every name the kubelet reports for the node's images (tags and repo@sha256 aliases)."""
+        node = self._get("node", None, node_name) or {}
+        return {name for image in node.get("status", {}).get("images", []) for name in image.get("names", [])}
+
     def diff(self, items):
         """True when applying would change the cluster (server-side diff)."""
         manifest = json.dumps({"apiVersion": "v1", "kind": "List", "items": items})
-        result = self._k("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
-                         "-f", "-", stdin=manifest, check=False)
+        result = self._read("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
+                            "-f", "-", stdin=manifest)
         if result.returncode not in (0, 1):
             raise RuntimeError("kubectl diff failed")  # cannot compare: HOLD, never a blind apply
         return result.returncode == 1
@@ -260,12 +303,18 @@ class KubectlCluster:
         return bool(obj) and status.get("readyReplicas", 0) >= 1 and status.get("readyReplicas") == status.get("replicas")
 
     def deployments_available(self, namespace):
-        listing = json.loads(self._k("get", "deployments", "-n", namespace, "-o", "json").stdout)["items"]
+        result = self._read("get", "deployments", "-n", namespace, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get deployments failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)["items"]
         return bool(listing) and all(any(c.get("type") == "Available" and c.get("status") == "True"
                                           for c in d.get("status", {}).get("conditions", [])) for d in listing)
 
     def labelled_secret_exists(self, namespace, selector):
-        listing = json.loads(self._k("get", "secrets", "-n", namespace, "-l", selector, "-o", "json").stdout)
+        result = self._read("get", "secrets", "-n", namespace, "-l", selector, "-o", "json")
+        if result.returncode != 0:
+            raise RuntimeError("kubectl get secrets failed: " + (result.stderr.strip().splitlines() or [""])[0][:120])
+        listing = json.loads(result.stdout)
         return bool(listing["items"])
 
 
@@ -365,10 +414,15 @@ class ClusterChecks:
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
         c = self.cluster
+        node = params.get("node_name")
+        # A step that declares `expect` is observable: what it names must be on the node.
+        expect = next((s.get("expect") for s in run["stack"]["steps"] if s.get("confirm") == name), None)
         checks = {
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
-            "host-paths": lambda: None,
-            "openbao-image": lambda: None,
+            "host-paths": lambda: None if not expect else (
+                c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
+            "openbao-image": lambda: None if not expect else set(expected_images(expect, params)) <= c.node_image_names(node),
+            "app-image": lambda: set(expected_images(expect, params)) <= c.node_image_names(node),
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),

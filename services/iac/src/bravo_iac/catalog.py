@@ -11,9 +11,11 @@ from .modules import (
     IacError,
     Module,
 )
+from .node import CLUSTER_AUDIT
 
 CATALOG: dict[tuple[str, str], Module] = {
-    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, OPERATOR_ACCESS, API_TRANSPORT_ACCESS)
+    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, OPERATOR_ACCESS, API_TRANSPORT_ACCESS,
+                                   CLUSTER_AUDIT)
 }
 SCHEMA_VERSION = "1"
 ENVIRONMENT_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")

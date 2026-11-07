@@ -63,7 +63,27 @@ def project(stack, *, repo_url, files):
     }
 
 
-def application(stack, path, *, repo_url, revision):
+def default_namespace(rendered):
+    """The namespace an Application names as its destination: one its own manifests use.
+
+    Argo CD matches `spec.destination.namespace` against the project's destinations with a glob
+    (v3.6 AppProject.isDestinationMatched): an empty namespace matches only `*`. The project lists
+    exactly the manifests' namespaces, so the Application must name one of them. Every item carries
+    its own namespace, so this is only the default and never moves a resource.
+    """
+    used = set()
+    for text in rendered.values():
+        for item in json.loads(text)["items"]:
+            if item["kind"] == "Namespace":
+                used.add(item["metadata"]["name"])
+            elif item.get("metadata", {}).get("namespace"):
+                used.add(item["metadata"]["namespace"])
+    if not used:
+        raise ValueError("application_namespace_unavailable")  # cluster-scoped only: no project destination fits
+    return sorted(used)[0]
+
+
+def application(stack, path, *, repo_url, revision, namespace):
     return {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": "Application",
@@ -74,7 +94,7 @@ def application(stack, path, *, repo_url, revision):
             "project": stack,
             "source": {"repoURL": repo_url, "targetRevision": revision, "path": path,
                        "directory": {"include": "*.json"}},
-            "destination": {"server": "https://kubernetes.default.svc"},
+            "destination": {"server": "https://kubernetes.default.svc", "namespace": namespace},
             "syncPolicy": {
                 "automated": {"prune": False, "selfHeal": True},
                 "syncOptions": ["ServerSideApply=true", "SkipDryRunOnMissingResource=true",

@@ -8,7 +8,14 @@ import pytest
 from test_plan import REPO, REQUEST, STACK, FakeCharts
 
 from bravo_infra_plan import Planner, StackError, load_stack, parse_stack
-from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo
+from bravo_infra_plan.adapters import (
+    HOST_PATHS_ANNOTATION,
+    ClusterChecks,
+    FileRunStore,
+    GitConfigRepo,
+    expected_images,
+    host_paths_digest,
+)
 from bravo_infra_plan.applications import application_name
 from bravo_infra_plan.executor import Executor, StepOutcome
 
@@ -29,12 +36,26 @@ class FakeCluster:
         self.labelled = set()
         self.never_ready = set(never_ready)
         self.diff_calls = 0
+        self.annotations, self.images = {}, set()
+
+    def prepare_node(self):
+        """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
+        steps = load_stack(STACK).steps
+        self.annotations[HOST_PATHS_ANNOTATION] = host_paths_digest(steps["host-dirs"]["expect"]["host_paths"])
+        for step in ("openbao-image", "app-image"):
+            self.images |= set(expected_images(steps[step]["expect"], REQUEST["params"]))
 
     def identity(self, node_name):
         return {"cluster_uid": "cluster-1", "node_uid": f"uid-{node_name}"}
 
     def node_ready(self, node_name):
         return True
+
+    def node_annotation(self, node_name, key):
+        return self.annotations.get(key)
+
+    def node_image_names(self, node_name):
+        return set(self.images)
 
     def diff(self, items):
         with self.lock:
@@ -160,7 +181,7 @@ def test_parallel_lines_run_until_human_steps_then_confirmations_finish_the_run(
     run = start(world, "run-1")
     states = {k: v["status"] for k, v in run["steps"].items()}
     assert run["status"] == "WAITING_OPERATOR"
-    assert states["host-dirs"] == states["openbao-image"] == "WAITING_OPERATOR"  # code cannot observe these
+    assert states["host-dirs"] == states["openbao-image"] == "WAITING_OPERATOR"  # the node is not prepared yet
     # Lines that do not need the host directories or the OpenBao image went ahead in parallel.
     assert states["argocd"] == "SKIPPED"  # T44 installed it; T45 only observes it
     for done in ("base", "base-sync", "cnpg-sync", "eso-sync", "tailscale-sync", "db-secrets"):
@@ -168,10 +189,10 @@ def test_parallel_lines_run_until_human_steps_then_confirmations_finish_the_run(
     for blocked in ("database", "objects", "openbao", "app", "verify"):
         assert states[blocked] == "PENDING", blocked
 
-    executor = world["executor"]()
-    executor.confirm("run-1", "host-dirs", confirmed_by="operator")
-    run = executor.confirm("run-1", "openbao-image", confirmed_by="operator")
+    world["cluster"].prepare_node()
+    run = world["executor"]().resume("run-1")
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] != "APPLIED"}
+    assert run["steps"]["host-dirs"]["status"] == run["steps"]["openbao-image"]["status"] == "SKIPPED"
     assert all("started_at" in s and "ended_at" in s for s in run["steps"].values())
 
     # Every published path is in Git, and Argo CD points at the commit that published it.
@@ -196,20 +217,16 @@ def test_secret_values_stay_out_of_records_and_existing_secrets_are_never_replac
 
 def test_a_second_approved_run_changes_nothing(world):
     world["approve"]("appr-1")
-    executor = world["executor"]()
-    start(world, "run-1")
-    executor.confirm("run-1", "host-dirs", confirmed_by="operator")
-    executor.confirm("run-1", "openbao-image", confirmed_by="operator")
+    world["cluster"].prepare_node()
+    assert start(world, "run-1")["status"] == "SUCCEEDED"
     head, applied, secrets = world["repo"].head(), len(world["cluster"].applied), dict(world["cluster"].secrets)
 
     world["approve"]("appr-2")  # a new plan: the base commit moved, so the digest is new
     run = start(world, "run-2", approval_id="appr-2")
-    executor.confirm("run-2", "host-dirs", confirmed_by="operator")
-    run = executor.confirm("run-2", "openbao-image", confirmed_by="operator")
     assert run["status"] == "SUCCEEDED"
     changed = {k: v["status"] for k, v in run["steps"].items() if v["status"] == "APPLIED"}
-    # Only steps that re-check by observation (probes, confirmed human steps, waits, syncs) report APPLIED.
-    assert {world_kind(k) for k in changed} <= {"probe", "operator_action", "gitops_sync", "wait"}, changed
+    # Only steps that re-check by observation (probes, waits, syncs) report APPLIED.
+    assert {world_kind(k) for k in changed} <= {"probe", "gitops_sync", "wait"}, changed
     assert world["repo"].head() == head and len(world["cluster"].applied) == applied
     assert world["cluster"].secrets == secrets
 
@@ -226,8 +243,8 @@ def test_a_wait_that_never_converges_holds_only_its_dependents(world):
     executor = world["executor"](cluster=cluster, monotonic=lambda: next(ticks))
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
                          run_id="run-1", started_by="applier")
-    executor.confirm("run-1", "host-dirs", confirmed_by="operator")
-    run = executor.confirm("run-1", "openbao-image", confirmed_by="operator")
+    cluster.prepare_node()
+    run = executor.resume("run-1")
     states = {k: v for k, v in run["steps"].items()}
     assert run["status"] == "HOLD" and states["database-ready"]["reason"] == "wait_timeout"
     assert states["migration"]["status"] == "PENDING" and states["app"]["status"] == "PENDING"
@@ -247,6 +264,33 @@ def test_a_moved_configuration_repository_holds_a_resumed_run(world):
     run = world["executor"]().confirm("run-1", "host-dirs", confirmed_by="operator")
     assert (run["status"], run["reason"]) == ("HOLD", "config_repo_moved")
 
+
+def test_an_observable_human_step_does_not_pass_on_a_confirmation_alone(world):
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    executor = world["executor"]()
+    run = executor.confirm("run-1", "host-dirs", confirmed_by="operator")
+    assert (run["steps"]["host-dirs"]["status"], run["steps"]["host-dirs"]["reason"]) == (
+        "WAITING_OPERATOR", "confirm_check_failed")
+    # An attestation for other directories than the step declares does not count either.
+    world["cluster"].annotations[HOST_PATHS_ANNOTATION] = host_paths_digest([{"path": "/var/lib/x", "uid": 0,
+                                                                             "gid": 0, "mode": "0755"}])
+    assert executor.resume("run-1")["steps"]["host-dirs"]["status"] == "WAITING_OPERATOR"
+    world["cluster"].prepare_node()
+    assert executor.resume("run-1")["status"] == "SUCCEEDED"
+
+
+def test_the_stack_names_the_openbao_images_the_renderer_deploys():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("target_secrets_render", REPO / "infra/envs/target-secrets/render.py")
+    render = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(render)
+    expect = load_stack(STACK).steps["openbao-image"]["expect"]
+    for arch, pinned in render.BAO_IMAGES.items():  # render.py --arch (#682) picks the same one
+        repo_tag, digest = pinned.split("@", 1)
+        assert set(expected_images(expect, {"arch": arch})) == {repo_tag, f"{repo_tag.rsplit(':', 1)[0]}@{digest}"}, arch
+    with pytest.raises(StackError, match="image_unavailable_for_arch"):
+        expected_images({"images_by_arch": {"amd64": ["x"]}}, {"arch": "arm64"})
 
 def test_an_approval_already_claimed_by_another_run_is_refused(world):
     world["approve"]("appr-1")
@@ -408,3 +452,61 @@ def test_the_t45_project_allows_only_what_the_approved_manifests_make(world):
     # (fake charts here render ConfigMaps only; real charts with include_crds add their CRDs the same way)
     assert ("*", "*") not in kinds
     assert not any(kind == "ProxyGroup" for _, kind in kinds)  # T44's tailnet objects stay T44's
+    # Argo CD refuses an Application whose destination namespace the project does not list
+    # (an empty one matches only "*"): each names a namespace its own manifests use.
+    for item in world["cluster"].applied:
+        app = json.loads(item)
+        if app["kind"] == "Application":
+            assert app["spec"]["destination"]["namespace"] in namespaces, app["metadata"]["name"]
+
+
+def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world):
+    request = json.loads(json.dumps(REQUEST))
+    request["params"]["tailnet"] = "none"
+    cluster, approvals = world["cluster"], world["approvals"]
+    del cluster.secrets[("tailscale-system", "operator-oauth")]  # no tailnet credential exists anywhere
+    cluster.prepare_node()
+    executor = world["executor"]()
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    approvals.approve("appr-iso", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-iso",
+                         run_id="run-iso", started_by="applier")
+    assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
+    assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {
+        "tailscale-oauth", "tailscale", "tailscale-sync"}
+    assert run["steps"]["verify"]["status"] == "APPLIED"
+    assert not any(name.startswith("tailscale/") for name in world["repo"].read_tree(""))
+
+
+def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
+    """OpenBao cannot be Ready before init and unseal; only its sync accepts Progressing."""
+
+    class SealedCluster(FakeCluster):
+        def application_status(self, name):
+            status = super().application_status(name)
+            sealed = name in (application_name("target-onprem", "openbao"), application_name("target-onprem", "base"))
+            return status and (status | {"health": "Progressing"} if sealed else status)
+
+    ticks = iter(range(0, 10**6, 100))
+    cluster = SealedCluster()
+    cluster.prepare_node()
+    executor = world["executor"](cluster=cluster, monotonic=lambda: next(ticks))
+    world["approvals"].approve("appr-1", executor.planner.plan(
+        REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
+    run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
+                         run_id="run-1", started_by="applier")
+    states = run["steps"]
+    # base-sync declares nothing, so Progressing holds it; nothing after base can then start.
+    assert (states["base-sync"]["status"], states["base-sync"]["reason"]) == ("HOLD", "sync_timeout")
+    healthy_base = SealedCluster()
+    healthy_base.application_status = lambda name: (FakeCluster.application_status(healthy_base, name) or None) and (
+        FakeCluster.application_status(healthy_base, name) | (
+            {"health": "Progressing"} if name == application_name("target-onprem", "openbao") else {}))
+    healthy_base.prepare_node()
+    executor = world["executor"](cluster=healthy_base, monotonic=lambda: next(ticks))
+    world["approvals"].approve("appr-2", executor.planner.plan(
+        REQUEST, stack_revision=REV, target=healthy_base.identity(NODE), base_commit=world["repo"].head()).plan_digest)
+    run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-2",
+                         run_id="run-2", started_by="applier")
+    assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing
