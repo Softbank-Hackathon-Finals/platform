@@ -93,6 +93,11 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 
 **플랫폼 클러스터에는 이 차트를 설치하지 않는다.** 이미 T43 Argo가 있으므로 `charts/platform`은 그 Argo의 Application으로
 붙인다(한 클러스터에 Argo 두 벌을 두지 않는다). `infra/iac/argocd`(CRD 설치 포함)는 고객 클러스터(`source-dev`, `target-dev`) 전용이다.
+그 Application은 `infra/gitops/argocd`의 `iacNetwork`(기본 꺼짐)다. 켤 때 값은 검토한 전체 커밋 SHA(`targetRevision`)와
+tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-iac-network`는 이 차트에 있는 namespace 5개와
+종류(Namespace·ProxyGroup·Service·NetworkPolicy)만 허용한다(시험이 차트와 같은지 고정). 켜기 전에 컨트롤러 권한이 필요하다:
+그 namespace의 Role·RoleBinding, Namespace·ProxyGroup 클러스터 접근, `clusterCredentials.platform`의 namespace·클러스터 자원,
+`resource.inclusions`. 이 권한 작업은 따로 한다(T44 할 일 "권한 세분화").
 
 **같은 자원의 주인은 하나다.** 이 모듈을 적용하는 클러스터에서는 같은 이름의 경로를 만드는 기존 렌더러를 쓰지 않는다:
 `infra/envs/rehearsal-access/access.py`(리허설·반영·Collector → 목적지 API), `infra/envs/executor-network`(컷오버 경로),
