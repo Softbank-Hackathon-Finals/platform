@@ -358,8 +358,9 @@ unset TEMP_PASSWORD
 | 항목 | 값 | 이유 |
 | --- | --- | --- |
 | 흐름 | 비밀번호 직접 받기(password grant)만. 브라우저 로그인 · implicit · 서비스 계정 끔, 콜백 주소 없음 | 이 클라이언트로는 아무도 브라우저에서 로그인하지 못한다 |
-| 인증 | 비밀 있는 클라이언트(`client-secret`). 비밀은 Keycloak이 만든다 | 토큰에 계정 비밀번호와 클라이언트 비밀이 모두 필요하다. 렌더 결과(ConfigMap)에는 비밀이 없다 |
+| 인증 | 비밀 있는 클라이언트(`client-secret`). 비밀은 Keycloak이 만든다 | 이 클라이언트로 받으려면 계정 비밀번호와 클라이언트 비밀이 모두 필요하다. 렌더 결과(ConfigMap)에는 비밀이 없다. `loadgen` 계정 자체는 브라우저 클라이언트로 비밀번호만으로 로그인된다(아래 한계) |
 | 범위 | `fullScopeAllowed` 끔 | 액세스 토큰에 계정 콘솔 역할이 없어 자기 정보를 고치는 화면에 닿지 못한다 |
+| 갱신 토큰 | 없음(`use.refresh.tokens=false`). 기본 scope는 `basic` · `profile`만, optional scope 없음 | 기본대로 두면 realm의 optional scope `offline_access`가 붙어 Offline 갱신 토큰이 나오고, 이 토큰은 비밀번호를 바꾸고 관리 API로 logout해도 `loadgen` ID 토큰을 계속 받는다(11/8 렌더한 26.0.7로 확인). 부하 생성기는 갱신 토큰을 쓰지 않고 비밀번호로 다시 받는다. 두 목록을 다 적는 이유: 하나만 적어도 realm의 기본 scope가 모두 빠져 ID 토큰에 `preferred_username`이 없어진다. 갱신 토큰 없음 · `offline_access` 요청 `invalid_scope` · offline 세션 0을 컨테이너 시험이 잰다 |
 | 등록 | realm import가 아니라 관리 API | `--import-realm`은 있는 realm을 다시 적용하지 않는다. 무인 구축(`stack.json` login 단계)의 렌더도 바뀌지 않는다 |
 | 토큰 | ID 토큰 `aud=demo-chat-loadgen`, `preferred_username`=계정 이름 | 앱이 이 토큰을 받으려면 같은 발급자의 두 번째 클라이언트를 믿어야 한다. demo-chat은 아직 그렇게 못 한다(아래) |
 
@@ -376,19 +377,50 @@ CID=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
 printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
   | curl -s -K - "$KC/admin/realms/bravo/clients/$CID/client-secret" \
   | python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin)["value"])' | pbcopy
+# 붙여 넣은 뒤 바로 클립보드를 비운다.
+pbcopy < /dev/null
 ```
 
 **경계: 이 클라이언트는 `loadgen` 계정에만 쓰인다.** 부하 클라이언트는 비밀번호로 토큰을 받으므로 브라우저 로그인 · PKCE · 등록 redirect가 적용되지 않는다(7.3 동등성 항목의 "등록한 redirect만" · "PKCE S256 강제"는 브라우저 클라이언트에 대한 것이다). 발급자는 이 클라이언트를 계정에 묶지 않아, 클라이언트 비밀과 다른 계정의 비밀번호가 있으면 그 계정 이름의 토큰을 준다(컨테이너 시험이 잰다). 그래서 **앱은 그 클라이언트의 토큰을 `loadgen` 이름일 때만 받는다**(demo-app #30, `AUTH_ALSO_TRUST`의 세 번째 칸). 다른 계정의 토큰은 앱이 401로 거부한다.
 
-부하 생성기 계정(출발지와 같은 `loadgen`)은 위 "사용자 옮기기"로 옮긴 뒤, 3번 명령에서 `"temporary":true`를 **`false`로** 바꿔 영구 비밀번호를 넣는다. 첫 로그인에서 비밀번호를 바꿀 사람이 없는 계정이라서다. 영구 비밀번호를 넣으면 비밀번호 변경 단계가 풀린다(컨테이너 시험이 잰다). **부하 계정 비밀번호는 출발지 · 목적지가 같은 값을 쓴다.** 부하 생성기는 비밀번호를 `BRAVO_LOADGEN_PASSWORD` 하나로 받기 때문이다. 이사 뒤 출발지 Cognito를 지울 때까지 두 곳에 같은 비밀이 있으므로, 회수는 **출발지 풀 삭제(`terraform destroy`) → 목적지 비밀번호 교체** 순서로 한다. 목적지를 먼저 바꾸면 출발지에 옛 비밀번호가 살아 있는 채로 남는다. 부하 생성기 쪽 사용법은 [services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47).
+**한계: `loadgen` 계정은 브라우저 클라이언트로도 로그인된다.** 비밀번호와 클라이언트 비밀이 모두 필요한 것은 부하 클라이언트로 받을 때뿐이다. `loadgen`은 일반 계정이라, 비밀번호만 있으면 브라우저 클라이언트 `demo-chat`의 로그인 화면에서 `loadgen` 이름의 토큰을 받는다(위 "사용자 옮기기"의 브라우저 로그인과 같은 길). 앱의 이름 고정(demo-app #30)은 부하 클라이언트 항목에만 걸리므로 이 로그인을 막지 않는다. 그 토큰으로는 `loadgen` 이름으로만 쓸 수 있고 다른 작성자를 사칭하지는 못한다. 그래서 **측정하지 않는 동안에는 계정을 꺼 둔다**(아래 정리).
+
+부하 생성기 계정(출발지와 같은 `loadgen`)은 위 "사용자 옮기기"로 옮긴 뒤, 3번 명령에서 `"temporary":true`를 **`false`로** 바꿔 영구 비밀번호를 넣는다. 첫 로그인에서 비밀번호를 바꿀 사람이 없는 계정이라서다. 영구 비밀번호를 넣으면 비밀번호 변경 단계가 풀린다(컨테이너 시험이 잰다). **부하 계정 비밀번호는 출발지 · 목적지가 같은 값을 쓴다.** 부하 생성기는 비밀번호를 `BRAVO_LOADGEN_PASSWORD` 하나로 받기 때문이다. 이사 뒤 출발지 Cognito를 지울 때까지 두 곳에 같은 비밀이 있으므로, 회수는 **출발지 풀 삭제(`terraform destroy`) → 목적지 비밀번호 교체 → 목적지 부하 클라이언트 삭제(또는 비밀 재발급)** 순서로 한다. 목적지를 먼저 바꾸면 출발지에 옛 비밀번호가 살아 있는 채로 남는다. 이 정의는 갱신 · offline 토큰을 내지 않으므로 비밀번호를 바꾸면 이 클라이언트로 새 토큰을 받을 길이 없다. 그래도 클라이언트를 끊는 이유는, 이 정의 전에 등록한 클라이언트라면 비밀번호 교체 · logout 뒤에도 살아 있는 offline 토큰이 있을 수 있어서다(아래 정리의 `offline-session-count`). 부하 생성기 쪽 사용법은 [services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47).
 
 **앱 설정에는 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 Keycloak 발급자를 `AUTH_ALSO_TRUST`에 `|demo-chat-loadgen`으로 넣으면 무시돼 부하 토큰이 401이고, Cognito 발급자를 브라우저 · 부하 클라이언트로 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 401이 된다**(11/8 그 코드로 확인). #30은 같은 발급자의 항목을 모두 믿고, 세 번째 칸에 이름을 적으면 그 클라이언트의 토큰은 그 이름일 때만 받는다. #30이 배포되기 전에는 부하 클라이언트를 `AUTH_ALSO_TRUST`에 넣지 않는다. 배포된 뒤의 설정:
 
 - 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>|loadgen`
 - 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>|loadgen,<Keycloak 발급자>|demo-chat-loadgen|loadgen`
 - 부하 클라이언트 항목의 세 번째 칸은 부하 계정 이름이다(실제 이름이 `loadgen`이 아니면 그 이름). 그 클라이언트로 받은 토큰은 이 이름일 때만 앱이 받고, 다른 계정이면 401이다
-- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen|loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+- 이사가 끝나면 Cognito 두 항목을 지운다. 부하 항목 `<Keycloak 발급자>|demo-chat-loadgen|loadgen`은 측정할 때만 넣고 끝나면 지운다(아래 정리). Exit Drill은 AWS 주소만 보므로(`AWS_IDENTITY_TRUSTED`) 이 항목은 출구 판정과 관계없지만, 남겨 두면 클라이언트 비밀과 비밀번호가 함께 샜을 때 공개된 `/realms/bravo/`에서 언제든 `loadgen` 이름의 쓰기 토큰을 받을 수 있다
 
+**측정 · 데모가 끝나면 정리한다.** 위처럼 관리 경로와 `$TOKEN`을 연 뒤:
+
+1. 두 앱의 `AUTH_ALSO_TRUST`에서 부하 항목(`…|<부하 클라이언트>|loadgen`, `…|demo-chat-loadgen|loadgen`)을 지우고 앱을 다시 띄운다. 이미 받은 ID 토큰은 발급자가 거두지 못하므로(앱은 서명만 본다), 부하 클라이언트 토큰은 이 단계에서 바로 끊긴다.
+2. 목적지 부하 클라이언트를 지운다. 다시 잴 때는 위 등록 명령으로 새로 등록한다(비밀도 새로 생긴다). 곧 다시 잴 거면 지우는 대신 끄거나(`clients/$CID`에 `{"enabled":false}`) 비밀을 다시 만든다(`POST clients/$CID/client-secret`).
+3. 양쪽 `loadgen` 계정을 끈다. 이름과 과거 글은 남고, 다시 잴 때 `{"enabled":true}`로 켠다. 출발지는 [source-identity](../source-identity/README.md#부하-생성기-클라이언트). 브라우저 클라이언트로 이미 받은 `loadgen` ID 토큰은 만료(60분)까지 남는다.
+4. **끄기는 회수가 아니다.** 끈 계정을 다시 켜면 그 전에 받은 offline 토큰이 다시 통한다. 브라우저 클라이언트 `demo-chat`은 realm 기본 optional scope `offline_access`를 받으므로, 비밀번호를 아는 사람은 브라우저 로그인으로 offline 토큰을 받을 수 있고, 이 토큰은 비밀번호 교체 · 관리 API logout 뒤에도 남는다(11/8 렌더한 26.0.7로 확인). 그래서 계정을 다시 켜기 전과 비밀번호를 회수할 때 `users/$LID/consents`가 빈 목록인지 보고, 남은 클라이언트마다 `DELETE users/$LID/consents/<clientId>`로 거둔다.
+
+```sh
+CID=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/clients?clientId=demo-chat-loadgen" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+# 확인: 이 정의는 offline 세션을 만들지 않는다. 0이 아니면 이 정의 전에 등록한 클라이언트다. 지우면 함께 끊긴다.
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/clients/$CID/offline-session-count"
+printf 'header = "Authorization: Bearer %s"\nrequest = "DELETE"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/clients/$CID"
+LID=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/users?exact=true&username=loadgen" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nrequest = "PUT"\ndata = "{\\"enabled\\":false}"\n' \
+  "$TOKEN" | curl -s -K - "$KC/admin/realms/bravo/users/$LID"
+# 남은 offline 토큰: []이어야 한다. 있으면 그 clientId마다 request = "DELETE"로 users/$LID/consents/<clientId>를 부른다.
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/users/$LID/consents"
+```
+
+끄기 · 비밀 재발급 · 계정 끄기 · 삭제가 각각 다음 로그인을 막는 것과, 부분 `PUT`이 다른 설정을 바꾸지 않는 것은 컨테이너 시험이 잰다.
 
 **이중 신뢰 중의 조건.** `AUTH_ALSO_TRUST`가 켜진 동안 두 발급자 모두 스스로 가입이 꺼져 있어 일반 사용자는 다른 이름을 만들 수 없다. 하지만 옮기지 않은 계정(비활성 · 미확인 · 대문자)의 이름과 과거 글은 남는다. 이사 중에는 어느 쪽에서도 `identity_users.py` 출력 밖의 계정을 만들지 않고, 건너뛴 이름은 예약한다. 같은 이름을 새로 만들면 과거 작성자를 가져가게 된다.
 
@@ -401,6 +433,7 @@ printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
   - 관리 API로 읽은 realm: 이름 변경 · 이메일 로그인 · 가입 끔, user profile 모든 항목이 관리자 편집 · 선택
   - **옮긴 계정 전체 흐름:** partial import → 아무 비밀번호로도 로그인 실패(비밀번호 변경 화면 없음) → 관리 API로 임시 비밀번호 → 로그인 → 새 비밀번호 → VERIFY_PROFILE 없이 앱 콜백으로 code → PKCE 교환 → ID 토큰 `aud=demo-chat`, `preferred_username=visitor01`
   - **부하 생성기 클라이언트**(11/8): 관리 API로 등록 → Keycloak이 만든 비밀 → 옮긴 `loadgen` 계정에 영구 비밀번호 → `demo-chat-loadgen` password grant만 200, ID 토큰 `aud=demo-chat-loadgen` · `preferred_username=loadgen`. 다른 계정도 이 클라이언트로 토큰을 받는다(이름 고정은 앱이 한다), 같은 realm에서 `demo-chat` password grant는 여전히 `unauthorized_client`, 비밀 없음 · 틀린 비밀은 401, 액세스 토큰으로 계정 콘솔 401/403, 이 클라이언트로 브라우저 로그인 400. 클라이언트를 일부러 넓히면(공개 클라이언트, `fullScopeAllowed` 켬, 브라우저 로그인 켬) 세 가지 모두 이 시험이 실패한다
+  - **부하 생성기 클라이언트 갱신 · 정리**(11/8): 응답에 갱신 토큰 없음, `scope=openid offline_access`는 `invalid_scope`, offline 세션 0. 끄기 → `invalid_client`, 다시 켜면 나머지 설정 그대로, 비밀 재발급 → 옛 비밀 401, 계정 끄기 → `invalid_grant`(이름은 남음), 삭제 → `invalid_client`. 갱신 토큰을 켜거나, 기본 scope를 realm에 맡기거나, #927 정의로 되돌리면 이 시험이 실패한다. optional 목록만 빼면 서버 시험은 통과한다(기본 목록을 적으면 Keycloak이 optional도 비운다). 그 줄은 렌더 시험이 고정한다
 - 같은 코드의 앱이 로컬 Keycloak으로 실제 로그인 → 서명 확인 → 작성자 저장까지 되는 것은 demo-app #28에서 확인했다.
 - 실제 목적지 클러스터 적용, Edge 공개 주소 연결과 경로 제한, Cognito → Keycloak 실제 사용자 이동은 하지 않았다.
 

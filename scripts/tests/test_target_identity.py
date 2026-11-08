@@ -76,6 +76,12 @@ class RealmTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assertIs(client[flag], False)
         self.assertEqual((client["redirectUris"], client["webOrigins"]), ([], []))
+        # Only the scopes behind sub and preferred_username. Given either list, Keycloak drops both realm lists,
+        # so an empty optional list alone loses preferred_username (container test). The optional list is
+        # pinned here: with the default list written out, the server already leaves offline_access out.
+        self.assertEqual(client["defaultClientScopes"], ["basic", "profile"])
+        self.assertEqual(client["optionalClientScopes"], [])  # no offline_access
+        self.assertEqual(client["attributes"], {"use.refresh.tokens": "false"})
 
     def test_realm_has_no_users_and_no_self_sign_up(self):
         realm = self.realm()
@@ -354,6 +360,11 @@ class RenderedServerTests(unittest.TestCase):
         token = claims(body["id_token"])
         self.assertEqual((token["iss"], token["aud"], token["azp"], token["preferred_username"]),
                          (f"{self.PUBLIC}/realms/bravo", "demo-chat-loadgen", "demo-chat-loadgen", "loadgen"))
+        # No refresh token and no offline one, which would outlive a password change and a user logout.
+        self.assertNotIn("refresh_token", sorted(body))  # key names only: a failure must not print tokens
+        status, offline = grant("demo-chat-loadgen", client_secret=secret, scope="openid offline_access")
+        self.assertEqual((status, offline["error"]), (400, "invalid_scope"))
+        self.assertEqual(self.admin("GET", f"/clients/{client['id']}/offline-session-count"), {"count": 0})
         # Keycloak does not bind this client to the loadgen account: any account's password yields a token
         # in that account's name. The boundary is the app, which takes this client's tokens only for the name
         # pinned in AUTH_ALSO_TRUST (demo-app #30). README "부하 생성기 클라이언트" states it.
@@ -376,6 +387,44 @@ class RenderedServerTests(unittest.TestCase):
         status, location, _ = self.fetch(opener, self.authorize(client_id="demo-chat-loadgen"))
         self.assertEqual(status, 400)
         self.assertIsNone(location)
+
+    def test_cleanup_steps_each_end_the_load_generator_sign_in(self):
+        """README "부하 생성기 클라이언트" 정리 · 회수. A copy of the client, so the test above keeps the real one."""
+        name = "demo-chat-loadgen-cleanup"
+        self.admin("POST", "/clients", {**identity.loadgen_client(), "clientId": name})
+        (client,) = self.admin("GET", f"/clients?clientId={name}")
+        path = f"/clients/{client['id']}"
+        secret = self.admin("GET", f"{path}/client-secret")["value"]
+        self.admin("POST", "/users", {"username": "loadgen-cleanup", "enabled": True, "credentials": [
+            {"type": "password", "value": "Load-Cleanup-4", "temporary": False}]})
+        (user,) = self.admin("GET", "/users?exact=true&username=loadgen-cleanup")
+        opener = urllib.request.build_opener(NoRedirect)
+
+        def grant(client_secret):
+            status, _, body = self.fetch(opener, self.document["token_endpoint"], {
+                "grant_type": "password", "scope": "openid", "client_id": name, "client_secret": client_secret,
+                "username": "loadgen-cleanup", "password": "Load-Cleanup-4"})
+            return status, json.loads(body).get("error")
+
+        self.assertEqual(grant(secret)[0], 200)
+        # Turned off, the client is refused. The README's partial PUT changes nothing else.
+        before = self.admin("GET", path)
+        self.admin("PUT", path, {"enabled": False})
+        self.assertEqual(grant(secret), (401, "invalid_client"))
+        after = self.admin("GET", path)
+        self.assertEqual({**after, "enabled": True}, before)
+        self.admin("PUT", path, {"enabled": True})
+        # A new secret ends the old one.
+        new = self.admin("POST", f"{path}/client-secret")["value"]
+        self.assertEqual(grant(secret), (401, "unauthorized_client"))
+        self.assertEqual(grant(new)[0], 200)
+        # A disabled account gets nothing and keeps its name for the next measurement.
+        self.admin("PUT", f"/users/{user['id']}", {"enabled": False})
+        self.assertEqual(grant(new), (400, "invalid_grant"))
+        self.assertEqual(self.admin("GET", f"/users/{user['id']}")["username"], "loadgen-cleanup")
+        # A deleted client is unknown.
+        self.admin("DELETE", path)
+        self.assertEqual(grant(new), (401, "invalid_client"))
 
     def test_moved_account_needs_a_temporary_password_then_a_new_one(self):
         """README "사용자 옮기기": import → no sign-in at all → temporary password → new password → ID token."""
