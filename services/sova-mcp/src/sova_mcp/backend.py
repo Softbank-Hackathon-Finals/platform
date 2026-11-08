@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 from bravo_platform_events.contract import validate_identifier
-from bravo_platform_events.operator_access import OperatorAccess, _timestamp
+from bravo_platform_events.operator_access import OperatorAccess
 from bravo_platform_events.store import EventError
 
 CLIP = 4000  # Customer strings per item (Railshot diagnostics rule).
@@ -130,11 +130,9 @@ class SovaBackend:
         if plan_row is None or plan_row["tenant_id"] != actor.tenant_id:
             return False
         try:
-            # As OperatorAccess.require: a grant valid now, and a proof issued no earlier than the grant's
-            # valid_after (a re-issued grant does not cover proofs from before it). The MCP proof has no
-            # separate SSO login time, so its issue time stands in for authenticated_at (#996 review).
-            self.access._require_subject(c, dict(plan_row), actor.subject_id, "read",
-                                         _timestamp(self.access.clock()).timestamp(), actor.issued_at)
+            # The same rule as OperatorAccess.require: a grant valid now with `read`. Since #1009, require no
+            # longer compares the authentication time with the grant's valid_after, so neither does this.
+            self.access.requires_subject("read")(c, dict(plan_row), actor.subject_id)
         except EventError:
             return False
         return True

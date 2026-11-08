@@ -40,13 +40,13 @@ def principal(subject, tenant=TENANT):
     return SsoRegistrationPrincipal(subject, tenant, t - 1, t + 300, "s-" + subject)
 
 
-def grant(store, plan_id, subject, permissions=("read",), revision=0, valid_from=-60):
+def grant(store, plan_id, subject, permissions=("read",), revision=0):
     """The T10 administrator's per-plan grant (set_permissions); the MCP caller is checked against it."""
     t = int(time.time())
     who = OperatorPrincipal(subject, TENANT, t - 1, t + 300, t - 1, "grant-" + subject)
     OperatorAccess(store).set_permissions(
         plan_id, who, permissions=list(permissions),
-        valid_after=datetime.fromtimestamp(t + valid_from, UTC).isoformat(),
+        valid_after=datetime.fromtimestamp(t - 60, UTC).isoformat(),
         expires_at=datetime.fromtimestamp(t + 3600, UTC).isoformat(), expected_revision=revision,
         administration_ref="fixture-admin", command_key=f"grant-{subject}-{revision}")
 
@@ -314,9 +314,3 @@ def test_same_tenant_without_a_plan_grant_reads_nothing_and_a_revoked_grant_ends
                      data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "PASS", "context_digest": "c" * 64})
         rest = list(lines)  # ends at the next read (or, without the grant check, only when the proof expires)
     assert "id: plan-grant:2" not in rest
-
-    # A grant that starts after bob's proof was issued does not cover that proof (as OperatorAccess.require).
-    time.sleep(1.1)
-    grant(store, "plan-grant", "bob", valid_from=0)
-    denied, _ = call(base, "sova_get_plan", {"plan_id": "plan-grant"}, token="bob")
-    assert denied["isError"] is True
