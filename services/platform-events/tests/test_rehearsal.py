@@ -415,3 +415,12 @@ def test_demo_mode_passes_rehearse_and_gate_on_the_proposed_change(scenario):
     assert gate["verdict"] == "PASS" and gate["change"] == change
     with pytest.raises(ValueError):
         demo_reader("CUTOVER")
+
+
+def test_demo_watch_reader_passes_on_the_cutover_run():
+    from bravo_platform_events.workflow import Run, Watch, demo_reader
+
+    previous = {"receipt_id": "integrity-1", "result": {"run": {"command_id": "c", "epoch": 2, "execution_id": "e"}}}
+    plan = {"plan_id": PLAN.plan_id, "version": 9, "spec_json": '{"plan_digest": "d", "target_environment_id": "t"}'}
+    proof = demo_reader("WATCH")(None, plan, previous, None)
+    assert proof.result == Watch(Run("c", 2, "e"), "integrity-1", "PASS", "PASS") and proof.version == 9

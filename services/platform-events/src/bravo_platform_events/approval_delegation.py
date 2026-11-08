@@ -294,9 +294,10 @@ class DelegatedShift:
     ponytail: one attempt per version; a stopped run is rerun by a person (bravo_edge_control.run).
     """
 
-    def __init__(self, store, delegations, *, provider, journal, profile, load_session):
+    def __init__(self, store, delegations, *, provider, journal, profile, load_session, demo=False):
         self.store, self.delegations, self.provider = store, delegations, provider
         self.journal, self.profile, self.load_session = journal, profile, load_session
+        self.demo = demo  # T49 demo: the SHIFT checks the GATE checkpoint's PASS only (no T19 session)
         self.runs = {}
 
     def __call__(self, plan):
@@ -324,7 +325,8 @@ class DelegatedShift:
         def principal():
             return self.delegations.principal_for(plan_id, "shift", binding={"edge_run": run_id}, version=version)
 
-        authority = ShiftAuthority(self.store, run_id=run_id, load_session=self.load_session, clock=_now)
+        authority = (_demo_shift_authority() if self.demo else ShiftAuthority)(
+            self.store, run_id=run_id, load_session=self.load_session, clock=_now)
         host = ShiftHost(self.store, self.provider, self.journal, authority=authority, clock=_now)
         try:
             try:
@@ -340,3 +342,19 @@ class DelegatedShift:
         except Exception as error:  # noqa: BLE001  (the plan stays in SHIFT; a person decides)
             log.info("delegated shift %s stopped: %s", plan_id, getattr(error, "code", type(error).__name__))
             return None
+
+
+def _demo_shift_authority():
+    """T49 demo: ShiftAuthority whose gate check is the stored GATE checkpoint's PASS (the workflow host's demo GATE),
+    without a T19 session or re-evaluation. Grants, the approval checkpoint and the registered run still apply."""
+    from bravo_edge_control.authority import ShiftAuthority
+    from bravo_edge_control.provider import EdgeError
+
+    class DemoShiftAuthority(ShiftAuthority):
+        def _gate(self, c, principal, plan, proof):
+            gate = proof["result"]["gate"]
+            if gate.get("verdict") != "PASS":
+                raise EdgeError("shift_gate_binding_mismatch")
+            return "demo-" + gate["gate_id"]
+
+    return DemoShiftAuthority

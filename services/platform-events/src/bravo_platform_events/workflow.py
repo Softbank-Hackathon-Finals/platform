@@ -206,15 +206,18 @@ def _satisfied(c, proof, spec, previous, run, now):
 
 def demo_reader(state):
     """T49 demo mode: REHEARSE/GATE evidence from the previous checkpoint's change, without T15, T31 or T19."""
-    if state not in ("REHEARSE", "GATE"):
+    if state not in ("REHEARSE", "GATE", "WATCH"):
         raise ValueError("demo_state_unsupported")
 
     def read(c, plan, previous, run):
         spec = json.loads(plan["spec_json"])
-        change = Change(**previous["result"]["change"])
         tag = f"demo-{state.lower()}-{plan['version']}"
-        result = (Application(change, tag, tag, tag, True, change.image_digest) if state == "REHEARSE"
-                  else Gate(change, tag, "0" * 64, "PASS"))
+        if state == "WATCH":  # previous = the cutover's Integrity proof; run = the observed cutover run
+            result = Watch(run or Run(**previous["result"]["run"]), previous["receipt_id"], "PASS", "PASS")
+        else:
+            change = Change(**previous["result"]["change"])
+            result = (Application(change, tag, tag, tag, True, change.image_digest) if state == "REHEARSE"
+                      else Gate(change, tag, "0" * 64, "PASS"))
         return Evidence(plan["plan_id"], spec["plan_digest"], spec["target_environment_id"], plan["version"],
                         tag, result)
 
