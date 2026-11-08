@@ -338,16 +338,18 @@ APP_DB_POLICY = "demo-chat-db-reader"
 
 
 def app_db_policy():
-    """OpenBao policy ``demo-chat-db-reader``: the app's own DB credential path only (T14 SEC-01.1 app side).
+    """OpenBao policy ``demo-chat-db-reader``: the app's own DB credential path only (T14 SEC-01.1 app side;
+    under ADR-0041 the platform collector also reads ``credentials_json`` here for the ENC-01.1 pooler login,
+    so a leak of this role means rotating the app DB password).
 
     The app already receives this value through ESO as a Kubernetes Secret; this lets its own
     ServiceAccount read the same path directly, so SEC-01.1 compares demo-chat with t14-other without
     the ESO reader's identity (which also reads the object and admin paths). T14 collects from outside
     the target cluster only: the operator machine (`kubectl create token --audience openbao` +
     port-forward, #644/#666), or after the cutover the platform's collector identity (ADR-0041), whose
-    TokenRequest admission forces audience `openbao` and 600 s. No in-cluster identity may mint these
-    tokens, because RBAC cannot limit a TokenRequest's audience or lifetime and such a grant would be a
-    second way into this role.
+    TokenRequest admission forces audience `openbao` and 600 s. No workload inside the target cluster may
+    mint these tokens: RBAC cannot limit a TokenRequest's audience or lifetime, so such a grant would be a
+    second way into this role. The only grant is the platform-only SA `bravo-apply-access/bravo-t14-collector`.
     Nothing else: no object or admin path, no writes, no token creation."""
     return f'path "secret/data/{DB_PATH}" {{ capabilities = ["read"] }}' + '''
 path "auth/token/lookup-self" { capabilities = ["read"] }
