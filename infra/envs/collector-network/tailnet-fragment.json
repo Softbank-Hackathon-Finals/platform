@@ -44,6 +44,7 @@
     {"src": "tag:bravo-target-objects", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-apply-objects", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-findings", "deny": ["tag:bravo-metrics:9090"]},
-    {"src": "tag:bravo-target-findings", "deny": ["tag:bravo-metrics:9090"]}
+    {"src": "tag:bravo-target-findings", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-peer-relay", "deny": ["tag:bravo-metrics:9090"]}
   ]
 }
