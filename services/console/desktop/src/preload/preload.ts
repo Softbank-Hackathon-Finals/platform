@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AgentEvent, EventPush, SovaApi } from '../shared/types';
 
+// Unique per page load, so a reloaded page never reuses a stream id the main process still knows.
+const page = Math.random().toString(36).slice(2, 8);
 let watchSeq = 0;
 
 const api: SovaApi = {
@@ -32,7 +34,7 @@ const api: SovaApi = {
     return () => { ipcRenderer.removeListener('deeplink', h); };
   },
   watchEvents: (planId, cb) => {
-    const id = `w${++watchSeq}`;
+    const id = `${page}-${++watchSeq}`;
     const h = (_: unknown, from: string, p: EventPush) => { if (from === id) cb(p); };
     ipcRenderer.on('events:push', h);
     void ipcRenderer.invoke('events:watch', id, planId);

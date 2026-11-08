@@ -41,7 +41,9 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
-  win.webContents.on('did-start-navigation', (d) => { if (d.isMainFrame && !d.isSameDocument) dropStreams(); });
+  // Only a committed page load ends the page's streams; a navigation that is started and then refused
+  // (will-navigate above) leaves the page, and its streams, as they were.
+  win.webContents.on('did-navigate', dropStreams);
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   else void win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
 }
@@ -50,7 +52,7 @@ function createWindow() {
 const deepLink = (url: string) => { if (url.startsWith(`${PROTOCOL}://`)) win?.webContents.send('deeplink', url); };
 app.on('open-url', (e, url) => { e.preventDefault(); deepLink(url); });
 
-// Each dashboard view that follows a plan holds one stream; a page reload drops them all.
+// Each plan followed by the dashboard holds one stream; a page load drops them all.
 const streams = new Map<string, AbortController>();
 ipcMain.handle('events:watch', (e, id: string, planId: string) => {
   const ctl = new AbortController();

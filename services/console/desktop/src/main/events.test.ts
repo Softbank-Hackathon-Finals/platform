@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { EventPush } from '../shared/types';
 import { followPlan, parseSse } from './events';
 
@@ -37,5 +37,26 @@ describe('followPlan', () => {
       (p) => pushes.push(p), ctl.signal);
     expect(pushes.slice(0, 2)).toEqual([{ mode: 'retrying', code: 'forbidden' }, { mode: 'retrying', reset: true, code: 'resync_required' }]);
     expect(pushes.some((p) => p.events?.[0]?.event_id === 'p:1')).toBe(true);
+  });
+});
+
+describe('followPlan timeout', () => {
+  it('retries a request that never returns headers', async () => {
+    const ctl = new AbortController();
+    const pushes: EventPush[] = [];
+    let calls = 0;
+    const open = (_p: string, _l: string | undefined, signal: AbortSignal) => {
+      calls += 1;
+      if (calls === 1) return new Promise<Response>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+      ctl.abort(); return Promise.reject(new Error('aborted'));
+    };
+    vi.useFakeTimers();
+    const run = followPlan('p', open, (p) => pushes.push(p), ctl.signal);
+    await vi.advanceTimersByTimeAsync(15_100);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await run;
+    vi.useRealTimers();
+    expect(pushes[0]).toEqual({ mode: 'retrying', code: 'stream_timeout' });
+    expect(calls).toBe(2);
   });
 });

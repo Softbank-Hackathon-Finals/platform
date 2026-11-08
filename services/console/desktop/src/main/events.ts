@@ -36,7 +36,10 @@ export async function followPlan(planId: string, open: Open, push: (p: EventPush
   while (!signal.aborted) {
     let code = 'stream_closed';
     try {
-      const res = await open(planId, last, signal);
+      // A request that never gets headers (connection still coming up) is retried instead of waited on forever.
+      const slow = new AbortController();
+      const timer = setTimeout(() => slow.abort(new Error('stream_timeout')), 15_000);
+      const res = await open(planId, last, AbortSignal.any([signal, slow.signal])).finally(() => clearTimeout(timer));
       if (res.status === 404) { push({ mode: 'unsupported' }); return; }
       if (res.status === 409) { last = undefined; push({ mode: 'retrying', reset: true, code: 'resync_required' }); continue; }
       if (!res.ok || !res.headers.get('content-type')?.startsWith('text/event-stream') || !res.body) {
@@ -59,7 +62,7 @@ export async function followPlan(planId: string, open: Open, push: (p: EventPush
     } catch (e) {
       if (signal.aborted) return;
       failures += 1;
-      push({ mode: 'retrying', code: e instanceof Error && e.message !== 'fetch failed' ? e.message : 'mcp_unreachable' });
+      push({ mode: 'retrying', code: e instanceof Error && !['fetch failed', 'This operation was aborted'].includes(e.message) ? e.message : 'mcp_unreachable' });
     }
     await new Promise((r) => setTimeout(r, Math.min(15_000, 500 * 2 ** failures)));
   }
