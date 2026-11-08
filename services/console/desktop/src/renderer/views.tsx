@@ -10,7 +10,7 @@ import { AlertStrip, DataPanels, LiveToolbar, StatePanels, TrafficPanels } from 
 import { MigrationMap } from './migration-map';
 import { GitOpsPanels } from './gitops';
 import { Burst, MAIN_STAGES, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
-import { ago, callTool, explain, planAtom, sova, SovaError, useTool, viewAtom } from './lib';
+import { ago, callTool, explain, IS_WEB, planAtom, sova, SovaError, useTool, viewAtom } from './lib';
 import { useLink } from './shell';
 
 /* ---------- shared bits ---------- */
@@ -201,6 +201,7 @@ function HumanApproval({ plan, onDone }: { plan: any; onDone: () => void }) {
   const [msg, setMsg] = useState('');
   const r = run.data;
   const code = r && !r.ok ? r.body?.detail?.code ?? `HTTP ${r.status}` : '';
+  if (IS_WEB) return <p className="mt-2 border-t-2 border-dashed border-ink/25 pt-2 text-[11.5px] text-ink-soft">사람 승인은 본인 SSO 신원으로 하므로 데스크톱 앱에서 합니다. 승인 호스트가 사전 위임으로 진행 중이면 여기서 진행이 그대로 보입니다.</p>;
   return (
     <div className="mt-2 flex flex-col gap-1.5 border-t-2 border-dashed border-ink/25 pt-2 text-[11.5px]">
       <span className="truncate text-ink-soft">{r?.ok ? `승인 호스트: ${r.body.state} v${r.body.version} · 진행 ${r.body.owner}${r.body.interruptions?.length ? ` · 중단 ${r.body.interruptions.length}` : ''}` : code ? `승인 호스트 ${code}` : '승인 호스트 조회 중'}</span>
@@ -493,6 +494,9 @@ export function SettingsView() {
 }
 
 export function ConnectionForm({ s, save }: { s: Settings; save: (p: Partial<Settings>) => Promise<void> }) {
+  if (IS_WEB) return (
+    <p className="p-4 text-[12.5px]">이 웹 콘솔은 플랫폼 안의 SOVA MCP에 <b>Cloudflare Access 로그인 신원</b>으로 연결합니다. 주소·AWS 프로필·승인 호스트 설정은 데스크톱 앱에만 있습니다.</p>
+  );
   return (
     <div className="grid grid-cols-2 gap-3 p-4">
       <div className="col-span-2"><Field label="MCP 주소" value={s.mcpUrl} onSave={(v) => save({ mcpUrl: v })} placeholder="http://sova-mcp.<tailnet>.ts.net:443/mcp" mono /></div>
@@ -541,6 +545,15 @@ export function AgentModels() {
   const mode = settings.data?.agentAuth ?? 'chatgpt';
   const setMode = async (m: 'chatgpt' | 'apikey') => { await sova.saveSettings({ agentAuth: m }); await qc.invalidateQueries(); };
   const models = (data?.models ?? []).filter((m) => mode !== 'apikey' || m.api);
+  if (IS_WEB) return (
+    <div className="flex flex-col gap-3 p-4 text-[12.5px]">
+      <div className="flex items-center gap-2 rounded-lg border-2 border-ink bg-paper px-2.5 py-1.5">
+        <span className={`h-2.5 w-2.5 rounded-full border border-ink ${auth.data?.ok ? 'bg-wasabi' : 'bg-red'}`} />
+        <span className="flex-1 truncate">{auth.data?.message ?? '확인 중'}</span>
+      </div>
+      <p className="text-ink-soft">웹 콘솔의 안내자는 플랫폼 비밀 저장소에 둔 OpenAI API 키로 실행합니다. 개인 ChatGPT 로그인이나 키는 받지 않습니다. 사용 가능 모델 {models.length}개.</p>
+    </div>
+  );
   return (
     <div className="flex flex-col gap-3 p-4 text-[12.5px]">
       <div className="flex overflow-hidden rounded-lg border-2 border-ink">

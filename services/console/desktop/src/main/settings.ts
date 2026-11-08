@@ -22,4 +22,4 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   return next;
 }
 
-export const isLoopback = (url: string) => /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url);
+export { isLoopback } from './sova';

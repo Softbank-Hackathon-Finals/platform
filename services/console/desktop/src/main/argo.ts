@@ -17,26 +17,29 @@ async function get(base: string, path: string) {
   return r.json() as Promise<any>;
 }
 
+/** One Argo CD Application (Kubernetes object or Argo API item) as the dashboard shows it. */
+export const mapApps = (items: any[]) => items.map((a: any) => {
+  const res: any[] = a.status?.resources ?? [];
+  const op = a.status?.operationState;
+  return {
+    name: a.metadata.name, project: a.spec?.project,
+    repo: a.spec?.source?.repoURL ?? a.spec?.sources?.[0]?.repoURL, path: a.spec?.source?.path ?? a.spec?.source?.chart,
+    target: a.spec?.source?.targetRevision, auto: !!a.spec?.syncPolicy?.automated && a.spec.syncPolicy.automated.enabled !== false,
+    sync: a.status?.sync?.status ?? 'Unknown', revision: a.status?.sync?.revision, health: a.status?.health?.status ?? 'Unknown',
+    reconciledAt: a.status?.reconciledAt, op: op ? { phase: op.phase, finishedAt: op.finishedAt, message: String(op.message ?? '').slice(0, 200) } : null,
+    resources: res.length, outOfSync: res.filter((r) => r.status === 'OutOfSync').length,
+    unhealthy: res.filter((r) => r.health && !['Healthy', 'Suspended'].includes(r.health.status)).length,
+    conditions: (a.status?.conditions ?? []).map((x: any) => `${x.type}: ${String(x.message ?? '').slice(0, 160)}`),
+  };
+});
+
 export async function argoApps(_s: Settings, side: ArgoSide) {
   const c = ARGO[side];
   try {
     const uid = (await get(c.api, '/api/v1/namespaces/kube-system')).metadata?.uid;
     if (uid !== c.uid) return { ok: false, side, label: c.label, ui: c.ui, code: 'cluster_identity_mismatch', apps: [] };
     const list = await get(c.api, `/apis/argoproj.io/v1alpha1/namespaces/${c.ns}/applications`);
-    const apps = (list.items ?? []).map((a: any) => {
-      const res: any[] = a.status?.resources ?? [];
-      const op = a.status?.operationState;
-      return {
-        name: a.metadata.name, project: a.spec?.project,
-        repo: a.spec?.source?.repoURL ?? a.spec?.sources?.[0]?.repoURL, path: a.spec?.source?.path ?? a.spec?.source?.chart,
-        target: a.spec?.source?.targetRevision, auto: !!a.spec?.syncPolicy?.automated && a.spec.syncPolicy.automated.enabled !== false,
-        sync: a.status?.sync?.status ?? 'Unknown', revision: a.status?.sync?.revision, health: a.status?.health?.status ?? 'Unknown',
-        reconciledAt: a.status?.reconciledAt, op: op ? { phase: op.phase, finishedAt: op.finishedAt, message: String(op.message ?? '').slice(0, 200) } : null,
-        resources: res.length, outOfSync: res.filter((r) => r.status === 'OutOfSync').length,
-        unhealthy: res.filter((r) => r.health && !['Healthy', 'Suspended'].includes(r.health.status)).length,
-        conditions: (a.status?.conditions ?? []).map((x: any) => `${x.type}: ${String(x.message ?? '').slice(0, 160)}`),
-      };
-    });
+    const apps = mapApps(list.items ?? []);
     return { ok: true, side, label: c.label, ui: c.ui, uid, ns: c.ns, apps };
   } catch (e) {
     const status = (e as any).status;

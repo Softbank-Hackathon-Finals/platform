@@ -4,6 +4,8 @@ import { atomWithStorage } from 'jotai/utils';
 import type { Effort, SovaApi, SovaResult } from '../shared/types';
 
 export const sova = (window as unknown as { sova: SovaApi }).sova;
+/** The browser build at sova.mangowhois.ai: Access identity, platform-held model key, no approvals or tailnet reads. */
+export const IS_WEB = !!(sova as unknown as { web?: boolean }).web;
 
 export class SovaError extends Error {
   constructor(public code: string, public hint?: string) { super(code); }
@@ -82,6 +84,8 @@ export const CODE_TEXT: Record<string, string> = {
   evaluation_profile_unavailable: '이 평가 프로필은 쓸 수 없습니다. 목록에서 고르세요.',
   plan_conflict: '같은 입력의 계획이 이미 다른 상태로 있습니다. 이전 계획에서 확인하세요.',
   command_key_conflict: '같은 확인이 다른 입력에 쓰였습니다. 미리보기부터 다시 하세요.',
+  desktop_only: '본인 SSO·tailnet 신원이 필요해 데스크톱 앱에서 합니다.',
+  access_required: 'Cloudflare Access 로그인이 만료됐습니다. 페이지를 새로 고치면 다시 로그인합니다.',
 };
 export const explain = (e: unknown) =>
   e instanceof SovaError ? CODE_TEXT[e.code] ?? e.hint ?? e.code : String((e as Error)?.message ?? e);

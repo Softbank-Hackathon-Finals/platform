@@ -12,7 +12,8 @@
     "make": "electron-forge make",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "build": "vite build --config vite.renderer.config.mts --outDir .vite/renderer-check --emptyOutDir"
+    "build": "vite build --config vite.renderer.config.mts --outDir .vite/renderer-check --emptyOutDir",
+    "build:web": "vite build --config vite.web.config.mts && vite build --config vite.server.config.mts"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

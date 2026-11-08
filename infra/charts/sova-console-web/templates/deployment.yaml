@@ -1,0 +1,58 @@
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest) }}{{ fail "image.digest (sha256) is required" }}{{ end }}
+{{- if not (hasSuffix ".cloudflareaccess.com" .Values.access.teamDomain) }}{{ fail "access.teamDomain (<team>.cloudflareaccess.com) is required" }}{{ end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sova-console-web
+  labels: {app.kubernetes.io/name: sova-console-web, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sova-console-web
+  labels: {app.kubernetes.io/name: sova-console-web, component: platform}
+spec:
+  replicas: 1   # per-person sessions and held confirmations live in this process
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: sova-console-web}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: sova-console-web, component: platform}
+    spec:
+      serviceAccountName: sova-console-web
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: PUBLIC_ORIGIN, value: {{ .Values.publicOrigin | quote }}}
+            - {name: MCP_URL, value: {{ .Values.mcpUrl | quote }}}
+            - {name: ARGO_PLATFORM_URL, value: {{ .Values.argoPlatformUrl | quote }}}
+            - {name: ACCESS_TEAM_DOMAIN, value: {{ .Values.access.teamDomain | quote }}}
+            - {name: ACCESS_AUD, value: {{ .Values.access.aud | quote }}}
+            - {name: OPENAI_KEY_FILE, value: /var/run/secrets/sova-console/openai/api_key}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 30}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: openai, mountPath: /var/run/secrets/sova-console/openai, readOnly: true}
+      volumes:
+        - {name: data, emptyDir: {sizeLimit: 2Gi}}   # per-person guide sessions; reset with the pod
+        - {name: tmp, emptyDir: {sizeLimit: 256Mi}}
+        - name: openai
+          secret: {secretName: sova-console-web-openai, optional: true, defaultMode: 0440}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sova-console-web
+  labels: {app.kubernetes.io/name: sova-console-web, component: platform}
+spec:
+  selector: {app.kubernetes.io/name: sova-console-web}
+  ports: [{name: http, port: 80, targetPort: http}]
