@@ -125,8 +125,9 @@ class OperatorAccess:
         grant = self._grant(c, plan["plan_id"], subject_id)
         if (grant is None or grant["tenant_id"] != plan["tenant_id"]
                 or permission not in grant["permissions"]
-                or not _timestamp(grant["valid_after"]).timestamp() <= now < _timestamp(grant["expires_at"]).timestamp()
-                or (authenticated_at is not None and authenticated_at < _timestamp(grant["valid_after"]).timestamp())):
+                or not _timestamp(grant["valid_after"]).timestamp() <= now < _timestamp(grant["expires_at"]).timestamp()):
+        # T49: a grant re-issued by the system (e.g. a security-review update) no longer drops an earlier
+        # authentication or the delegation built on it; the grant's own window and permissions still apply.
             raise EventError("forbidden")
         return grant
 
@@ -203,7 +204,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                                change_authority=None, change_authority_wrapper=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
                                change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15,
-                               list_tasks=None, delegated_shift=None, first_run=None):
+                               list_tasks=None, delegated_shift=None, first_run=None, auto_approver=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -253,7 +254,8 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     if delegations is not None:
         shift = delegated_shift(store, delegations) if delegated_shift is not None else None
         _run_delegated_gates(app, DelegatedGates(store, delegations, cutover=service, failback=failback_service,
-                                                 rehearsal=rehearsals, list_tasks=list_tasks, shift=shift),
+                                                 rehearsal=rehearsals, list_tasks=list_tasks, shift=shift,
+                                                 auto_approver=auto_approver),
                              sweep_seconds)
     return app
 

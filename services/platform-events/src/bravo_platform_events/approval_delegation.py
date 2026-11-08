@@ -86,6 +86,23 @@ class ApprovalDelegations:
             _put(c, plan_id, f"{KEY}-gen-{generation + 1}", request, receipt)
             return receipt
 
+    def auto(self, plan_id, approver):
+        """T49 unattended demo: record the plan's delegation for every gate as the configured approver, who must
+        hold each gate's approve permission now. An expired one is revoked first; a live one is kept."""
+        with self.store._transaction() as c:
+            plan = c.execute("SELECT tenant_id FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+            if plan is None or self.live(c, plan_id) is not None:
+                return None
+            _, _, old = _current(c, plan_id)
+        now = int(_ts(self.clock()))
+        principal = OperatorPrincipal(approver, plan["tenant_id"], now, now + HOST_PRINCIPAL_SECONDS, now,
+                                      "auto-delegation")
+        if old is not None:
+            self.revoke(principal, plan_id)
+        expires = datetime.fromtimestamp(now, UTC) + MAX_DELEGATION - timedelta(minutes=1)
+        return self.delegate(principal, plan_id, gates=sorted(GATES), bounds={}, expires_at=expires.isoformat(),
+                             command_key=f"auto-delegation-{now}")
+
     def revoke(self, principal, plan_id):
         """The approver, or anyone holding all of its gates' approve permissions now."""
         with self.store._transaction(write=True, plan_id=plan_id) as c:
@@ -158,8 +175,10 @@ class DelegatedGates:
     this version. Anything unmet or refused is a wait: the next sweep or a person on the same routes decides.
     """
 
-    def __init__(self, store, delegations, *, cutover, failback=None, rehearsal=None, list_tasks=None, shift=None):
+    def __init__(self, store, delegations, *, cutover, failback=None, rehearsal=None, list_tasks=None, shift=None,
+                 auto_approver=None):
         self.store, self.delegations, self.cutover, self.failback = store, delegations, cutover, failback
+        self.auto_approver = auto_approver  # T49: record each active plan's delegation as this approver
         # T49: REHEARSE starts the plan's one registered rehearsal (RehearsalService, list_tasks(plan_id) -> ids)
         self.rehearsal, self.list_tasks = rehearsal, list_tasks
         self.shift = shift  # DelegatedShift: SHIFT weights before the cutover (demo), optional
@@ -168,6 +187,20 @@ class DelegatedGates:
         from .operator_ports import (
             edge_at_full,  # the cutover authority's own check (T17 100% and SLI PASS)
         )
+
+        auto = {}
+        if self.auto_approver:
+            with self.store._transaction() as c:
+                active = [r["plan_id"] for r in c.execute(
+                    "SELECT plan_id FROM plans WHERE state IN "
+                    "('PROPOSE', 'REHEARSE', 'GATE', 'AWAIT_APPROVAL', 'SHIFT', 'WATCH', 'FAILBACK')").fetchall()]
+                active = [p for p in active if self.delegations.live(c, p) is None]
+            for plan_id in active:
+                try:
+                    if self.delegations.auto(plan_id, self.auto_approver):
+                        auto[plan_id] = {"held": "auto_delegated"}
+                except EventError as error:
+                    auto[plan_id] = {"held": "auto_delegation_" + error.code}
 
         with self.store._transaction() as c:
             plans = [dict(r) for r in c.execute(
@@ -199,7 +232,7 @@ class DelegatedGates:
                 decided[plan["plan_id"]] = self._decide(plan, gate, service)
             except EventError as error:
                 decided[plan["plan_id"]] = {"held": error.code}
-        return decided
+        return auto | decided
 
     def _rehearse(self, plan):
         """Start the plan's one registered T15 rehearsal for this version once (the same command key replays), then

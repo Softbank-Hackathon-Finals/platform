@@ -252,11 +252,16 @@ def create(store, config_file=CONFIG):
             failback["edge"] = _edge(config["edge"])
     iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
     delegation = config.get("delegation", False)
-    if not (type(delegation) is bool or (type(delegation) is dict and set(delegation) == {"shift_profile"}
-                                         and "edge" in config)):
+    # T49: {"shift_profile": ...} runs SHIFT weights; {"auto_approver": "<subject>"} records each plan's delegation.
+    if not (type(delegation) is bool or (type(delegation) is dict and delegation
+                                         and set(delegation) <= {"shift_profile", "auto_approver"}
+                                         and ("shift_profile" not in delegation or "edge" in config)
+                                         and type(delegation.get("auto_approver", "")) is str)):
         raise ValueError("operator_ports_configuration_invalid")
     shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate)
-             } if type(delegation) is dict else {}
+             } if type(delegation) is dict and "shift_profile" in delegation else {}
+    if type(delegation) is dict and delegation.get("auto_approver"):
+        shift["auto_approver"] = delegation["auto_approver"]
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
                             change_authority_wrapper=change_wrapper, **failback, **iac,
                             delegation=delegation is not False, first_run=rehearsal.first_run, **shift)

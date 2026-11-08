@@ -90,6 +90,7 @@ class TrustedHostPorts:
     # T49: RehearsalService.first_run (the stored AI Proposal's run ID). Without it a delegated REHEARSE of a
     # plan with an initial proposal holds at initial_rehearsal_reader_required.
     first_run: object = field(default=None, repr=False)
+    auto_approver: str | None = None  # T49: the approver subject the platform delegates as (unattended demo)
 
     def __post_init__(self):
         if (not self.bindings or not callable(self.cutover_authority)
@@ -142,7 +143,7 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
         **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
             "edge": ports.edge} if ports.failback_authority is not None else {}),
         change_intake=intake, clock=clock, delegation=ports.delegation, list_tasks=_tasks(ports.catalog),
-        delegated_shift=ports.delegated_shift, first_run=ports.first_run,
+        delegated_shift=ports.delegated_shift, first_run=ports.first_run, auto_approver=ports.auto_approver,
         **({"iac_repository": ports.iac} if ports.iac is not None else {}))
     original_lifespan = app.router.lifespan_context
 
