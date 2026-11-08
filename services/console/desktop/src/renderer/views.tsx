@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import hero from '../../assets/sova-hero.jpg';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { ArrowRight, ExternalLink, Hand, LogIn, PlugZap, Sparkles } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { EFFORT_LABEL, type NextAction, type Settings } from '../shared/types';
 import { useModels } from './agent';
 import { useT } from './i18n';
@@ -68,42 +68,65 @@ function eventLine(e: any) {
   return Object.entries(d).slice(0, 3).map(([k, v]) => `${k}: ${typeof v === 'object' ? '…' : v}`).join(' · ');
 }
 
+type FeedMode = 'live' | 'retrying' | 'poll';
+interface FeedSnap { events: any[]; error: unknown; mode: FeedMode }
+interface Feed { snap: FeedSnap; subs: Set<() => void>; refs: number; close: () => void }
+const NO_FEED: FeedSnap = { events: [], error: null, mode: 'retrying' };
+const feeds = new Map<string, Feed>();
+
+/** One feed per plan, shared by every panel that follows it: one SSE stream (or one cursor poll), not one per panel.
+ *  The cursor carries over from the stream to polling, so a fallback never repeats events. */
+function openFeed(plan: string, onNew: () => void): Feed {
+  const have = feeds.get(plan); if (have) return have;
+  const f: Feed = { snap: NO_FEED, subs: new Set(), refs: 0, close: () => undefined };
+  let stop = false, cursor: string | null = null, timer: ReturnType<typeof setTimeout>;
+  const set = (patch: Partial<FeedSnap>) => { f.snap = { ...f.snap, ...patch }; f.subs.forEach((s) => s()); };
+  const add = (evs: any[]) => {
+    if (!evs.length) return;
+    cursor = evs.at(-1).event_id ?? cursor;
+    set({ events: [...f.snap.events, ...evs] });
+    onNew();
+  };
+  const tick = async () => {
+    try {
+      const r = await callTool('sova_get_progress', { plan_id: plan, since: cursor, limit: 200 });
+      if (stop) return;
+      add(r.data.events); cursor = r.cursor ?? cursor; set({ error: null });
+      timer = setTimeout(tick, r.data.events.length === 200 ? 0 : r.poll_after_ms ?? 15000);
+    } catch (e) { if (!stop) { set({ error: e }); timer = setTimeout(tick, 15000); } }
+  };
+  const off = sova.watchEvents(plan, (p) => {
+    if (stop) return;
+    if (p.mode === 'unsupported') { set({ mode: 'poll' }); void tick(); return; }
+    if (p.reset) { cursor = null; set({ events: [] }); }
+    add(p.events ?? []);
+    set({ mode: p.mode, error: p.mode === 'live' ? null : p.code && p.code !== 'stream_closed' ? new SovaError(p.code) : f.snap.error });
+  });
+  f.close = () => { stop = true; clearTimeout(timer); off(); feeds.delete(plan); };
+  feeds.set(plan, f);
+  return f;
+}
+
 /** Follows a plan's events over the host's SSE stream; polls by cursor only when the host has no stream.
  *  A new event also refreshes the plan, execution and comparison reads, so the stage rail moves at once. */
-export function useEvents(plan: string) {
+export function useEvents(plan: string): FeedSnap {
   const qc = useQueryClient();
-  const [events, setEvents] = useState<any[]>([]);
-  const [error, setError] = useState<unknown>(null);
-  const [mode, setMode] = useState<'live' | 'retrying' | 'poll'>('retrying');
+  const [feed, setFeed] = useState<Feed | null>(null);
   useEffect(() => {
-    let stop = false, cursor: string | null = null, timer: ReturnType<typeof setTimeout>;
-    setEvents([]); setError(null); setMode('retrying');
-    if (!plan) return;
-    const refresh = () => {
+    if (!plan) { setFeed(null); return; }
+    const f = openFeed(plan, () => {
       for (const key of ['sova_get_plan', 'sova_get_execution', 'sova_compare', 'run-state']) void qc.invalidateQueries({ queryKey: [key] });
-    };
-    const tick = async () => {
-      try {
-        const r = await callTool('sova_get_progress', { plan_id: plan, since: cursor, limit: 200 });
-        if (stop) return;
-        cursor = r.cursor;
-        if (r.data.events.length) { setEvents((all) => [...all, ...r.data.events]); refresh(); }
-        setError(null);
-        timer = setTimeout(tick, r.data.events.length === 200 ? 0 : r.poll_after_ms ?? 15000);
-      } catch (e) { if (!stop) { setError(e); timer = setTimeout(tick, 15000); } }
-    };
-    const off = sova.watchEvents(plan, (p) => {
-      if (stop) return;
-      if (p.mode === 'unsupported') { setMode('poll'); void tick(); return; }
-      if (p.reset) setEvents([]);
-      if (p.events?.length) { setEvents((all) => [...all, ...p.events!]); refresh(); }
-      if (p.mode === 'live') setError(null);
-      setMode(p.mode);
-      if (p.mode === 'retrying' && p.code && p.code !== 'stream_closed') setError(new SovaError(p.code));
     });
-    return () => { stop = true; clearTimeout(timer); off(); };
+    f.refs += 1;
+    setFeed(f);
+    return () => { f.refs -= 1; if (f.refs === 0) f.close(); };
   }, [plan, qc]);
-  return { events, error, mode };
+  const subscribe = useCallback((cb: () => void) => {
+    if (!feed) return () => undefined;
+    feed.subs.add(cb);
+    return () => { feed.subs.delete(cb); };
+  }, [feed]);
+  return useSyncExternalStore(subscribe, () => feed?.snap ?? NO_FEED);
 }
 
 /** Says how the list stays current: the host's SSE stream, a reconnect in progress, or cursor polling. */

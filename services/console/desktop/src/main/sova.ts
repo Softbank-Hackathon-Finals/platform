@@ -37,6 +37,11 @@ export class SovaLink {
     const s = this.settings();
     const source = proofSource(s.awsProfile, s.awsRegion);
     this.proof = s.devToken && isLoopback(s.mcpUrl) ? async () => s.devToken : source;
+    this.drop();
+  }
+
+  /** Forgets the MCP client and closes it, so a failed call does not leave its connections open. */
+  private drop() {
     void this.client?.close().catch(() => undefined);
     this.client = undefined;
   }
@@ -63,6 +68,9 @@ export class SovaLink {
     };
     if (req.headers.authorization !== `Bearer ${this.secret}`) return fail(401, 'local_secret_required');
     if (!req.url?.startsWith('/mcp')) return fail(404, 'not_found');
+    // The host is stateless and never pushes on a standalone GET stream; refusing it here keeps every MCP client
+    // (dashboard and agent) from holding an idle upstream connection. Clients read 405 as "no stream".
+    if (req.method === 'GET') { res.writeHead(405, { allow: 'POST' }).end(); return; }
     if (!this.settings().mcpUrl) return fail(503, 'mcp_url_not_set');
     const chunks: Buffer[] = [];
     let size = 0;
@@ -81,10 +89,13 @@ export class SovaLink {
     for (const h of ['content-type', 'accept', 'mcp-protocol-version', 'mcp-session-id', 'last-event-id']) {
       const v = req.headers[h]; if (typeof v === 'string') headers[h] = v;
     }
+    // When the local caller goes away, stop the upstream request too instead of reading it to the end.
+    const gone = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) gone.abort(); });
     try {
       const send = () => fetch(this.upstream(), {
         method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined,
-        redirect: 'manual', signal: AbortSignal.timeout(30_000),
+        redirect: 'manual', signal: AbortSignal.any([AbortSignal.timeout(30_000), gone.signal]),
       });
       // Retry only what never ran: a 503 identity_unavailable is refused before any tool (STS check timed out),
       // and a refused connection (pod restarting) never reached the server. A broken read may also retry.
@@ -146,7 +157,7 @@ export class SovaLink {
       }
       return { ok: true, result: r.structuredContent as any };
     } catch {
-      this.client = undefined;
+      this.drop();
       return { ok: false, code: this.lastCode ?? 'mcp_unreachable' };
     }
   }
@@ -157,21 +168,21 @@ export class SovaLink {
         name: p.name, title: p.title, description: p.description,
         args: (p.arguments ?? []).map((a) => ({ name: a.name, required: a.required })),
       }));
-    } catch { this.client = undefined; return []; }
+    } catch { this.drop(); return []; }
   }
 
   async prompt(name: string, args: Record<string, string>): Promise<string | null> {
     try {
       const r = await (await this.connect()).getPrompt({ name, arguments: args });
       return r.messages.map((m) => (m.content.type === 'text' ? m.content.text : '')).join('\n') || null;
-    } catch { this.client = undefined; return null; }
+    } catch { this.drop(); return null; }
   }
 
   async resource(uri: string): Promise<string | null> {
     try {
       const r = await (await this.connect()).readResource({ uri });
       return (r.contents[0] as any)?.text ?? null;
-    } catch { this.client = undefined; return null; }
+    } catch { this.drop(); return null; }
   }
 
   async status(): Promise<LinkStatus> {
@@ -181,7 +192,7 @@ export class SovaLink {
       const tools = (await (await this.connect()).listTools()).tools.map((t) => t.name);
       return { ...base, connected: true, tools };
     } catch {
-      this.client = undefined;
+      this.drop();
       return { ...base, connected: false, tools: [], code: this.lastCode ?? (s.mcpUrl ? 'mcp_unreachable' : 'mcp_url_not_set') };
     }
   }
