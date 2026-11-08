@@ -31,6 +31,7 @@ def render_gitops():
         "helm", "template", "bravo-gitops", str(GITOPS_CHART), "--namespace", "bravo-gitops",
         "--set", "publicEntry.enabled=true", "--set", "observability.enabled=true",
         "--set", "securityReview.enabled=true",
+        "--set", "securityReview.runtime.tokenReview.reviewerAudience=https://kubernetes.default.svc.cluster.local",
     ], check=True, capture_output=True, text=True)
     return [item for item in yaml.safe_load_all(result.stdout) if item]
 
@@ -80,6 +81,11 @@ def test_gitops_admission_and_rbac_allow_only_named_review_state_objects():
     expression = policy["spec"]["validations"][0]["expression"]
     for name in ("security-review-config", "security-review-egress", "security-review-audit"):
         assert name in expression
+
+    workload_policy = next(item for item in documents if item["kind"] == "ValidatingAdmissionPolicy"
+                           and item["metadata"]["name"] == "platform-gitops-registration-names")
+    workload_expression = "\n".join(item["expression"] for item in workload_policy["spec"]["validations"])
+    assert '"https://kubernetes.default.svc.cluster.local" == v.projected.sources[0].serviceAccountToken.audience' in workload_expression
 
     role = next(item for item in documents if item["kind"] == "Role"
                 and item["metadata"]["name"] == "platform-gitops-security-review")
