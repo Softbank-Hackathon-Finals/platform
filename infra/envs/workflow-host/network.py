@@ -18,11 +18,14 @@ from the existing runtime-database policy (bravo.dev/db-client=runtime). This ad
 
 - with --artifact-storage (T49: the host reads T7 candidate artifacts itself; GitHub answers an artifact
   download with a redirect to Azure Blob storage, outside the GitHub meta ranges): a separate policy
-  `t10-workflow-host-artifact-storage`, TCP 443 to the resolved public /32s of that one storage host only.
-  ponytail: resolved addresses, not a name rule (the CNI has no FQDN policy); re-render if the host moves.
+  `t10-workflow-host-artifact-storage`, TCP 443 to the resolved public /32s of GitHub's artifact storage
+  accounts. The Location host differs per run (productionresultssa0..19; 11/8 sa17 and then sa1), so the
+  policy covers all twenty accounts, which share a few storage stamps (15 addresses on 11/8).
+  ponytail: resolved addresses, not a name rule (the CNI has no FQDN policy); re-render if a stamp moves.
 
-    dig +short productionresultssa17.blob.core.windows.net   # the Location host of an artifact download
-    python3 infra/envs/workflow-host/network.py --artifact-storage 20.150.82.228 --artifact-storage 52.239.172.36 | kubectl apply -f -
+    for i in $(seq 0 19); do dig +short A productionresultssa$i.blob.core.windows.net; done |
+      grep -E '^[0-9.]+$' | sort -u | sed 's/^/--artifact-storage=/' |
+      xargs python3 infra/envs/workflow-host/network.py | kubectl apply -f -
 
 The T31 apply route (host -> bravo-apply-egress proxies -> target API) and the proxies' ingress from
 this host are declared in infra/iac/environments/platform.json (tailnet-egress, T44), not here.
@@ -100,9 +103,9 @@ def kube_api(endpoints):
 
 
 def artifact_storage(ips):
-    """Egress to the artifact storage host's public addresses (TCP 443), as its own NetworkPolicy."""
+    """Egress to the artifact storage accounts' public addresses (TCP 443), as its own NetworkPolicy."""
     out = sorted({str(ipaddress.ip_address(ip)) for ip in ips})
-    if not out or len(out) > 8 or any(ipaddress.ip_address(ip).is_private for ip in out):
+    if not out or len(out) > 32 or any(ipaddress.ip_address(ip).is_private for ip in out):
         raise ValueError("artifact_storage_ips_unexpected")
     labels = {"app.kubernetes.io/name": "t10-workflow-host", "component": "platform"}
     return {"apiVersion": "v1", "kind": "List", "items": [
@@ -116,6 +119,7 @@ def _check():
     blob = artifact_storage(["52.239.172.36", "20.150.82.228", "52.239.172.36"])["items"][0]["spec"]["egress"]
     assert blob == [{"to": [{"ipBlock": {"cidr": "20.150.82.228/32"}}, {"ipBlock": {"cidr": "52.239.172.36/32"}}],
                      "ports": [{"port": 443, "protocol": "TCP"}]}]
+    assert len(artifact_storage([f"20.209.226.{i}" for i in range(15)])["items"][0]["spec"]["egress"][0]["to"]) == 15
     try:
         artifact_storage(["10.0.0.1"])
         raise AssertionError("private artifact address accepted")
