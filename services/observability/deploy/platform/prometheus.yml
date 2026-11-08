@@ -10,10 +10,11 @@ rule_files:
 
 otlp:
   # bravo.env → bravo_env 라벨: 환경별 조회의 기준
-  # bravo.role → bravo_role 라벨: 이전 역할(source · target). 경보는 이 라벨로 출발지 · 목적지를 고른다(ADR-0034)
+  # bravo.role → bravo_role 라벨: 이전 역할(source · target). 역할 기준 경보(bravo-roles)가 이 라벨로 출발지 · 목적지를 고른다(ADR-0034)
   # bravo.signal → bravo_signal 라벨: Collector가 정한 출처. collector-self(생존 신호, "확인 불가" 판정의 기준) ·
   #   cnpg-scrape(DB 긁기). 앱 경로에서는 지워지므로 앱이 출처를 사칭할 수 없다
-  promote_resource_attributes: [bravo.env, bravo.role, bravo.signal]
+  # bravo.domain → bravo_domain 라벨: platform | customer. 플랫폼 자신과 고객 환경의 지표를 나눠 조회한다
+  promote_resource_attributes: [bravo.env, bravo.role, bravo.signal, bravo.domain]
 
 storage:
   tsdb:

@@ -5,11 +5,13 @@ tests:
   # onprem Collector가 120초에 멈춘다. 앱이 생존 신호를 사칭한 시계열(bravo_signal 없음)은 계속 들어와도 알림을 막지 못한다.
   - interval: 10s
     input_series:
-      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="source", job="bravo-collector", instance="a"}'
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
         values: '1x40'
-      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target", job="bravo-collector", instance="o"}'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
         values: '1x12'
-      - series: 'up{bravo_env="onprem", bravo_role="target", job="bravo-collector", instance="forged"}'
+      - series: 'up{bravo_env="onprem", job="bravo-collector", instance="forged"}'
+        values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
         values: '1x40'
     alert_rule_test:
       - eval_time: 140s
@@ -18,65 +20,63 @@ tests:
       - eval_time: 160s
         alertname: BravoEnvUnobservable
         exp_alerts:
-          - exp_labels: {severity: page, bravo_env: onprem, bravo_role: target}
+          - exp_labels: {severity: page, bravo_env: onprem}
             exp_annotations:
-              summary: "target 역할 환경(onprem)의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              summary: "onprem 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
       # 5분 조회 범위를 넘어 시계열이 사라져도(absent) 같은 라벨로 계속 알린다
       - eval_time: 400s
         alertname: BravoEnvUnobservable
         exp_alerts:
-          - exp_labels: {severity: page, bravo_env: onprem, bravo_role: target}
+          - exp_labels: {severity: page, bravo_env: onprem}
             exp_annotations:
-              summary: "target 역할 환경(onprem)의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
-              runbook: docs/observability/runbooks.md#bravoenvunobservable
-
-  # ADR-0034: 종류와 무관하게 역할로 판정한다. gcp 출발지 · aws 목적지가 모두 보고하면 알림이 없고,
-  # 목적지가 멈추면 목적지 역할로 알린다.
-  - interval: 10s
-    input_series:
-      - series: 'up{bravo_signal="collector-self", bravo_env="gcp", bravo_role="source", job="bravo-collector", instance="g"}'
-        values: '1x40'
-      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="target", job="bravo-collector", instance="a"}'
-        values: '1x12'
-    alert_rule_test:
-      - eval_time: 100s
-        alertname: BravoEnvUnobservable
-        exp_alerts: []
-      - eval_time: 160s
-        alertname: BravoEnvUnobservable
-        exp_alerts:
-          - exp_labels: {severity: page, bravo_env: aws, bravo_role: target}
-            exp_annotations:
-              summary: "target 역할 환경(aws)의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              summary: "onprem 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
 
   # aws 환경은 한 번도 보고하지 않았다
   - interval: 10s
     input_series:
-      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target", job="bravo-collector", instance="o"}'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 60s
         alertname: BravoEnvUnobservable
         exp_alerts:
-          - exp_labels: {severity: page, bravo_role: source}
+          - exp_labels: {severity: page, bravo_env: aws}
             exp_annotations:
-              summary: "source 역할 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # 플랫폼 클러스터 자신의 Collector가 한 번도 보고하지 않았다. 고객 환경이 살아 있어도 platform은 확인 불가다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: platform}
+            exp_annotations:
+              summary: "platform 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
 
   # 전송 실패 · 대기열 · 거부. 사칭 시계열은 무시한다.
   - interval: 30s
     input_series:
-      - series: 'otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target"}'
+      - series: 'otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self", bravo_env="onprem"}'
         values: '0 0 0 50 100 100 100 100 100 100 100 100 100 100 100 100 100'
-      - series: 'otelcol_exporter_queue_size{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target"}'
+      - series: 'otelcol_exporter_queue_size{bravo_signal="collector-self", bravo_env="onprem"}'
         values: '0 1000 3000 3000 3000 3000 3000'
-      - series: 'otelcol_exporter_queue_capacity{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target"}'
+      - series: 'otelcol_exporter_queue_capacity{bravo_signal="collector-self", bravo_env="onprem"}'
         values: '5000x6'
-      - series: 'otelcol_receiver_refused_metric_points_total{bravo_signal="collector-self", bravo_env="aws", bravo_role="source"}'
+      - series: 'otelcol_receiver_refused_metric_points_total{bravo_signal="collector-self", bravo_env="aws"}'
         values: '0 0 10 10'
-      - series: 'otelcol_receiver_refused_metric_points_total{bravo_env="onprem", bravo_role="target"}'
+      - series: 'otelcol_receiver_refused_metric_points_total{bravo_env="onprem"}'
         values: '0 0 999 999'
     alert_rule_test:
       - eval_time: 30s
@@ -112,24 +112,24 @@ tests:
   # 앱 경로로 들어온 같은 이름의 지표(bravo_signal 없음, CNPG 식별자 없음)는 알림을 만들지 않는다
   - interval: 30s
     input_series:
-      - series: 'cnpg_collector_up{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
+      - series: 'cnpg_collector_up{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
         values: '1 1 0 0 0 0 0'
-      - series: 'up{bravo_signal="cnpg-scrape", job="bravo-cnpg", bravo_env="onprem", bravo_role="target", cnpg_cluster="target-db", pod="target-db-1"}'
+      - series: 'up{bravo_signal="cnpg-scrape", job="bravo-cnpg", bravo_env="onprem", cnpg_cluster="target-db", pod="target-db-1"}'
         values: '1 0 0 0 0 0 0'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '1000 70000000 70000000 70000000 70000000 70000000 70000000'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
         values: '90000000x6'
-      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '0x30'
-      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", pod="source-db-1"}'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1"}'
         values: '0 0 0 1 1 1 1'
       # 앱 경로 사칭: 이름 · 환경 · job(service.name)은 같지만 출처 라벨이 없다
-      - series: 'cnpg_collector_up{bravo_env="aws", bravo_role="source", job="bravo-cnpg"}'
+      - series: 'cnpg_collector_up{bravo_env="aws", job="bravo-cnpg"}'
         values: '0x6'
-      - series: 'up{bravo_env="aws", bravo_role="source", job="bravo-cnpg"}'
+      - series: 'up{bravo_env="aws", job="bravo-cnpg"}'
         values: '0x6'
-      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="onprem", bravo_role="target", job="bravo-cnpg"}'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="onprem", job="bravo-cnpg"}'
         values: '0 1 2 3 4 5 6'
     alert_rule_test:
       - eval_time: 30s
@@ -181,56 +181,58 @@ tests:
   # 시각이 새로워도 up=0은 성공한 생존 신호가 아니다.
   - interval: 10s
     input_series:
-      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="source"}'
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws"}'
         values: '0x10'
-      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target"}'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 30s
         alertname: BravoEnvUnobservable
         exp_alerts:
-          - exp_labels: {severity: page, bravo_env: aws, bravo_role: source}
+          - exp_labels: {severity: page, bravo_env: aws}
             exp_annotations:
-              summary: "source 역할 환경(aws)의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
 
   # PgBouncer: 다운, PAUSE 2분 초과, PAUSE가 아닌 대기. 관리 DB와 앱 경로 사칭(출처 라벨 없음)은 알림을 만들지 않는다
   - interval: 30s
     input_series:
-      - series: 'pgbouncer_up{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="source-pgbouncer"}'
+      - series: 'pgbouncer_up{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer"}'
         values: '1 1 0 0 0 0 0 0 0'
-      - series: 'up{bravo_signal="pgbouncer-scrape", bravo_env="onprem", bravo_role="target", pooler="target-pgbouncer", job="bravo-pgbouncer"}'
+      - series: 'up{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", job="bravo-pgbouncer"}'
         values: '1 0 0 0 0 0 0 0 0'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="source-pgbouncer", name="chat", database="app"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", name="chat", database="app"}'
         values: '0 1 1 1 1 1 1 1 1'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="source-pgbouncer", name="pgbouncer", database="pgbouncer"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", name="pgbouncer", database="pgbouncer"}'
         values: '1x8'
       # PAUSE 중의 대기는 정상이다
-      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="source-pgbouncer", database="chat", user="chat_app"}'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", database="chat", user="chat_app"}'
         values: '3x8'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", bravo_role="target", pooler="target-pgbouncer", name="chat", database="app"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", name="chat", database="app"}'
         values: '0x8'
-      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="onprem", bravo_role="target", pooler="target-pgbouncer", database="chat", user="chat_app"}'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", database="chat", user="chat_app"}'
         values: '0 2 2 2 2 2 2 2 2'
       # 앱 경로 사칭: 이름 · 환경 · job(service.name)은 같지만 출처 라벨이 없다
-      - series: 'pgbouncer_up{bravo_env="aws", bravo_role="source", job="bravo-pgbouncer"}'
+      - series: 'pgbouncer_up{bravo_env="aws", job="bravo-pgbouncer"}'
         values: '0x8'
-      - series: 'pgbouncer_databases_paused{bravo_env="onprem", bravo_role="target", job="bravo-pgbouncer", name="chat"}'
+      - series: 'pgbouncer_databases_paused{bravo_env="onprem", job="bravo-pgbouncer", name="chat"}'
         values: '1x8'
-      - series: 'pgbouncer_pools_client_waiting_connections{bravo_env="aws", bravo_role="source", job="bravo-pgbouncer", database="orders"}'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_env="aws", job="bravo-pgbouncer", database="orders"}'
         values: '5x8'
       # PAUSE 누락·다른 DB/환경/pooler의 PAUSE=0·잘못된 PAUSE 값은 풀 고갈 증거가 아니다.
-      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="missing-pause", database="chat"}'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", database="chat"}'
         values: '7x8'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="missing-pause", name="orders"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", name="orders"}'
         values: '0x8'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", bravo_role="target", pooler="missing-pause", name="chat"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="missing-pause", name="chat"}'
         values: '0x8'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="different-pooler", name="chat"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="different-pooler", name="chat"}'
         values: '0x8'
-      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="invalid-pause", database="chat"}'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", database="chat"}'
         values: '7x8'
-      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", bravo_role="source", pooler="invalid-pause", name="chat"}'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", name="chat"}'
         values: '2x8'
     alert_rule_test:
       - eval_time: 60s
@@ -271,9 +273,9 @@ tests:
   # T8: stop, retry, counter reset, missing data, recovery and forged source.
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 1 0 0 0 0 0 0
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 5x6
     alert_rule_test:
     - eval_time: 120s
@@ -284,7 +286,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: onprem
-          bravo_role: target
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
@@ -299,9 +300,9 @@ tests:
       exp_alerts: []
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 1x24
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 0 0 1 2 3 4 5 6 6x24
     alert_rule_test:
     - eval_time: 30s
@@ -312,7 +313,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: onprem
-          bravo_role: target
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: ticket
@@ -327,7 +327,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: onprem
-          bravo_role: target
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
@@ -339,9 +338,9 @@ tests:
       exp_alerts: []
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 1x8
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 9 9 0 0 0 1 1 1 1
     alert_rule_test:
     - eval_time: 120s
@@ -352,7 +351,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: onprem
-          bravo_role: target
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: ticket
@@ -362,13 +360,13 @@ tests:
       exp_alerts: []
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: '0x8'
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 0+10x8
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_target_to_source"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_target_to_source"}
       values: '0x8'
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_target_to_source"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_target_to_source"}
       values: 0+10x8
     alert_rule_test:
     - eval_time: 180s
@@ -384,7 +382,7 @@ tests:
       alertname: BravoForwardSubscriptionUnobservable
       exp_alerts:
       - exp_labels:
-          bravo_role: target
+          bravo_env: onprem
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
@@ -393,7 +391,7 @@ tests:
           runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservable
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 1x8
     alert_rule_test:
     - eval_time: 30s
@@ -403,16 +401,16 @@ tests:
       alertname: BravoForwardSubscriptionUnobservable
       exp_alerts:
       - exp_labels:
-          bravo_role: target
+          bravo_env: onprem
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
         exp_annotations: *id002
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: 1x4
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: '0x4'
     alert_rule_test:
     - eval_time: 180s
@@ -423,7 +421,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: onprem
-          bravo_role: target
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
@@ -432,23 +429,23 @@ tests:
       alertname: BravoForwardSubscriptionUnobservable
       exp_alerts:
       - exp_labels:
-          bravo_role: target
+          bravo_env: onprem
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
         exp_annotations: *id002
   - interval: 30s
     input_series:
-    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: _ _ _ _ _ 1 1 1
-    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem", bravo_role="target",cnpg_cluster="target-db",subname="t8_source_to_target"}
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
       values: _ _ _ _ _ 0 0 0
     alert_rule_test:
     - eval_time: 90s
       alertname: BravoForwardSubscriptionUnobservable
       exp_alerts:
       - exp_labels:
-          bravo_role: target
+          bravo_env: onprem
           cnpg_cluster: target-db
           subname: t8_source_to_target
           severity: page
@@ -458,11 +455,11 @@ tests:
       exp_alerts: []
   - interval: 30s
     input_series:
-    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws", bravo_role="source",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
       values: 1 0 0 0 0 0 1
-    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws", bravo_role="source",cnpg_cluster="source-db",slot_name="t8_target_to_source",slot_type="logical"}
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_target_to_source",slot_type="logical"}
       values: '0x8'
-    - series: cnpg_pg_replication_slots_active{bravo_env="aws", bravo_role="source",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+    - series: cnpg_pg_replication_slots_active{bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
       values: 1x8
     alert_rule_test:
     - eval_time: 120s
@@ -473,7 +470,6 @@ tests:
       exp_alerts:
       - exp_labels:
           bravo_env: aws
-          bravo_role: source
           cnpg_cluster: source-db
           slot_name: t8_source_to_target
           severity: page
@@ -486,9 +482,9 @@ tests:
 
   - interval: 30s
     input_series:
-    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws", bravo_role="source",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
       values: _ _ _ _ 1 1 1 1 1
-    - series: cnpg_pg_replication_slots_active{bravo_env="aws", bravo_role="source",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+    - series: cnpg_pg_replication_slots_active{bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
       values: 1x16
     alert_rule_test:
     - eval_time: 30s
@@ -497,8 +493,9 @@ tests:
     - eval_time: 60s
       alertname: BravoForwardSlotUnobservable
       exp_alerts:
-      - exp_labels:
-          bravo_role: source
+      - &id001
+        exp_labels:
+          bravo_env: aws
           cnpg_cluster: source-db
           slot_name: t8_source_to_target
           severity: page
@@ -508,16 +505,257 @@ tests:
     - eval_time: 120s
       alertname: BravoForwardSlotUnobservable
       exp_alerts: []
-    # 시계열이 끊긴 뒤 5분 안에는 마지막 표본의 환경 이름이 남는다(absent에는 역할만 남는다)
     - eval_time: 390s
       alertname: BravoForwardSlotUnobservable
       exp_alerts:
-      - exp_labels:
-          bravo_env: aws
-          bravo_role: source
-          cnpg_cluster: source-db
-          slot_name: t8_source_to_target
-          severity: page
-        exp_annotations:
-          summary: 출발지 정방향 슬롯 지표를 확인할 수 없다
-          runbook: docs/observability/runbooks.md#bravoforwardslotunobservable
+      - *id001
+  # 컷오버 전: 목적지(onprem)는 정방향 구독을 받고 있고, 그 DB의 역방향 슬롯은 대기 중이다. 지연 · 비활성 알림이 없고
+  # 대기 WAL이 1GiB를 넘으면 BravoStandbySlotWalHigh만 낸다. 컷오버로 구독이 꺼지면(aws 쪽 예) 비활성이 다시 알림이다.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '201326264x10 2000000000x20'
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", subname="t8_target_to_source"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BravoReplicationSlotLagHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BravoReplicationSlotInactive
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: aws, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "aws/source-db 논리 복제 슬롯 t8_source_to_target이 10분 넘게 비활성이다. WAL이 쌓인다"
+              runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      - eval_time: 9m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem, cnpg_cluster: target-db, slot_name: t8_target_to_source}
+            exp_annotations:
+              summary: "onprem/target-db 되돌리기 대기 슬롯 t8_target_to_source이 WAL을 1GiB 넘게 붙잡고 있다"
+              runbook: docs/observability/runbooks.md#bravostandbyslotwalhigh
+
+  # ADR-0034 역할 기준 경보(bravo-roles). 아래 시험은 위 환경 이름 기준 시험을 바꾸지 않고 더한 것이다.
+  # 역할 라벨이 없는 P0 배포(역할 도입 전): 환경 이름 경보만 뜨고 역할 경보는 조용하다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
+        values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x12'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 160s
+        alertname: BravoRoleUnobservable
+        exp_alerts: []
+      - eval_time: 400s
+        alertname: BravoRoleUnobservable
+        exp_alerts: []
+
+  # P0 쌍(aws=source, onprem=target)에 역할 라벨이 붙어도 끊긴 환경은 환경 이름 경보만 알린다.
+  # 역할 전체가 5분 조회 범위를 넘어 사라지면(absent) 역할 경보도 함께 뜬다(alerts.yml 주석의 예외)
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="source", job="bravo-collector", instance="a"}'
+        values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target", job="bravo-collector", instance="o"}'
+        values: '1x12'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 160s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: onprem}
+            exp_annotations:
+              summary: "onprem 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+      - eval_time: 160s
+        alertname: BravoRoleUnobservable
+        exp_alerts: []
+      - eval_time: 450s
+        alertname: BravoRoleUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_role: target}
+            exp_annotations:
+              summary: "target 역할 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoroleunobservable
+
+  # 종류와 무관하게 역할로 판정한다. gcp 출발지 · aws 목적지가 모두 보고하면 알림이 없고,
+  # 목적지가 멈추면 목적지 역할로 알린다. 앱이 사칭한 시계열(bravo_signal 없음)은 알림을 막지 못한다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="gcp", bravo_role="source", job="bravo-collector", instance="g"}'
+        values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="target", job="bravo-collector", instance="a"}'
+        values: '1x12'
+      - series: 'up{bravo_env="aws", bravo_role="target", job="bravo-collector", instance="forged"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 100s
+        alertname: BravoRoleUnobservable
+        exp_alerts: []
+      - eval_time: 160s
+        alertname: BravoRoleUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws, bravo_role: target}
+            exp_annotations:
+              summary: "target 역할 환경(aws)의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoroleunobservable
+
+  # 목적지 역할을 보고하는 환경이 한 번도 없다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="gcp", bravo_role="source", job="bravo-collector", instance="g"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoRoleUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_role: target}
+            exp_annotations:
+              summary: "target 역할 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoroleunobservable
+
+  # 정방향 구독(목적지 역할): gcp 목적지는 역할 경보가, onprem 목적지는 환경 이름 경보가 맡는다
+  - interval: 30s
+    input_series:
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '0 0 1 2 3 4 5 6 6x24'
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '0 0 1 2 3 4 5 6 6x24'
+      # 역방향 · 사칭 시계열은 대상이 아니다
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_target_to_source"}'
+        values: '0x8'
+      - series: 'cnpg_pg_subscription_enabled{bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 120s
+        alertname: BravoForwardSubscriptionOffByRole
+        exp_alerts: []
+      - eval_time: 150s
+        alertname: BravoForwardSubscriptionOffByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: gcp, bravo_role: target, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "gcp 목적지의 정방향 구독이 2분 넘게 꺼져 있다"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoffbyrole
+      - eval_time: 150s
+        alertname: BravoForwardSubscriptionOff
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: onprem, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "정방향 구독이 2분 넘게 꺼져 있다"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoff
+      - eval_time: 60s
+        alertname: BravoForwardSubscriptionErrorByRole
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: gcp, bravo_role: target, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "gcp 목적지의 정방향 구독 적용 오류가 증가했다 (최근 10분)"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionerrorbyrole
+      - eval_time: 60s
+        alertname: BravoForwardSubscriptionRetryingByRole
+        exp_alerts: []
+      - eval_time: 180s
+        alertname: BravoForwardSubscriptionRetryingByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: gcp, bravo_role: target, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "gcp 목적지의 정방향 구독 오류가 5분 안에 5건 이상 발생했다"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionretryingbyrole
+
+  # 정방향 슬롯(출발지 역할): onprem 출발지는 역할 경보가, aws 출발지는 환경 이름 경보가 맡는다
+  - interval: 30s
+    input_series:
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="onprem", bravo_role="source", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", bravo_role="source", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}'
+        values: '1 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 150s
+        alertname: BravoForwardReplicationNotRecoveringByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: onprem, bravo_role: source, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "onprem 출발지의 정방향 복제 슬롯이 2분 넘게 비활성이다"
+              runbook: docs/observability/runbooks.md#bravoforwardreplicationnotrecoveringbyrole
+      - eval_time: 150s
+        alertname: BravoForwardReplicationNotRecovering
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "정방향 복제 슬롯이 2분 넘게 비활성이다"
+              runbook: docs/observability/runbooks.md#bravoforwardreplicationnotrecovering
+
+  # 확인 불가(역할): gcp 목적지 · onprem 출발지 Collector는 살아 있는데 구독 · 슬롯 지표가 없다
+  - interval: 30s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="gcp", bravo_role="target"}'
+        values: '1x8'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="source"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: BravoForwardSubscriptionUnobservableByRole
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: BravoForwardSubscriptionUnobservableByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_role: target, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "목적지 역할의 정방향 구독 상태 또는 오류 지표를 확인할 수 없다"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservablebyrole
+      - eval_time: 90s
+        alertname: BravoForwardSlotUnobservableByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_role: source, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "출발지 역할의 정방향 슬롯 지표를 확인할 수 없다"
+              runbook: docs/observability/runbooks.md#bravoforwardslotunobservablebyrole
+
+  # 확인 불가(역할): P0 쌍(aws 출발지 · onprem 목적지)의 지표 부재는 환경 이름 경보만 알린다.
+  # 표본이 75초 넘게 끊긴 gcp 목적지는 역할 경보가 알린다
+  - interval: 30s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", bravo_role="source"}'
+        values: '1x8'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", bravo_role="target"}'
+        values: '1x8'
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1x1'
+      - series: 'cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="gcp", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '0x1'
+    alert_rule_test:
+      - eval_time: 90s
+        alertname: BravoForwardSlotUnobservableByRole
+        exp_alerts: []
+      - eval_time: 90s
+        alertname: BravoForwardSlotUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "출발지 정방향 슬롯 지표를 확인할 수 없다"
+              runbook: docs/observability/runbooks.md#bravoforwardslotunobservable
+      - eval_time: 210s
+        alertname: BravoForwardSubscriptionUnobservableByRole
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: gcp, bravo_role: target, cnpg_cluster: target-db, subname: t8_source_to_target}
+            exp_annotations:
+              summary: "목적지 역할의 정방향 구독 상태 또는 오류 지표를 확인할 수 없다"
+              runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservablebyrole

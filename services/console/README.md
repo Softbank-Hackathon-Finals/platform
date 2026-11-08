@@ -1,6 +1,186 @@
-# T21 이전 운영 콘솔
+# Sova 이전 운영 콘솔 · T21
+
+보안 시험·워크로드 지도, IaC 승인·PR, 고객 GitOps 동기화의 연결과 운영 인수 조건은
+[보안·IaC·고객 동기화 UI](docs/security-delivery-ui.md)에 정리한다. 기존 Sova 화면을 유지하며,
+새 `IaC·고객 환경` 메뉴에서 승인과 실제 반영 상태를 나누어 확인한다.
+
+화면·로고·브라우저 탭의 제품명은 **Sova**로 통일한다. 팀 연동에 사용하는
+`bravo-console` 패키지·`bravo_console` 모듈·`X-Bravo-Console` 헤더는 기존 계약을 유지한다.
+
+실제 GET 관측의 범위와 관측 전용 화면은 [실제 워크로드 연결](docs/live-workload-observations.md)을 참고한다.
+
+실제 해피패스의 접속·권한·정본 계획 인수는 [실환경 인수 기록](docs/real-happy-path-intake-2026-11-08.md)에 정리한다.
+
+## 워크로드와 보안 대응
+
+워크로드 카드에서 자원별 경고·영향 가능성·격리·연결 차단·대체·검증·복구를 근거별로
+구분해 표시한다. 기존 UI와 승인 경로는 유지한다. 기본 플랫폼 공급자는 미연결이며,
+브라우저의 로컬 시나리오는 별도 표시와 명시적 선택으로만 재생한다.
+[표시 의미·읽기 경계·생산자 연결·남은 실환경 인수](docs/workload-response-view.md)를 참고한다.
+
+격리가 확인되면 해당 노드가 별도 영역으로 움직이고 연결이 끊어진 형태로 바뀐다.
+로컬 시나리오에서는 API·작업자, API만, 작업자만을 선택해 보안 이상·부분 격리·대체·경로
+전환을 확인할 수 있다. 노드 이동은 격리 상태의 시각적 분류이며 물리적 이전이 아니다.
+`지도 확대`로 상세 지도를 열고 Escape로 돌아온다.
+
+## 공유 네트워크 아틀라스
+
+계획을 연결하면 사이드바의 **네트워크 아틀라스**에서 같은 Sova 화면 안의 상세 보기를 연다.
+기존 사이드바·상단바·카드·이전·승인 화면을 유지한다. 네트워크 기능은
+`network-workspace.js`·`network-workspace.css`로 현재 카드/탭 안에 구성하고,
+원본 사이트의 상단 메뉴·사이드바·전역 CSS·HTML은 제품 화면에 마운트하지 않는다.
+워크로드 지도에서도 등록 계획과 실제 환경 관측을 구분해서 함께 확인한다.
+과거 `/console/network/?plan=...` 주소는 같은 Sova 콘솔의 네트워크 메뉴로 이동한다.
+`b-cluster`의 네트워크·클러스터·리소스 지도, L3/라우팅/NAT, 전송 경로, 수집 실패와
+마지막 성공 시각, 프로토콜·권한 설명, 원본 구조도 확대/이동, 한국어·영어·일본어를 가져왔다.
+출처와 원본/수정 파일 해시는 [이식 출처](src/bravo_console/static/network/SOURCE.md)에 있다.
+
+이는 **등록된 양쪽 환경을 포함하는 공유 운영 네트워크**다. 앱 내부 의존성 지도나
+현재 계획의 실행 영수증이 아니며, T14/T19/T36 판정 입력으로 사용하지 않는다.
+프로토콜·권한 매트릭스와 원본 도면은 과거 참고 자료로 구분한다.
+
+운영 호스트의 `compose_console`에 `network_client=AtlasClient(fixed_https_origin)`,
+`authorize_network=current_network_wide_grant`, `network_registration=registered_pair`를
+명시적으로 전달한다. `registered_pair(scope, plan)`은 현재 권한으로 확인한
+`AtlasBinding(source_environment_id, target_environment_id)`를 반환해야 한다.
+기본값은 미연결이며, 앱 조회 권한만으로 공유 네트워크 자료를 공개하지 않는다.
+등록과 권한은 읽기 전후 및 스트림 반복마다 확인한다. 호스트가 클라이언트 수명/종료와
+요청·동시 연결 제한을 관리하고 종료 시 `AtlasClient.aclose()`를 호출한다.
+
+- GET `/v1/plans/{id}/network-status`, WS `/v1/plans/{id}/network-stream`은 같은 T10
+  세션·계획 조회에 더해 공유 네트워크 조회 권한을 검사한다. WS도 Host/Origin을 검사한다.
+- 브라우저는 같은 출처에만 연결한다. 서버가 고정된 원본의 `/api/status`만 읽는다.
+  TLS 검증, 리다이렉트 차단, 타임아웃, 응답 크기 제한, 필드 허용 목록을 적용한다.
+  사용자 쿠키·Authorization은 원본 사이트에 전달하지 않는다.
+- 원래 수집/마지막 성공 시각·실패·retained 상태를 보존한다. 조회/연결 시각을 수집
+  시각으로 바꾸지 않는다. 변경 시 snapshot, 15초 heartbeat, 10분 연결 회전이며,
+  원본 읽기는 3초 공유 캐시를 사용한다. 권한 회수 시 스트림 종료와 화면 자료 삭제를 한다.
+- 수집기·LaunchAgent·클러스터 권한·DNS 변경·게시자·사이트 배포는 자동 실행하지 않는다.
+  그 코드는 별도 `b-cluster` 클론에 보존한다. 기존 수집기와 운영 사이트를 변경하지 않는다.
 
 T10의 실제 `/v1/plans/{id}` · SSE · 승인 · 컷오버 · 재조회 API를 소비한다. 별도 상태 머신·게이트·실행기를 만들지 않는다. 이 패키지만으로 실제 AWS/RKE2 이전이나 금융 서비스 운영 자격을 충족하지 않는다.
+
+## Sova-test 화면 구성 이식
+
+Sova-test의 사이드바·워크스페이스 배치·카드·점선 지도와 구성 요소 상세 패널·
+보안 비교·관측 패널·타임라인의 시각 구성을 가져왔다. 메뉴는 워크스페이스,
+환경 이전, 워크로드 지도, 보안·거버넌스, 모니터링, 실행 타임라인, 의존성·후보 비교,
+AI·리허설, 비용·예산으로 나뉜다.
+워크스페이스에서는 전체 패널을 함께 보고, 다른 메뉴에서는 해당 패널을 좁혀 본다.
+
+`workspace.js`는 기존 T21 모델에서 검증한 읽기 결과를 화면에 투영한다.
+Sova-test의 `/api/action`·장애 주입·운영자 접속 방식·별도 상태 머신은 가져오지 않았다.
+승인·실행·응답 유실 복구는 기존 `app.js`·`model.js`·`transport.js`·`recovery.js`를 사용한다.
+기존 CSP, 동일 출처 제한, 서버 권한 검사는 유지한다. React 런타임이나 외부 CDN을
+추가하지 않으며, Sova-test 원본에도 변경을 가하지 않는다.
+
+지도는 **등록된 출발 환경·앱·목적 환경**을 나타낸다. 점선은 계획상 관계다.
+Pod·DB·서비스 사이의 실제 의존성이나 트래픽·복제·이전 성공을 추정하지 않는다.
+HTTP 관측 수신은 업무 정상이나 보안 통과를 뜻하지 않는다. 계획 또는 관측의
+조회가 15초 이상 지났거나 연결이 끊기면 관측 표시를 지우고, 권한 회수 시 지도와
+선택 항목 상세의 식별자도 지운다. 격리·장애 주입은 연결된 실행 계약이 없으므로 비활성이다.
+
+새 메뉴와 지도 선택은 조회 화면만 바꾼다. 등록·승인·실행 요청을 자동으로 보내지 않는다.
+로컬 미리보기의 합성 데이터로 확인한 결과와 실제 운영 연결·검증은 구분한다.
+
+## 확장 화면과 연결한 기능
+
+| 화면 | 사용하는 팀 구현 | 처리 범위 |
+|---|---|---|
+| SHIFT 시작 승인 | T10 `ShiftApprovalService` · 기존 approvals API | `AWAIT_APPROVAL`의 현재 계획 버전·만료를 승인. 컷오버 승인과 별도 |
+| 출발지 복귀 | T20 approvals/failback/reconcile/edge API | 반대 방향·epoch·무결성 영수증을 표시하고 승인과 실행을 분리 |
+| AI 제안 | T10 초기 제안 운영자 `run()` · Job 접수/수거 | 서버의 고정된 작업·런타임만 시작/수거. 브라우저에 키·경로·명령 입력 없음 |
+| 리허설 | T10 `RehearsalService` | 등록 작업·시도 선택, 1회 접수, 같은 실행의 결과 재조회 |
+| 의존성·후보 | T16 스키마·digest · T32 추천 스키마 | 등급·발견 근거·후보 순위·제외 사유. 새 판정기를 만들지 않음 |
+| 탈출 리허설 | T27 잔존 의존성 결과 | 남은 의존성·시험 결과 표시. 화면에서 임의 차단을 실행하지 않음 |
+| 상세 모니터링 | T37 HTTP/database/pgbouncer/alerts API | RPS·오류율·p95·복제 슬롯 지연·풀러 연결·경보. 환경 매핑·권한은 서버가 고정 |
+| 전환 실측 | T17/T36 생산자의 등록된 결과 | 실제 가중치·쓰기 정지·창 ID·기준 버전. 단계로 값을 생성하지 않음 |
+| 감사 기록 | T11 도구 기록 → T24 정본 체인 → T21 | 버킷 삭제 차단을 명령 원문 없이 표시. T24 체인 검증과 출처 등록을 모두 요구 |
+| 비용·예산 | T1 `cost_report.py`의 저장 결과 | 계정 범위·미귀속·추정 여부·월 예산·환율 출처. 미관측은 0원이 아님 |
+
+`operations.js`는 기존 T10 HTTP 경로를 사용한다. UI 확인란과 별도 확인창을 요구하지만,
+최종 권한·버전·승인·게이트 검사는 기존 서버 서비스가 수행한다. 새 운영 요청과 기존
+코드 변경/컷오버 요청은 한 창에서 동시에 보낼 수 없다. 결과가 불명확하면 다른 계획으로
+이동하거나 새 변경을 보내지 않는다. 새로고침은 승인이나 실행 권한을 자동 복원하지 않는다.
+서버가 확인한 기존 리허설/복귀 실행 식별자는 **재조회 대상으로만** 복원한다.
+
+응답 유실 뒤 **같은 운영 요청 결과 확인**은 `/operation-receipts/{key}` GET을 사용한다.
+이 조회는 해당 계획·현재 사용자에 결속된 T10 저장 기록만 읽고 실행하지 않는다.
+`UNKNOWN`은 미접수 증거가 아니다. 같은 요청을 다시 제출하려면 현재 계획·버전·대상이
+그대로이고 해당 작업의 현재 권한이 있어야 하며, 사용자가 새로 확인해야 한다.
+원래 본문과 멱등 키를 유지한다. T10은 실제 부작용 전에 저장한 접수 기록을 재사용한다.
+복귀 `reconcile`은 DB 명령을 다시 보내지 않지만 서버의 검증·진척·Edge 복구를 포함할 수
+있으므로 일반 조회 GET과 구분하고 명시적인 운영 요청으로 취급한다.
+
+초기 AI 요청은 T10 정본에 먼저 접수 기록을 남기고 기존 운영자 포트를 부른다.
+시간 초과·연결 유실·프로세스 중단으로 남은 `UNKNOWN`은 자동 재실행하지 않는다.
+작업이 끝난 뒤 접수 기록이 갱신되면 같은 사용자 조회로 수거한다. 기록을 읽을 수 없거나
+결과가 끝내 불명확하면 운영자가 기존 T10/Job 원장을 조사해야 한다.
+
+## 호스트 구성
+
+운영 호스트는 `bravo_console.composition.compose_console`에 **기존 T10 앱과 같은 서비스·저장소**,
+동일한 세션 확인 함수, 현재 권한 검사, 실제 생산자 결과의 등록 조회를 전달한다.
+환경·Secret·CLI 인자·API URL을 웹 사용자가 지정하는 구성 경로는 없다.
+
+```python
+from bravo_console.composition import compose_console
+
+# 아래 값은 T10 호스트가 이미 검증·구성한 객체다.
+app = compose_console(
+    authenticated_t10_app, plan_store,
+    public_origin="https://console.example.invalid",
+    resolve_principal=verified_session_principal,
+    authorize_panel=current_panel_grant,
+    authorize_operation=current_action_grant,
+    registered_loaders=registered_owner_documents,
+    authenticate_registration=verify_current_document_registration,
+    shift=shift_service, failback=failback_service,
+    rehearsal=rehearsal_service, rehearsal_tasks=current_registered_tasks,
+    initial=initial_operator_port, check_initial=check_initial_grant_in_transaction,
+    metrics_client=fixed_t37_client, environments=registered_environment_mapping,
+    load_audit=load_registered_t24_snapshot,
+    authenticate_audit=verify_current_t24_registration,
+    observations=plan_observations, controls=plan_control_reports, security=plan_security,
+)
+```
+
+- `RegisteredPanel`은 계획 ID·digest·버전·기능·생산 소스 revision·원문 해시·만료·bytes를
+  가진다. 서버의 `load(scope, plan)`과 `authenticate(scope, plan, registration)`가 현재
+  등록·출처·권한을 확인한다. 단순히 파일에 해시가 있다는 이유로 신뢰하지 않는다.
+  자료 자체의 만료는 응답 직전에 다시 검사하고 `valid_until`로 전달한다. 화면의 15초
+  조회 창이 남아 있어도 자료가 먼저 만료되면 해당 패널을 지운다.
+- T16 입력은 현재 앱과 출발 환경이 일치하고 T16 자체 digest도 맞아야 한다. 후보 비교는
+  T32의 기존 스키마로 검증한다. 저장된 자료를 현재 버전에 연결하는 책임은 소유 생산자와
+  호스트에 있다. 오래된 자료를 현재 결과로 자동 재결속하지 않는다.
+- `authorize_panel(scope, plan, feature)`는 명시적 `True`만 허용한다. 특히 `costs`는 계정
+  전체 자료이므로 앱 조회 권한과 별도로 확인한다. 환경 지표·탐지도 같은 구분을 적용한다.
+- `authorize_operation`은 현재 작업 권한을 검사한다. 단계 조건은 native T10이 따로 검사한다.
+  접수 후 상태가 변해도 본인의 기존 요청을 조회할 수 있게, 단순 상태 비교만으로 조회 권한을
+  결정하지 않는다. 초기 AI의 `check_initial(connection, principal, plan, operation)`은 T10
+  트랜잭션 안에서 현재 권한에 대해 명시적 `True`를 반환해야 한다.
+- `InitialProposalConsole`은 `operations/initial-proposal/run.py`의 기존 `run`, 서버가 구성한
+  `arguments(plan, operation)`·relay·client를 감싼다. 계획과 버전, start/collect 종류가 일치해야
+  호출한다. 실행 자격은 운영 호스트가 관리하고 프론트엔드로 전달하지 않는다.
+- T24 읽기는 기존 Draft #270의 `PlanAudit` 검증 경계를 재사용한다. 실제 T24 패키지의
+  `verify_chain`과 호스트의 독립적인 등록 확인이 모두 필요하다. 로컬 체인 검증을 S3 보존
+  검증으로 바꾸지 않으며 `retention_verified`는 `False`로 표시한다. 원 PR과 T24 저장소는
+  이 UI 이식에서 수정하지 않는다.
+- 제공자가 없으면 `UNCONFIGURED`, 등록·만료·형식·수집 확인 실패면 `UNKNOWN`, 별도 조회
+  권한이 없으면 `FORBIDDEN`이다. 한 패널의 미연결 때문에 다른 패널을 성공/0건으로 만들지 않는다.
+  전체 조회 중 계획이 바뀌면 응답을 버린다. 새 화면 응답 유효 시간은 최대 15초다.
+
+설치에는 기능 extra를 포함한다. 팀 내부 라이브러리를 경로로 가져오는 개발 lock과,
+배포 시 동일 버전의 검증된 wheel 설치를 구분한다.
+
+```sh
+uv sync --locked --all-extras
+```
+
+`tests/expanded_fixture.py`와 브라우저 서버는 실제 T10·T11·T24 코드를 사용하지만
+신원·생산 자료·관측·원격 실행기는 **합성 시험용**이다. 운영 배포나 실제 이전 완료의
+근거로 사용하지 않는다. 실환경에는 위 호스트 구성을 별도로 연결하고 승인된 실제 계획으로
+인수해야 한다. 프런트엔드 기능 추가는 운영 클러스터 변경·쓰기 차단 해제를 수행하지 않는다.
 
 ## 연결 방법
 
@@ -105,9 +285,13 @@ from bravo_console.observations import PlanObservations, T37Client
 client = T37Client("https://observability.example.invalid", server_secret, tls=verified_context)
 views = PlanObservations(authenticated_t10_app, client,
     environments={"registered-source": "source", "registered-target": "target"},
-    authorize=host_environment_observation_permission)
+    authorize=host_environment_observation_permission,
+    # PgBouncer를 실제로 운영하는 등록 환경만 적는다. 없는 환경은 "해당 없음"으로 표시한다.
+    pooled_environments={"target"})
 app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.invalid", observations=views)
 ```
+
+`pooled_environments`에 적은 환경은 T37 `/pgbouncer` 조회도 함께 읽어 커넥션 풀 상태를 표시한다. `PAUSED`는 컷오버 중의 정상 상태라 **쓰기 일시 정지**(대기 연결 수 포함)로 보여 주고, 실행·판정 조건으로 쓰지 않는다(Executor는 PgBouncer에서 직접 읽는다). 서버는 상태 라벨을 그대로 믿지 않고 행에서 다시 계산하며, 라벨과 행이 다르거나 신선도(조회 10초·수신 30초)를 벗어나거나 값이 불완전하면 `UNOBSERVABLE`로 내린다. 풀 조회가 실패해도 HTTP 관측 값은 숨기지 않는다. HTTP 행의 `last_received_seconds_ago`는 화면에 "n초 전 수신"으로 표시한다.
 
 호스트 종료 시 `await client.aclose()`를 호출한다. 등록된 계획의 두 환경만 조회하고 임의 URL/PromQL/환경 선택은 받지 않는다. T37 토큰은 브라우저로 전달하지 않는다. 외부 HTTP 조회 전체 기한은 5초(개별 I/O 3초), 응답은 64 KiB로 제한한다. 압축 응답·중복 JSON 키·비UTF-8·비유한 숫자·과도한 중첩을 거부하며, 본문이 조금씩 계속 도착해도 전체 기한을 연장하지 않는다. 이 제한은 T37·T10·보고서의 권한 검증을 대신하지 않는다. 또한 scope 변경/권한 회수/응답 환경 불일치/미래·오래된 관측/NaN은 값을 노출하거나 정상으로 대신하지 않는다. 오류율·p95는 표시용이며 `for_gate_decisions: false`다. T36의 부하 창과 판정 기록은 별도 계약으로 유지한다.
 
@@ -229,7 +413,7 @@ WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확
 후자는 이력 재동기화만으로 실행하지 않으며, 사용자의 별도 실행 확인 뒤에만 원래 본문·키로
 제출 1건이 된다. 로그인·사전 승인 근거·Executor 응답은 로컬 fixture이며 실환경 컷오버는 아니다.
 
-## T20 복귀 이력 소비 (조회 전용)
+## T20 복귀 이력과 운영 조작
 
 [T20 #222의 제안 계약](https://github.com/Softbank-Hackathon-Finals/platform/pull/222),
 기준 커밋 `a6c6e995692ca80c0143d298912103643a30e1ef`의 `failback` 승인 결속,
@@ -240,7 +424,8 @@ WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확
 - `edge_pending`은 DB 복귀 검증 뒤 트래픽 복귀 확인 대기, `rolled_back`은 서버가 기록한 복귀 완료,
   `aborted`는 쓰기 전 중단으로 구별한다. 명령·승인·실행·무결성 근거와 복구 시간을 표시한다.
 - 복귀 기록이나 SSE 승인만으로 기존 CUTOVER 실행 영수증을 복원하거나 재사용하지 않는다.
-  복귀 승인·제출·Edge 재시도 버튼은 제공하지 않으며 서버의 운영 승인 경로를 사용해야 한다.
+  이력 패널은 조회 전용이다. 별도의 운영 조작 패널에서 현재 서버가 검증한 복귀 대상과
+  권한을 확인한 뒤 승인·제출·재검증·Edge 복구를 명시적으로 요청한다.
 - 새 탭/재접속은 전체 이력을 다시 검사한다. 401/403이면 복귀 근거도 지우고 지연 응답을 차단한다.
 - 브라우저의 복귀 시나리오는 명시적 HTTP/SSE 계약 fixture다. 실제 DB·Edge 복귀, 운영 권한,
   서비스 무중단 검증을 뜻하지 않는다. 기존 실제 T10 코드/SQLite 회귀도 함께 실행한다.
@@ -387,3 +572,7 @@ app = ConsoleApp(api, public_origin=public_origin, audit=reader)
   T24 또는 T21 전체 완료를 체크하지 않는다.
 
 T24 모듈의 수정은 담당자 범위로 유지한다. 이 변경은 T21 소비자와 검증 코드만 포함한다.
+
+## 운영 호스트 연결
+
+운영 호스트 합성과 개인 SSO 접속 도구의 준비·미완료 범위는 [운영 호스트 연결](docs/operational-host.md)을 참고한다.

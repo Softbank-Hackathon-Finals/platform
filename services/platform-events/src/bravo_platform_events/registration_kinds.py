@@ -32,6 +32,11 @@ REJECTION_PREFIX = "adapter_missing:"
 # New catalogs must set it; gcp (and any later kind) has no implied role.
 LEGACY_DEFAULT_ROLES = {"aws": "source", "onprem": "target"}
 
+# Same-kind pairs that T10 accepted before cluster identity existed: on-prem ->
+# on-prem with distinct database identities (e38c5983). Other same-kind pairs need
+# a verified, distinct cluster identity on both sides.
+UNVERIFIED_SAME_KIND = frozenset({"onprem"})
+
 
 def _validated(table):
     if type(table) is not dict or not set(table) <= set(KINDS):
@@ -45,7 +50,7 @@ def _validated(table):
 
 
 def default_readiness():
-    """Slots implemented in this repository. Update the data file as A3-A10 merge."""
+    """Slots implemented by ADR-0034 A1-A11 (see the data file description)."""
     data = json.loads(resources.files(__package__).joinpath("adapter_readiness.json").read_text())
     if data.get("schema_version") != "bravo.adapter-readiness/v1":
         raise ValueError("invalid_adapter_readiness")

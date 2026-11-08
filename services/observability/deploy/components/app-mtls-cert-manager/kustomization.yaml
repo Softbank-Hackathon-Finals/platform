@@ -1,0 +1,24 @@
+# 출발지 앱 수신 서버 인증서를 cert-manager가 쓸 때(deploy/app-pki-source). cert-manager Secret은 발급 CA를 ca.crt에 담는다.
+# receiver-mtls.yaml은 client-ca.crt를 읽으므로 같은 Secret의 ca.crt를 그 이름으로 마운트한다. 앱 클라이언트 인증서도
+# 같은 CA가 발급한다. components/app-mtls 뒤에 둔다.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-collector
+      spec:
+        template:
+          spec:
+            volumes:
+              - name: app-tls
+                secret:
+                  secretName: bravo-collector-app-tls
+                  defaultMode: 0440
+                  items:
+                    - {key: tls.crt, path: tls.crt}
+                    - {key: tls.key, path: tls.key}
+                    - {key: ca.crt, path: client-ca.crt}

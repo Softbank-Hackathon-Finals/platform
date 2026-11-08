@@ -1,11 +1,13 @@
 # T37 플랫폼 지표 저장소의 TLS. 쓰기(OTLP)와 조회 모두 클라이언트 인증서를 요구한다.
 # client_allowed_sans는 이 플랫폼이 발급한 Collector · 콘솔 API 인증서의 이름이다(환경 등록과 함께 정한다).
-# Collector는 collector-<환경 이름>이다. 환경 종류(aws · gcp · onprem)나 역할로 이름을 정하지 않는다.
+# collector-platform은 플랫폼 클러스터 자신의 Collector다. 고객 Collector와 다른 CA(플랫폼 수신 CA)가 발급하며,
+# ca.crt는 두 CA의 묶음이다(deploy/collector-platform).
+# 고객 Collector는 collector-<환경 이름>이다. 환경 종류(aws · gcp · onprem)나 역할로 이름을 정하지 않는다.
 # 기본값은 P0 두 환경이다. gcp 등 환경을 등록하면 그 이름(예: collector-gcp)을 더하고 BRAVO_ENVIRONMENTS(resources.yaml)도 같이 고친다.
 tls_server_config:
   cert_file: /etc/bravo-tls/tls.crt
   key_file: /etc/bravo-tls/tls.key
   client_ca_file: /etc/bravo-tls/ca.crt
   client_auth_type: RequireAndVerifyClientCert
-  client_allowed_sans: [collector-aws, collector-onprem, console-api]
+  client_allowed_sans: [collector-aws, collector-onprem, collector-platform, console-api]
   min_version: TLS13

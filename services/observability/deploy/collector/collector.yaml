@@ -59,9 +59,14 @@ processors:
       - key: bravo.env
         value: ${env:BRAVO_ENV}
         action: upsert
-  # 역할 라벨(bravo.role). 경보는 환경 이름이 아니라 이 라벨로 출발지 · 목적지를 고른다.
+      # 수신 구분: platform(플랫폼 클러스터 자신) | customer(출발지 · 목적지). 앱이 보낸 값은 허용 목록이 먼저 지운다
+      - key: bravo.domain
+        value: ${env:BRAVO_DOMAIN:-customer}
+        action: upsert
+  # 역할 라벨(bravo.role). 역할 기준 경보는 환경 이름이 아니라 이 라벨로 출발지 · 목적지를 고른다.
   # BRAVO_ROLE이 비어 있으면 P0 배포 호환으로 aws=source, onprem=target으로 본다(deprecated, 등록의 catalog_role 기본값과 같다).
-  # 그 밖의 값은 라벨을 지운다. 역할 라벨이 없는 환경은 역할 경보가 확인 불가로 알린다.
+  # 그 밖의 값은 라벨을 지운다. 역할 라벨이 없는 환경은 역할 경보의 대상이 아니다.
+  # 경보는 환경 이름 기준(aws · onprem · platform)을 그대로 두고 역할 기준을 더한다(rules/alerts.yml bravo-roles).
   # 문자열 안에서 치환하므로 값이 비어도 null이 되지 않는다. 앱 경로의 bravo.role은 허용 목록이 이미 지웠다.
   transform/role:
     error_mode: propagate

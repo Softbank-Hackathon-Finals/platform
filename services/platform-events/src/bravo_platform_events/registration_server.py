@@ -16,8 +16,8 @@ from .runtime_probe import connection_checks
 from .window_server import runtime_connection
 
 
-def build_app(store, config_file, grants_file):
-    config = json.loads(config_file.read_text())
+def build_registry(store, config, grants_file):
+    """The reviewed catalog and live grants file → Registry. Shared by the SOVA MCP host."""
     environments = {}
     for row in config["environments"]:
         row = row.copy()
@@ -30,13 +30,6 @@ def build_app(store, config_file, grants_file):
             raise ValueError("duplicate_connection_ref")
         environments[key] = env
     releases = [SourceRelease(**(row | {"checkout": Path(row["checkout"])})) for row in config["releases"]]
-    mode = config.get("identity_mode", "operator_jwt")
-    if mode == "aws_sso" and "operator_verifier" not in config:
-        identity = SsoRegistrationVerifier(**config["sso_verifier"])
-    elif mode == "operator_jwt" and "sso_verifier" not in config:
-        identity = OperatorTokenVerifier(**config["operator_verifier"])
-    else:
-        raise ValueError("invalid_registration_identity_mode")
 
     def can_register(actor):
         # Grants are tenant-wide (no plan exists yet). Read the current projected
@@ -47,10 +40,21 @@ def build_app(store, config_file, grants_file):
         except (OSError, ValueError, KeyError, TypeError):
             return False
 
-    registry = Registry(store, environments=environments, releases=releases, can_register=can_register,
-                        evaluation_profiles=config.get("evaluation_profiles", ()),
-                        readiness=config.get("adapter_readiness"))
-    app = create_registration_app(registry, verify_identity=identity)
+    return Registry(store, environments=environments, releases=releases, can_register=can_register,
+                    evaluation_profiles=config.get("evaluation_profiles", ()),
+                    readiness=config.get("adapter_readiness"))
+
+
+def build_app(store, config_file, grants_file):
+    config = json.loads(config_file.read_text())
+    mode = config.get("identity_mode", "operator_jwt")
+    if mode == "aws_sso" and "operator_verifier" not in config:
+        identity = SsoRegistrationVerifier(**config["sso_verifier"])
+    elif mode == "operator_jwt" and "sso_verifier" not in config:
+        identity = OperatorTokenVerifier(**config["operator_verifier"])
+    else:
+        raise ValueError("invalid_registration_identity_mode")
+    app = create_registration_app(build_registry(store, config, grants_file), verify_identity=identity)
     if config.get("gate_records") is not None:
         from .gate_record_host import (
             AUDIENCE,

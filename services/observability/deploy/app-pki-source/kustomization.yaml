@@ -1,0 +1,16 @@
+# 출발지(AWS EKS) 앱 지표 mTLS의 인증서 공급. 출발지에는 OpenBao가 없으므로 T35에서 설치한 cert-manager(v1.19.1)가
+# 클러스터 안에서 앱 CA를 만든다. CA 개인 키는 cert-manager namespace의 Secret에만 있다(사람 PC · git · 다른 namespace 아님).
+#   cert-manager: 자체 서명 ClusterIssuer → 앱 CA Certificate(ECDSA P-256, 1년, 갱신해도 같은 키) → CA ClusterIssuer
+#   bravo-observability: Collector 앱 수신 서버 인증서 bravo-collector-app-tls(72시간, 하루마다 교체)
+#   source-dev: 앱 클라이언트 인증서 bravo-app-metrics-client(ca.crt · tls.crt · tls.key, 72시간, 하루마다 교체)
+# Collector는 cert-manager가 ca.crt로 담는 발급 CA를 client-ca.crt로 마운트한다(components/app-mtls-cert-manager).
+# 적용 순서와 발급 권한 경계는 docs/observability/certificates.md "앱 인증서 발급 (출발지 demo-chat)".
+# namespace를 resource마다 적는다(namespace 변환을 쓰지 않는다).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - selfsigned-issuer.json
+  - app-ca.json
+  - app-ca-issuer.json
+  - collector-server.json
+  - app-client.json

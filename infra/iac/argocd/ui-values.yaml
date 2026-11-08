@@ -1,0 +1,44 @@
+# 고객 클러스터 Argo CD 화면(선택). 설치 값에 덧붙인다(README):
+#   ... -f infra/iac/argocd/ui-values.yaml --set argo-cd.configs.cm.url=https://<앱>-<번호>-argocd.<zone>
+# 이 클러스터의 tailnet 장치(environments/<환경>.json tailnet-ingress)로만 열고, 공개 주소는 플랫폼 공개 입구
+# (infra/envs/public-entry)가 Cloudflare Access 뒤에서 중계한다. 이 클러스터에는 Cloudflare 자격 · 인터넷 입구가 없다.
+# 로그인 없이 읽는 화면이라 Argo에는 모든 요청이 anonymous로 남는다. 누가 봤는지는 Cloudflare Access 로그에만 있다.
+ui:
+  # templates/ui-network-policies.yaml: 차트 정책 대신 같은 정책 + 서버는 tailnet 노출 프록시만
+  enabled: true
+argo-cd:
+  global:
+    # argo-helm의 서버 정책은 ingress [{}](클러스터 안 모든 Pod)이고 서버만 따로 끌 수 없다
+    networkPolicy:
+      create: false
+  server:
+    enabled: true
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+    # 화면은 읽기만 한다. 차트 기본(모든 자원 delete · patch)을 읽기로 줄이고 Secret은 읽지 않는다.
+    # RBAC에는 거부가 없어서 core 그룹은 자원을 나열하고(secrets 제외), 나머지는 이 클러스터의 IaC · Argo가 쓰는 그룹만 둔다.
+    clusterRoleRules:
+      enabled: true
+      rules:
+        - apiGroups: [""]
+          resources: [pods, services, endpoints, configmaps, serviceaccounts, events, namespaces, nodes,
+                      persistentvolumeclaims, persistentvolumes]
+          verbs: [get, list, watch]
+        - apiGroups: [apps, batch, networking.k8s.io, discovery.k8s.io, policy, rbac.authorization.k8s.io,
+                      apiextensions.k8s.io, argoproj.io, tailscale.com, postgresql.cnpg.io]
+          resources: ["*"]
+          verbs: [get, list, watch]
+  configs:
+    params:
+      # TLS는 Cloudflare 엣지와 tailnet(WireGuard)이 맡는다
+      server.insecure: true
+    cm:
+      users.anonymous.enabled: "true"
+    rbac:
+      # role:readonly 대신: 로그 없이, 이 클러스터 IaC 프로젝트(bravo-iac)의 Application만 본다
+      policy.default: role:bravo-viewer
+      policy.csv: |
+        p, role:bravo-viewer, applications, get, bravo-iac/*, allow
+        p, role:bravo-viewer, projects, get, bravo-iac, allow

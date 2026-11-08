@@ -1,0 +1,47 @@
+{
+  "qualified_at": "2026-11-07T19:42:42.969891+00:00",
+  "scope": "owned-onprem-stateless-terminal-trial",
+  "producer_revision": "3ab5dd3aa2aaf4bc2169526f67e9de3f1d4cf7ba",
+  "console_revision": "f8c594936df98379c4a792d52c311aaa179cefe8",
+  "security_revision": "4d93137416ef947e9fc3924403c7a9580f50455c",
+  "image_role": "official-pinned-arm64-python-fixture; not security-service image",
+  "qualification_only": true,
+  "product_workflow_qualified": false,
+  "native_t10_approval": false,
+  "aws_to_onprem_migration": false,
+  "real_http_status": 403,
+  "actor_identity_verified": true,
+  "independent_audit_verified": true,
+  "actual_effects": [
+    "apply_isolation",
+    "activate_replacement",
+    "verify_replacement",
+    "switch_route"
+  ],
+  "all_eight_display_stages_verified": true,
+  "isolated_workloads": 1,
+  "healthy_neighbor_preserved": true,
+  "cleanup_verified": true,
+  "session_revocation_withdraws_data": true,
+  "mobile_overflow": false,
+  "page_errors": 0,
+  "original_shared_workloads_modified": false,
+  "private_evidence": [
+    {
+      "artifact": "browser-result.private.json",
+      "sha256": "1acfc32d06e46bb6c4d2c290076a9c89f72c5d1458d3c0d72a8f39e19461436a"
+    },
+    {
+      "artifact": "attack-status.private.json",
+      "sha256": "c44e53b89ac8d06748968f35078acf16d4b67d5bd63430a4c986c02a1c918b1c"
+    },
+    {
+      "artifact": "actual-feed.private.json",
+      "sha256": "6631d2f52d1d1c97883e8aaf5537c8d076016b5ce94de07d8c38634524de6f40"
+    },
+    {
+      "artifact": "ended-status.private.json",
+      "sha256": "865f38aa0a36c0ae2b2321601806ee52f5d179a99ca17e2f1ec5ce0bac7cee00"
+    }
+  ]
+}

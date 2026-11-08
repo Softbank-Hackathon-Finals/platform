@@ -2,6 +2,8 @@
 
     GET  /v1/iac/modules                     the module catalog
     GET  /v1/iac/environments/{environment}  the desired state as committed, with its digest
+    GET  /v1/iac/environments/{environment}/node-files         files its nodes must hold (node.py)
+    GET  /v1/iac/environments/{environment}/node-files/{path}  one of them, with its exact content
     GET  /v1/iac/network                     every environment's tailnet routes and policy fragments (network.py)
     POST /v1/iac/plan                        {"environment", "proposed", "origin"} -> iac-plan.v1
 
@@ -12,7 +14,7 @@ holds credentials; the host authenticates callers in front of it.
 import json
 from pathlib import Path
 
-from . import catalog, network
+from . import catalog, network, node
 from .modules import IacError
 from .plan import digest, plan
 
@@ -45,6 +47,17 @@ def create_app(environments_dir):
     def environment(environment: str):
         state = committed(environment)
         return {"state": state, "digest": digest(state)}
+
+    @app.get("/v1/iac/environments/{environment}/node-files")
+    def node_files(environment: str):
+        return node.listing(committed(environment))
+
+    @app.get("/v1/iac/environments/{environment}/node-files/{path:path}")
+    def node_file(environment: str, path: str):
+        try:
+            return node.read(committed(environment), "/" + path)
+        except IacError as error:
+            raise HTTPException(404, {"code": error.code}) from None
 
     @app.get("/v1/iac/network")
     def network_view():

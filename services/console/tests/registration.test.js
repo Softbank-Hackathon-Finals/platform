@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
+  environmentChoices,
+  environmentKinds,
+  environmentRoles,
   RegistrationAttempt,
   registrationInput,
   registrationReceipt,
@@ -43,6 +47,30 @@ test("registration accepts only fixed fields and registered aliases", () => {
     { ...input, kind: "onprem-source" },
   ])
     assert.throws(() => registrationInput("environment", body));
+  // The screen offers every kind x role once; the P0 choices keep their values.
+  assert.deepEqual(
+    Array.from(
+      environmentChoices.values(),
+      ({ kind, role }) => kind + "/" + role,
+    ).sort(),
+    environmentKinds
+      .flatMap((kind) => environmentRoles.map((role) => kind + "/" + role))
+      .sort(),
+  );
+  assert.deepEqual(Array.from(environmentChoices).slice(0, 3), [
+    ["aws", { kind: "aws", role: "source" }],
+    ["onprem", { kind: "onprem", role: "target" }],
+    ["onprem-source", { kind: "onprem", role: "source" }],
+  ]);
+  const screen = readFileSync(
+    new URL("../src/bravo_console/static/index.html", import.meta.url),
+    "utf8",
+  );
+  const select = screen.match(/<select name="kind">([\s\S]*?)<\/select>/)[1];
+  assert.deepEqual(
+    Array.from(select.matchAll(/<option value="([^"]+)">/g), (m) => m[1]),
+    Array.from(environmentChoices.keys()),
+  );
   const app = {
     name: "app",
     repo_url: "https://example.invalid/app",

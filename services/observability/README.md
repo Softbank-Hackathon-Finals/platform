@@ -51,6 +51,13 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | [`deploy/collector-db/`](deploy/collector-db/) | DB(CNPG)가 있는 클러스터용 오버레이: DB 지표 수집 추가 |
 | [`deploy/collector-db-access/`](deploy/collector-db-access/) | DB 네임스페이스의 Pod 조회 권한(Role)만. 환경마다 namespace를 바꿔 적용 |
 | [`deploy/collector-db-pgbouncer/`](deploy/collector-db-pgbouncer/) | DB와 PgBouncer가 함께 있는 클러스터용 오버레이: `collector-db` + PgBouncer component |
+| [`deploy/collector-target/`](deploy/collector-target/) | 목적지(온프렘) Collector: `collector-db` + 앱 OTLP 수신 mTLS. 수신 서버 인증서는 사이드카가 OpenBao PKI에서 받는다(`components/app-mtls-openbao`) |
+| [`deploy/collector-source/`](deploy/collector-source/) | 출발지(AWS EKS) Collector: `collector-db-pgbouncer` + 앱 OTLP 수신 mTLS. 수신 서버 인증서와 앱을 믿을 CA는 cert-manager Secret에서 받는다(`components/app-mtls-cert-manager`가 `ca.crt`를 `client-ca.crt`로 마운트) |
+| [`deploy/app-pki-source/`](deploy/app-pki-source/) | 출발지 앱 CA를 cert-manager가 클러스터 안에서 만든다(키는 `cert-manager` namespace Secret에만). Collector 수신 서버 인증서와 앱 클라이언트 인증서 `bravo-app-metrics-client`(`source-dev`)를 발급 · 하루마다 교체. 출발지에는 OpenBao가 없다 |
+| [`deploy/app-pki/`](deploy/app-pki/) | 목적지 앱 CA를 OpenBao PKI(`pki-telemetry`)에 둔다(`setup.sh`, 운영자 한 번). 앱 클라이언트 인증서 `bravo-app-metrics-client`는 `target-dev`의 ESO 생성기가 발급 · 하루마다 교체 |
+| [`deploy/platform-gitops/`](deploy/platform-gitops/) | 플랫폼 Argo `platform-observability` Application이 동기화하는 플랫폼 묶음(저장소 + 플랫폼 Collector + platform-state 권한). Namespace · TLS Secret은 포함하지 않는다 |
+| [`deploy/collector-platform/`](deploy/collector-platform/) | 플랫폼 클러스터 자신의 Collector(`platform-telemetry`). 고객 Collector와 namespace · 수신 경로(클러스터 안 Service, 고객은 tailnet) · CA(플랫폼 수신 CA)를 나눈다. `BRAVO_ENV=platform`, `bravo_domain=platform` |
+| [`deploy/collector-platform-db-access/`](deploy/collector-platform-db-access/) | `platform-state`의 CNPG Pod 조회 권한과 9187 수신 허용(그 namespace는 기본 차단) |
 | [`deploy/components/pgbouncer/`](deploy/components/pgbouncer/) | PgBouncer 통계 exporter · 수집 설정 · NetworkPolicy |
 | [`deploy/platform/`](deploy/platform/) | 플랫폼: 지표 저장소(mTLS `web.yml`, 알림 `rules/`), 콘솔용 조회 API. 창 수신 참조 배치는 `testing/k8s-overlay/`에만 있다 |
 | [`deploy/certs/issue.sh`](deploy/certs/issue.sh) | 인증서 발급 · 만료 검사. 절차: [인증서](../../docs/observability/certificates.md) |
@@ -76,7 +83,8 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 ### 동작
 
 - **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다.
-- **역할도 Collector가 붙인다.** `BRAVO_ROLE`(`source` · `target`)이 `bravo_role` 라벨이 되고, 경보는 환경 이름이 아니라 이 라벨로 출발지 · 목적지를 고른다([ADR-0034](../../docs/adr/0034-environment-kind-adapters.md), 종류는 aws · gcp · onprem 무엇이든 된다). 비워 두면 P0 호환으로 `aws`=source, `onprem`=target으로만 본다(deprecated).
+- **수신 구분도 Collector가 붙인다.** `bravo.domain`은 `platform`(플랫폼 클러스터 자신) 또는 `customer`(출발지 · 목적지)이고 저장소 라벨 `bravo_domain`이 된다. 앱이 보낸 값은 허용 목록이 먼저 지운다. 라벨 체계(namespace · Pod의 `tier: observability` · `role` · `domain`)는 [eco2-team/backend](https://github.com/eco2-team/backend) `workloads/namespaces`를 따른다. 지금 클러스터는 단일 노드라 관측 전용 노드 · taint(eco2의 `workload=monitoring`, `domain=observability:NoSchedule`)는 쓰지 않는다.
+- **역할도 Collector가 붙인다.** `BRAVO_ROLE`(`source` · `target`)이 `bravo_role` 라벨이 된다. 환경 이름 기준 경보(`aws` · `onprem` · `platform`)는 그대로 두고, 출발지 · 목적지를 이 라벨로 고르는 역할 기준 경보(`bravo-roles` 그룹)를 더했다([ADR-0034](../../docs/adr/0034-environment-kind-adapters.md), 종류는 aws · gcp · onprem 무엇이든 된다). `collector-source` · `collector-target` 배포는 역할을 정해 둔다. 비워 두면 P0 호환으로 `aws`=source, `onprem`=target으로만 본다(deprecated). 플랫폼 Collector에는 역할이 없다.
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 저장되지 않는다.
   - 리소스: `service.name` · `service.instance.id`
   - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
@@ -140,7 +148,7 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 - **Pod 보안:** 다섯 워크로드(PgBouncer exporter 포함) 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
 - **배포 전에 만들 것(git에 두지 않음)**
   - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`
-  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `BRAVO_ROLE`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
+  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `BRAVO_ROLE`(선택, `collector-source` · `collector-target`은 배포가 정한다), `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
   - 창 수신 참조 배치의 Secret `bravo-window-intake-token` · ConfigMap `bravo-window-intake`는 k8s.sh가 만든다. 운영 수신의 자격은 T10 절차를 따른다.
   - PgBouncer 오버레이: Secret `bravo-pgbouncer-stats`(`connection-string`, `ca.crt`). 형식은 [component 주석](deploy/components/pgbouncer/kustomization.yaml). PgBouncer 쪽은 `stats_users`와 auth_file에 통계 계정을 더한다(T6 · T30)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).

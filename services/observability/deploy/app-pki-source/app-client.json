@@ -1,0 +1,36 @@
+{
+  "apiVersion": "cert-manager.io/v1",
+  "kind": "Certificate",
+  "metadata": {
+    "name": "bravo-app-metrics-client",
+    "namespace": "source-dev",
+    "labels": {
+      "tier": "observability",
+      "role": "collector",
+      "domain": "customer"
+    }
+  },
+  "spec": {
+    "secretName": "bravo-app-metrics-client",
+    "commonName": "demo-chat-source",
+    "dnsNames": [
+      "demo-chat-source"
+    ],
+    "duration": "72h",
+    "renewBefore": "48h",
+    "usages": [
+      "client auth",
+      "digital signature"
+    ],
+    "privateKey": {
+      "algorithm": "ECDSA",
+      "size": 256,
+      "rotationPolicy": "Always"
+    },
+    "issuerRef": {
+      "group": "cert-manager.io",
+      "kind": "ClusterIssuer",
+      "name": "bravo-app-telemetry-ca"
+    }
+  }
+}

@@ -287,12 +287,7 @@ def all_slots_ready(f, *kinds):
 def test_onprem_source_requires_its_own_catalog_role(registered):
     f = registered
     ref = (TENANT, SRC["connection_ref"])
-    f.registry.environments[ref] = replace(f.registry.environments[ref], kind="onprem", catalog_role="source",
-                                           cluster_uid="cluster-a")
-    dst_ref = (TENANT, DST["connection_ref"])
-    f.registry.environments[dst_ref] = replace(f.registry.environments[dst_ref], cluster_uid="cluster-b")
-    # onprem source slots are operator-declared here; the packaged default refuses them.
-    all_slots_ready(f, "onprem")
+    f.registry.environments[ref] = replace(f.registry.environments[ref], kind="onprem", catalog_role="source")
     source = SRC | {"kind": "onprem"}
     assert f.post("environments", source | {"connection_ref": DST["connection_ref"]}, "bad-src").status_code == 409
     assert f.post("environments", source | {"roles": ["target"]}, "bad-dst").status_code == 409
@@ -361,7 +356,7 @@ def test_aws_target_is_registered_but_pair_needs_ready_adapters(registered):
     body = {"workload_id": app["workload_id"], "target_environment_id": "env-dst", **PROFILE}
     f.probe.results.clear()
     refused = f.post("plans", body, "plan-key")
-    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "adapter_missing:target.catalog"
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "adapter_missing:target.rehearsal"
     assert f.probe.results == []
     all_slots_ready(f, "aws")
     assert f.post("plans", body, "plan-key2").status_code == 201
@@ -369,16 +364,18 @@ def test_aws_target_is_registered_but_pair_needs_ready_adapters(registered):
 
 @pytest.mark.parametrize(("source_kind", "target_kind", "code"), [
     ("aws", "onprem", None),
-    ("aws", "aws", "target.catalog"),
-    ("aws", "gcp", "target.catalog"),
-    ("onprem", "onprem", "source.static_rules"),
-    ("onprem", "aws", "source.static_rules"),
-    ("gcp", "onprem", "source.static_rules"),
-    ("gcp", "gcp", "source.static_rules"),
-    ("onprem", "gcp", "source.static_rules"),
-    ("gcp", "aws", "source.static_rules"),
+    ("gcp", "onprem", None),
+    ("onprem", "onprem", None),
+    ("aws", "aws", "target.rehearsal"),
+    ("aws", "gcp", "target.rehearsal"),
+    ("gcp", "aws", "target.rehearsal"),
+    ("gcp", "gcp", "target.rehearsal"),
+    ("onprem", "aws", "target.rehearsal"),
+    ("onprem", "gcp", "target.rehearsal"),
 ])
-def test_default_readiness_admits_only_the_implemented_pair(source_kind, target_kind, code):
+def test_default_readiness_follows_the_implemented_slots(source_kind, target_kind, code):
+    # A3-A10 fill every slot for every kind except target.rehearsal, which A5 has
+    # only for onprem (aws and gcp report UNSUPPORTED).
     readiness = registration_kinds.adapter_readiness()
     assert registration_kinds.missing_slot(readiness, source_kind, target_kind) == code
 
@@ -408,13 +405,23 @@ def test_same_kind_plan_needs_distinct_cluster_identity(registered, kind):
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "same_cluster_identity"
 
 
-def test_same_kind_plan_without_cluster_identity_is_refused(registered):
+@pytest.mark.parametrize("kind", ["aws", "gcp"])
+def test_same_kind_plan_without_cluster_identity_is_refused(registered, kind):
     f = registered
-    source, target = same_kind(f, "onprem", source_cluster=None)
-    all_slots_ready(f, "onprem")
+    source, target = same_kind(f, kind, source_cluster=None)
+    all_slots_ready(f, kind)
     body = register_pair(f, source, target)
     refused = f.post("plans", body, "plan-key")
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "cluster_identity_unverified"
+
+
+def test_onprem_same_kind_plan_keeps_the_t10_rule_without_cluster_identity(registered):
+    """e38c5983: on-prem -> on-prem on distinct databases was accepted before cluster identity."""
+    f = registered
+    source, target = same_kind(f, "onprem", source_cluster=None, target_cluster=None)
+    body = register_pair(f, source, target)
+    created = f.post("plans", body, "plan-key")
+    assert created.status_code == 201 and created.json()["state"] == "COLLECT"
 
 
 def test_same_kind_plan_with_distinct_clusters_and_databases_is_created(registered):

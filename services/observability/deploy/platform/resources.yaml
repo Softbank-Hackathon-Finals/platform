@@ -145,8 +145,15 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        # 같은 네임스페이스의 Collector(플랫폼 자신의 지표)
+        # 같은 네임스페이스의 Collector(시험 배치)
         - podSelector:
+            matchLabels:
+              app: bravo-collector
+        # 플랫폼 클러스터 자신의 Collector. 고객 Collector(아래 tailnet proxy)와 namespace · 수신 경로를 나눈다(deploy/collector-platform)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-telemetry
+          podSelector:
             matchLabels:
               app: bravo-collector
         # 같은 네임스페이스의 콘솔용 조회 API
@@ -218,9 +225,9 @@ spec:
           image: bravo-observability-api:set-by-deploy-pipeline
           env:
             - {name: PROMETHEUS_URL, value: "https://bravo-prometheus.bravo-observability.svc:9090"}
-            # 조회 API가 아는 환경 이름(bravo_env) 목록. 종류 · 역할과 무관한 등록 이름이다. 기본값은 P0 두 환경이고,
-            # 환경을 더하면 web.yml client_allowed_sans의 collector-<이름>도 같이 더한다
-            - {name: BRAVO_ENVIRONMENTS, value: "aws,onprem"}
+            # 조회 API가 아는 환경 이름(bravo_env) 목록. 종류 · 역할과 무관한 등록 이름이다. platform은 플랫폼 클러스터 자신이다.
+            # 고객 환경을 더하면 web.yml client_allowed_sans의 collector-<이름>도 같이 더한다
+            - {name: BRAVO_ENVIRONMENTS, value: "aws,onprem,platform"}
             - name: BRAVO_OBSERVABILITY_API_TOKEN
               valueFrom:
                 secretKeyRef: {name: bravo-observability-api-token, key: token}

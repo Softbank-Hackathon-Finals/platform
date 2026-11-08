@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "status": "LOCAL_SYNC_VERIFIED_CUSTOMER_INSTALL_PENDING",
+  "customer_resources_changed": false,
+  "source_code_revision": "d19f77c0d519781b673b1bdd2f6bfcac9bdd02dc",
+  "applied_chart_source_revision": "7560c2d913259c54712c9a3d28a858ef5e5b97c5",
+  "local": {
+    "started_at": "2026-11-07T07:39:55.232962+00:00",
+    "finished_at": "2026-11-07T07:41:47.169850+00:00",
+    "owned_cluster_removed": true,
+    "active_receipt": {
+      "environment": "target-dev",
+      "expected_revision": "7560c2d913259c54712c9a3d28a858ef5e5b97c5",
+      "observed_at": "2026-11-07T07:41:43.603852+00:00",
+      "status": "SYNC_VERIFIED",
+      "reasons": [],
+      "authorizes_cutover": false,
+      "migration_verified": false,
+      "control_equivalence_verified": false,
+      "synced_resource_count": 15,
+      "cluster_identity_matches": true
+    },
+    "steps": [
+      {
+        "stage": "bootstrap",
+        "application_count": 0,
+        "target_namespace_exists": false
+      },
+      {
+        "stage": "registered_paused",
+        "target_namespace_exists": false
+      },
+      {
+        "stage": "foreign-cluster",
+        "status": "BLOCKED"
+      },
+      {
+        "stage": "foreign-revision",
+        "status": "BLOCKED"
+      }
+    ],
+    "tailscale_archive_sha256": "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998"
+  },
+  "customer_read_only": {
+    "status": "NOT_INSTALLED",
+    "reason": [
+      "APPLICATION_CRD_MISSING"
+    ],
+    "observed_at": "2026-11-07T07:36:05.272582+00:00",
+    "cluster_identity_matches": true,
+    "desired_resource_count": 15,
+    "existing_resource_count": 12,
+    "existing_without_expected_tracking_count": 12
+  },
+  "qualification": {
+    "iac_tests_passed": 82,
+    "helm_tests_passed": 5,
+    "customer_installation_verified": false,
+    "authorizes_cutover": false,
+    "migration_verified": false,
+    "control_equivalence_verified": false
+  },
+  "failed_attempts": [
+    {
+      "reason": "MULTIPLATFORM_IMPORT_CONTENT_MISSING",
+      "own_cluster_removed": true
+    },
+    {
+      "reason": "HARNESS_ARCHIVE_FILENAME_ASSUMPTION",
+      "own_cluster_removed": true
+    }
+  ]
+}

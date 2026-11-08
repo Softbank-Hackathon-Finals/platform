@@ -8,7 +8,12 @@ from datetime import UTC, datetime
 from .contract import validate_identifier
 from .operator_identity import OperatorPrincipal
 from .plans import PlanSpec, _canonical, validate_profile
-from .registration_kinds import REJECTION_PREFIX, adapter_readiness, missing_slot
+from .registration_kinds import (
+    REJECTION_PREFIX,
+    UNVERIFIED_SAME_KIND,
+    adapter_readiness,
+    missing_slot,
+)
 from .registration_probe import KubernetesProbe
 from .registration_sso import SsoRegistrationPrincipal
 from .store import EventError
@@ -97,7 +102,9 @@ class Registry:
         clusters = (source["checks"].get("cluster_identity"), target["checks"].get("cluster_identity"))
         if clusters[0] is not None and clusters[0] == clusters[1]:
             raise EventError("same_cluster_identity")
-        if source["kind"] == target["kind"] and None in clusters:
+        # T10 accepted on-prem -> on-prem on distinct databases before cluster identity
+        # existed (e38c5983). That pair keeps working without it; new same-kind pairs need it.
+        if source["kind"] == target["kind"] and None in clusters and source["kind"] not in UNVERIFIED_SAME_KIND:
             raise EventError("cluster_identity_unverified")
         missing = missing_slot(self.adapter_readiness, source["kind"], target["kind"])
         if missing is not None:

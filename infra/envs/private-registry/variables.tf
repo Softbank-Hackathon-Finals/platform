@@ -28,3 +28,11 @@ variable "github_repository_id" {
     error_message = "Use the verified immutable demo-chat repository ID."
   }
 }
+variable "platform_host_role" {
+  type    = string
+  default = "bravo-platform-runtime"
+  validation {
+    condition     = var.platform_host_role == "bravo-platform-runtime"
+    error_message = "Only the existing platform host role may build candidates."
+  }
+}

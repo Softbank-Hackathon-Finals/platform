@@ -15,7 +15,7 @@
 1. **환경.** 고정된 HTTPS 주소·CA·TLS 이름을 사용하고 리다이렉트를 따르지 않는다. Kubernetes `SelfSubjectReview`로 namespace의 `bravo-collector` 신원을 확인한다. 같은 자격으로 지명된 CNPG Cluster의 get, Pod·Service list 권한을 각각 확인하고 실제 CNPG 객체의 namespace·이름·UID를 대조한다. Secret 값을 읽거나 DB에 로그인하지 않는다.
 2. **권한 범위.** Pod 생성과 등록한 CNPG의 patch 권한을 같은 주체의 개별 접근 점검으로 확인해 `write_checks`에 허용·거부·불명을 담는다. `SelfSubjectRulesReview`에서 namespace 쓰기 권한이 보이면 `namespace_write_granted`를, 완전한 열거가 불가능하면 `write_scope_unknown`을 기록한다. 필수 읽기 점검의 거부·불명은 등록을 막는다. 경고의 범위는 해당 Kubernetes namespace다. AWS 계정 전체 IAM 권한의 부재를 인증하는 결과로 사용할 수 없다.
 3. **앱.** 서버에 읽기 전용으로 준비한 checkout의 origin과 고정 commit, 앱 디렉터리·IaC 경로가 commit에 있는지 확인한다. 릴리스의 이미지 출처는 이미지 담당자가 게시·전달 증거를 확인해 설정한다. 출발지에서 지정 label의 모든 활성 Pod에 대해 배포 담당이 확인한 ReplicaSet 소유 UID·이름·서비스 계정·컨테이너·요청 이미지·실행 imageID·Ready를 대조한다. 빈 결과, 페이지 절단, 이미지가 섞인 롤아웃, replica별 참조 차이는 등록을 막는다. 실제 컨테이너가 참조한 Secret·ConfigMap 이름, 서비스 계정, CNPG를 수집 범위에 넣는다. 환경 변수의 값과 Secret 본문은 저장하지 않는다.
-4. **조합.** 계획의 목적지는 `target`으로 등록된 환경이어야 하고, 출발지와 DB 신원이 달라야 한다. 양쪽에 클러스터 신원이 있으면 서로 달라야 하고(`same_cluster_identity`), 같은 종류 간 계획은 양쪽 모두 클러스터 신원이 있어야 한다(`cluster_identity_unverified`). 이어서 조합 준비도를 계산한다. 출발지 종류에 `source.*` · `both.*` 칸이, 목적지 종류에 `target.*` · `both.*` 칸이 모두 있어야 하고, 빠진 첫 칸(계약 순서)을 `adapter_missing:<칸>`(409)으로 돌려준다. 이 검사들은 환경을 다시 읽기 전에 끝나므로 거부된 계획은 probe를 부르지 않는다.
+4. **조합.** 계획의 목적지는 `target`으로 등록된 환경이어야 하고, 출발지와 DB 신원이 달라야 한다. 양쪽에 클러스터 신원이 있으면 서로 달라야 하고(`same_cluster_identity`), 같은 종류 간 계획은 양쪽 모두 클러스터 신원이 있어야 한다(`cluster_identity_unverified`). 예외로 클러스터 신원 도입 전부터 받던 onprem→onprem은 DB 신원만 달라도 계속 받는다. 이어서 조합 준비도를 계산한다. 출발지 종류에 `source.*` · `both.*` 칸이, 목적지 종류에 `target.*` · `both.*` 칸이 모두 있어야 하고, 빠진 첫 칸(계약 순서)을 `adapter_missing:<칸>`(409)으로 돌려준다. 이 검사들은 환경을 다시 읽기 전에 끝나므로 거부된 계획은 probe를 부르지 않는다.
 5. **계획.** 앱의 현재 배포와 양쪽 환경을 다시 읽는다. 앱 등록 후 수집 범위가 바뀌면 새 시점의 앱 등록이 필요하다. 현재 앱·환경·수집 범위에서 digest를 만들고, 기존 계획 잠금 안에서 `PlanSpec`, 첫 상태 이벤트, 등록 영수증을 함께 저장한다. T16 수집·의존성 등급·코드 전용/배포 전용 분류와 T19 통제 비교는 이 시작 상태의 후속 소비자다. 실측 창은 별도의 [생산자 권한과 저장 경로](T10-window-storage.md)를 사용한다.
 
 등록 자료는 불변이다. 운영자가 환경을 교체할 때에는 같은 이름의 CNPG를 새 신원으로 오인하지 않도록 새 환경 ID와 연결 참조를 설치한다. 한 tenant의 등록을 다른 tenant의 앱이나 계획에서 사용할 수 없다. 외부 접속 검사는 DB 잠금 밖에서 수행한다. 관측 후 클러스터가 변할 수 있으므로 실제 수집과 실행은 각 단계에서 다시 확인해야 한다.
@@ -101,13 +101,13 @@ HTTP 재요청도 새 필수 필드가 없어 422이므로, 과거 결과는 기
 
 `/registration/catalog.json`은 운영자 전용 읽기 전용 설정이다.
 
-환경의 역할은 운영자가 `catalog_role`(`source` 또는 `target`)로 지정한다. 종류에서 역할을 추론하지 않으며 aws · gcp · onprem 모두 두 역할을 가질 수 있다. 한 별칭에는 역할 하나만 둔다. 같은 클러스터를 두 역할로 쓰려면 새 `environment_id`와 `connection_ref`를 따로 만든다. 등록 요청의 `roles`에는 서버에 지정한 역할 하나를 보낸다. 출발지 앱은 기존 CNPG·ReplicaSet·이미지 검사를 통과해야 한다.
+환경의 역할은 운영자가 `catalog_role`(`source` 또는 `target`)로 지정한다. 종류에서 역할을 추론하지 않으며 aws · gcp · onprem 모두 두 역할을 가질 수 있다. 예를 들어 온프렘 Kubernetes를 출발지로 등록하려면 운영자가 새 `environment_id`와 `connection_ref`를 만들고 해당 환경에 `"kind": "onprem", "catalog_role": "source"`를 지정한다. 한 별칭에는 역할 하나만 둔다(이중 역할 불가). 같은 클러스터를 두 역할로 쓰려면 새 `environment_id`와 `connection_ref`를 따로 만든다. 등록 요청의 `roles`에는 서버에 지정한 역할 하나를 보낸다. 출발지 앱은 기존 CNPG·ReplicaSet·이미지 검사를 통과해야 한다.
 
 **호환(deprecated):** P0 설정에서 `catalog_role`을 생략하면 `aws`는 출발지, `onprem`은 목적지로 동작하고 기동 시 DeprecationWarning을 남긴다. `gcp`와 이후 종류는 `catalog_role`이 없으면 기동하지 않는다(`environment_role_required`). 새 설정은 모든 환경에 `catalog_role`을 쓴다.
 
 **클러스터 신원:** `cluster_uid`에 해당 클러스터 `kube-system` namespace의 `metadata.uid`를 넣으면 probe가 같은 collector 자격으로 `GET /api/v1/namespaces/kube-system`을 읽어 대조하고, 영수증 `checks.cluster_identity`에 SHA-256 값만 남긴다. collector에는 `resourceNames: [kube-system]`으로 좁힌 namespaces `get` ClusterRole이 추가로 필요하다. 값을 지정하지 않은 기존 환경은 그대로 동작하지만 같은 종류 간 계획에는 쓸 수 없다. 이미 등록한 환경의 `cluster_uid`가 바뀌면 `environment_changed`다.
 
-**조합 준비도:** 기본값은 패키지 데이터 `bravo_platform_events/adapter_readiness.json`이다. 현재 구현된 칸만 적는다(aws: `source.*` · `both.*`, onprem: `target.*` · `both.*`, gcp: 없음). 그래서 기본 설정에서 계획 등록이 통과하는 조합은 aws→onprem 하나다. A 작업이 칸을 채우면 이 파일을 갱신한다. 운영자는 `catalog.json`의 `adapter_readiness`(`{"<종류>": ["<칸>", ...]}`)로 종류별 항목을 통째로 바꿀 수 있다. 계약에 없는 종류·칸은 기동을 막는다.
+**조합 준비도:** 기본값은 패키지 데이터 `bravo_platform_events/adapter_readiness.json`이고, ADR-0034 A1~A11에서 구현된 칸을 적는다. 세 종류 모두 `source.*`(A3 정적 규칙 · 배포 추적, A5 중립 내보내기, A8 출구 범위) · `target.catalog`(A4) · `target.neutral_apply`(A5 · A6) · `target.build`(A10) · `both.*`(A7 통제, 등록 신원)를 갖고, `target.rehearsal`은 onprem만 갖는다(A5, aws · gcp는 UNSUPPORTED). 그래서 기본 설정에서 계획 등록이 통과하는 조합은 목적지가 onprem인 aws→onprem · gcp→onprem · onprem→onprem이고, aws · gcp 목적지는 `adapter_missing:target.rehearsal`로 거부된다. 칸이 바뀌면 이 파일을 갱신한다. 운영자는 `catalog.json`의 `adapter_readiness`(`{"<종류>": ["<칸>", ...]}`)로 종류별 항목을 통째로 바꿀 수 있다. 계약에 없는 종류·칸은 기동을 막는다.
 
 | 키 | 운영자가 준비할 값 |
 |---|---|

@@ -112,8 +112,10 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 
 | 통제 ID | 도구 | 범위 | 점검 ID | 상태 |
 |---|---|---|---|---|
-| IAM-01 | kube-bench (양쪽) | CIS Kubernetes Benchmark 5.1절 (RBAC와 서비스 계정) 중 앱 네임스페이스에 해당하는 항목 | T14에서 도구 출력 확인 후 확정 | 미정 |
-| IAM-01 | Prowler (출발지) | 앱 IAM 역할 · 정책에 해당하는 IAM 점검 | T14에서 도구 출력 확인 후 확정 | 미정 |
+| IAM-01 | kube-bench v0.10.2 (양쪽) | RBAC와 서비스 계정: `rke2-cis-1.7` `5.1.1`–`5.1.6`, `eks-1.5.0` `4.1.1`–`4.1.6` | 채택 안 함 | **미채택.** 실제 출력이 모두 `type=manual`(`WARN`)이라 측정된 판정이 없다([실측](../evidence/t14-kube-bench-2026-11-03/README.md)) |
+| IAM-01 | Prowler 5.47.0 (출발지) | 등록 앱 역할 하나의 인라인 정책 하나(관리형 정책 · 권한 경계는 미자격) | `iam_inline_policy_no_administrative_privileges`, `iam_inline_policy_allows_privilege_escalation` | **점검 ID 고정, 도구 자격 미통과.** 분석 오류 뒤에도 PASS 행을 내서 UNKNOWN 유지([실측](../evidence/t14-prowler-2026-11-06/README.md), [분석기 자격](../evidence/t14-prowler-capability-2026-11-06/README.md)) |
+
+T14 코드가 이 표와 같다: Prowler 버전과 두 점검은 `services/control-runner/src/bravo_controls/prowler_iam.py`가 고정하고, kube-bench의 `manual` · `skip` 항목은 위반으로 세지 않는다(`tool_reports.py`). 그래서 IAM-01.2는 지금 양쪽 모두 UNKNOWN이다. 목적지(온프렘)의 Kubernetes 쪽은 RBAC를 직접 분석하는 별도 방법이 생기기 전까지 이 도구들로 판정하지 않는다. gitleaks는 SEC-01.2(위 2절)에 매핑돼 있다.
 
 점검 ID는 실제 도구 출력과 버전을 보고 채운다. 추측으로 채우지 않는다. **매핑이 미확정이거나 비어 있으면 IAM-01.2는 UNKNOWN(`NOT_RUN`)**이다. 점검을 수행하지 않은 상태를 "위반 0건"으로 PASS 처리하지 않는다. T14는 도구·버전·범위·필수 점검 ID를 고정하고 누락·미지원 점검도 UNKNOWN으로 보고해야 한다.
 

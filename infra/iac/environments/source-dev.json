@@ -52,6 +52,29 @@
                 "port_name": "postgres"
               }
             ]
+          },
+          {
+            "name": "bravo-source-gce-replication",
+            "tag": "tag:bravo-source-gce-replication",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "source-gce",
+                "labels": {
+                  "app": "source-db"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-db-for-replication",
+                "namespace": "source-gce",
+                "destination": "bravo-target-gce-db",
+                "destination_tag": "tag:bravo-target-gce-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
           }
         ]
       }
@@ -94,6 +117,72 @@
                 "target_port": 5432
               }
             ]
+          },
+          {
+            "service": "source-db-tailnet",
+            "namespace": "source-gce",
+            "hostname": "bravo-source-gce-db",
+            "tag": "tag:bravo-source-gce-db",
+            "selector": {
+              "app": "source-db"
+            },
+            "ports": [
+              {
+                "name": "postgres",
+                "port": 5432,
+                "target_port": 5432
+              }
+            ]
+          },
+          {
+            "service": "source-control-pooler-tailnet",
+            "namespace": "source-gce",
+            "hostname": "bravo-source-gce-control-pooler",
+            "tag": "tag:bravo-source-gce-control-pooler",
+            "selector": {
+              "app": "source-pgbouncer"
+            },
+            "ports": [
+              {
+                "name": "pooler",
+                "port": 6432,
+                "target_port": 5432
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "api-transport-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-source-operator",
+        "proxy_tag": "tag:bravo-source-operator",
+        "tailnet_groups": [
+          "group:bravo-operators"
+        ]
+      }
+    },
+    {
+      "id": "workload-api-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-source-api",
+        "proxy_tag": "tag:bravo-source-api",
+        "owner_tag": "tag:bravo-source-operator",
+        "bindings": [
+          {
+            "source": "tag:bravo-cutover-control",
+            "group": "bravo:cutover-executor",
+            "namespace": "source-dev",
+            "role": "bravo-executor-cutover"
+          },
+          {
+            "source": "tag:bravo-cutover-control-gce",
+            "group": "bravo:cutover-executor-gce",
+            "namespace": "source-gce",
+            "role": "bravo-executor-cutover"
           }
         ]
       }

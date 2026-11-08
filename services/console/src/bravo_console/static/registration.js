@@ -7,9 +7,18 @@ const paths = {
   plan: "/v1/plans",
 };
 // ADR-0034: every kind may be a source or a target. The server catalog decides
-// which role an alias has; the console only offers kind x role.
+// which role an alias has; the console offers kind x role as one choice. The
+// first three values are the P0 screen's choices and keep their meaning.
 export const environmentKinds = Object.freeze(["aws", "gcp", "onprem"]);
 export const environmentRoles = Object.freeze(["source", "target"]);
+export const environmentChoices = new Map([
+  ["aws", Object.freeze({ kind: "aws", role: "source" })],
+  ["onprem", Object.freeze({ kind: "onprem", role: "target" })],
+  ["onprem-source", Object.freeze({ kind: "onprem", role: "source" })],
+  ["aws-target", Object.freeze({ kind: "aws", role: "target" })],
+  ["gcp-source", Object.freeze({ kind: "gcp", role: "source" })],
+  ["gcp-target", Object.freeze({ kind: "gcp", role: "target" })],
+]);
 const fields = {
   environment: ["name", "kind", "roles", "connection_ref"],
   workload: [
@@ -323,8 +332,10 @@ export function mountRegistration({ onPlan, onForbidden }) {
       }
       try {
         if (form.dataset.registration === "environment") {
-          data.roles = [data.role];
-          delete data.role;
+          const choice = environmentChoices.get(data.kind);
+          if (!choice) throw new ApiError("invalid_registration_input");
+          data.kind = choice.kind;
+          data.roles = [choice.role];
         }
         attempt = new RegistrationAttempt(form.dataset.registration, data);
       } catch {

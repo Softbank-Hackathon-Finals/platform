@@ -19,6 +19,14 @@ from .store import EventError
 PREFIX = "gate-readiness-"
 MAX_RECORDS = 512  # per context; a new capture every 30-60 s fits a day of demo runs
 
+# The registered readiness policy for the demo pair, chosen here (server side), never by a request. The
+# schema rule is T13's HASH_RULE (bravo_cutover.db_fingerprint); a test keeps the two equal. The scope and
+# lag limit are the Executor's own settings (sites.Settings), so the gate asks what a cutover will check.
+POLICY = ReadinessPolicy(
+    "demo-chat.v1",
+    "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
+    ("public.attachments", "public.messages"), (("public.messages", "id"),), 1024 * 1024, 30)
+
 
 def _prefix(context_digest):
     return f"{PREFIX}{context_digest}-"
