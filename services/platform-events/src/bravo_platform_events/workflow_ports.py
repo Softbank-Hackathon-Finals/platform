@@ -7,10 +7,9 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                   "registered_pair": {"source": {...}, "target": {...}}},
      "propose": {"reader_config": "/product-read/reader.json", "principal": "<T10 initial grant principal>",
                  "runtime_source_sha": "<40 hex: the runtime the AI execution was claimed with>",
-                 "selections_dir": "/workflow/selections", "demo_chat_clone": "/workflow-state/demo-chat",
-                 "github_app": {"app_id": 1, "key_file": "/github-app/private-key.pem",
-                                "workflow_sha": "<demo-chat main after #25>", "workflow_id": 408240730,
-                                "state_file": "/workflow-state/dispatches.json"},
+                 "build": {"base_file": "/workflow/candidate-base.json",
+                           "credentials_file": "/ecr-push/.dockerconfigjson",
+                           "receipts_dir": "/workflow-state/candidate-builds"},
                  "auto": {"state_dir": "/workflow-state/initial-operator", "relay_config": "/workflow/relay.json",
                           "catalog_root": "/catalog",
                           "gitops_image": "/workflow/product-reader-image.json", "plans": ["<plan id>"]}},
@@ -18,8 +17,9 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                "target_controls": "/workflow/target-controls.json"},
      "application": "module:factory"}
 
-`executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
-`github_app`, `auto` (T49: admit the one registered task and run the AI Job without an operator),
+`executor` and `propose` (with `build`: the platform builds and pushes the candidate, candidate_build; T49
+2026-11-08, no GitHub in the happy path) are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
+`auto` (T49: admit the one registered task and run the AI Job without an operator),
 `watch`, `application` and `delegation` (true: record pre-delegated approvals, T49) are optional;
 an absent section leaves its states holding
 as workflow_reader_unwired. The Executor client is read-only (no command token): the host only
@@ -30,7 +30,6 @@ import importlib
 import json
 import re
 import ssl
-import subprocess
 from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
@@ -77,47 +76,26 @@ def _executor(config):
     return client, client.verified_bindings(config["registered_pair"])
 
 
-def _clone(path):
-    """An empty local repository the writer fetches into (public demo-chat, no credential)."""
-    path = Path(path)
-    if not path.is_absolute() or not path.parent.is_dir():
-        raise ValueError("workflow_clone_mount_required")
-    if not (path / ".git").exists() and not (path / "HEAD").exists():
-        subprocess.run(["git", "init", "--quiet", "--bare", str(path)], check=True, timeout=30)
-    return path
-
-
 def _propose(store, config):
+    from .candidate_build import PlatformCandidateBuilder
     from .credential_host import _StoredOnly
-    from .github_app import GitHubApp
     from .initial_proposal import InitialProposalExecution
     from .product_read_server import configured_initial_reader
-    from .workflow_propose import pinned_selections, propose_preparer
+    from .workflow_propose import propose_preparer
 
-    allowed = {"reader_config", "principal", "runtime_source_sha", "selections_dir", "demo_chat_clone", "github_app", "auto"}
-    optional = {"github_app", "auto"}
-    if set(config) - allowed or allowed - optional - set(config) or not HEX40.fullmatch(config["runtime_source_sha"]):
+    allowed = {"reader_config", "principal", "runtime_source_sha", "build", "auto"}
+    optional = {"auto"}
+    build = config.get("build")
+    if (set(config) - allowed or allowed - optional - set(config) or not HEX40.fullmatch(config["runtime_source_sha"])
+            or type(build) is not dict or set(build) != {"base_file", "credentials_file", "receipts_dir"}):
         raise ValueError("workflow_propose_configuration_invalid")
     reader = configured_initial_reader(store, str(_path(config["reader_config"])))
     # The host only reads stored results and publications: the stored-only client never submits.
     execution = InitialProposalExecution(reader.records, _StoredOnly(), principal=config["principal"],
                                          runtime_source_sha=config["runtime_source_sha"])
-    clone = _clone(config["demo_chat_clone"])
-    github, writer = None, None
-    app = config.get("github_app")
-    if app is not None:
-        from .candidate_publication import CandidateGitHub
-        from .candidate_writer import WRITER_PERMISSIONS, CandidateWriter
-
-        if (set(app) != {"app_id", "key_file", "workflow_sha", "workflow_id", "state_file"}
-                or not HEX40.fullmatch(app["workflow_sha"]) or type(app["workflow_id"]) is not int):
-            raise ValueError("workflow_github_app_configuration_invalid")
-        key = _path(app["key_file"]).read_bytes()
-        from .candidate_publication import REPOSITORY as repository
-        github = CandidateGitHub(app=GitHubApp(app["app_id"], key, repository, {"actions": "read"}))
-        writer = CandidateWriter(GitHubApp(app["app_id"], key, repository, WRITER_PERMISSIONS), clone,
-                                 workflow_sha=app["workflow_sha"], workflow_id=app["workflow_id"],
-                                 state_file=app["state_file"])
+    # The credential is a mounted Secret the platform refreshes (ecr_credentials); read on each push.
+    builder = PlatformCandidateBuilder(base_file=_path(build["base_file"]), credentials_file=build["credentials_file"],
+                                       receipts_dir=_state_dir(build["receipts_dir"]))
     auto = None
     if "auto" in config:
         # T49: the host admits the plan's one registered task and runs the AI Job itself (no operator relay).
@@ -138,8 +116,7 @@ def _propose(store, config):
                                    source_revision=revision, principal=config["principal"],
                                    catalog_root=_path(spec["catalog_root"], directory=True),
                                    plans=spec.get("plans"))  # absent: every plan on this host
-    return propose_preparer(execution, select=pinned_selections(config["selections_dir"]),
-                            repository=clone, github=github, writer=writer, auto=auto)
+    return propose_preparer(execution, build=builder, auto=auto)
 
 
 def create_ports(store, config_file="/workflow/ports.json"):

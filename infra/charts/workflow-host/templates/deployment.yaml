@@ -81,8 +81,9 @@ spec:
             - {name: catalog, mountPath: /catalog, readOnly: true}
             - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
             - {name: executor, mountPath: /executor, readOnly: true}
-            {{- if .Values.secrets.githubApp }}
-            - {name: github-app, mountPath: /github-app, readOnly: true}
+            {{- if .Values.secrets.candidatePush }}
+            # T49: pushes the platform-built candidate (propose.build.credentials_file /ecr-push/.dockerconfigjson).
+            - {name: candidate-push, mountPath: /ecr-push, readOnly: true}
             {{- end }}
             {{- if or .Values.secrets.applyKubeconfig .Values.applyCredential.existingConfigMap }}
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
@@ -166,13 +167,13 @@ spec:
             items:
               - {key: .dockerconfigjson, path: .dockerconfigjson}
         {{- end }}
-        {{- if .Values.secrets.githubApp }}
-        - name: github-app
+        {{- if .Values.secrets.candidatePush }}
+        - name: candidate-push
           secret:
-            secretName: {{ .Values.secrets.githubApp }}
+            secretName: {{ .Values.secrets.candidatePush }}
             defaultMode: 0440
             items:
-              - {key: private-key.pem, path: private-key.pem}
+              - {key: .dockerconfigjson, path: .dockerconfigjson}
         {{- end }}
         {{- if .Values.secrets.applyKubeconfig }}
         - name: apply-kubeconfig
