@@ -1,7 +1,7 @@
 {
   "image": {
     "repository": "ghcr.io/softbank-hackathon-finals/platform-security-review",
-    "digest": "sha256:86744d1a8f0c4bc30b3fabb91c2a83ae060bb2122e829591d99026788e3ba7e2"
+    "digest": "sha256:ff41b4b5b224d48ce3dedeffa80d5cb81fd379a48e0901617c2e5e4a709f49f4"
   },
-  "sourceRevision": "ade2531a78899aeb176915ebe2693196478c707a"
+  "sourceRevision": "7be7c9e0ffcbca76bff2211d7a467a24741b106b"
 }
