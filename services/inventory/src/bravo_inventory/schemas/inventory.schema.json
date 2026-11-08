@@ -16,8 +16,7 @@
     "inputs": {"type": "object", "required": ["repo_digest", "deploy_digest", "api_calls"], "additionalProperties": false,
       "properties": {"repo_digest": {"$ref": "#/$defs/Digest"}, "deploy_digest": {"$ref": "#/$defs/Digest"}, "api_calls": {"type": "array", "items": {"type": "string"}, "description": "배포 추적에 쓴 API · 파일 목록. 읽기 전용 목록 밖의 호출은 어댑터가 거부한다"}}},
     "items": {"type": "array", "items": {"$ref": "#/$defs/Item"}},
-    "deploy": {"type": "object", "required": ["namespace", "workloads", "resources", "api_calls", "notes"],
-      "properties": {"source_kind": {"$ref": "#/$defs/Kind", "description": "ADR-0034: 배포 추적에 쓴 출발지 어댑터 종류(source.deploy_trace)"}}},
+    "deploy": {"type": "object", "required": ["namespace", "workloads", "resources", "api_calls", "notes"]},
     "candidates": {"type": "array", "items": {"$ref": "#/$defs/Fit"}},
     "summary": {"type": "object", "required": ["grade_counts", "agent_needed", "deploy_only", "code_only"], "additionalProperties": false,
       "properties": {"grade_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}, "agent_needed": {"type": "integer"}, "deploy_only": {"type": "integer"}, "code_only": {"type": "integer"}}},
@@ -27,7 +26,7 @@
     "Digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "Grade": {"enum": ["config_swap", "adapter", "code_change", "none", "unknown"]},
     "Kind": {"enum": ["aws", "gcp", "onprem"]},
-    "CloudDependency": {"type": "boolean", "description": "ADR-0034: 이 증거가 퍼블릭 클라우드 관리형 서비스에 묶이는지. 온프렘 boto3 + endpoint_url(S3 호환 저장소) · OpenBao는 false"},
+    "CloudDependency": {"type": "boolean", "description": "ADR-0034 선택 필드(v1 호환 추가): 이 증거가 퍼블릭 클라우드 관리형 서비스에 묶이는지. 온프렘 boto3 + endpoint_url(S3 호환 저장소) · OpenBao는 false. false라고 해서 등급이 바뀌지 않는다"},
     "Item": {"type": "object", "additionalProperties": false,
       "required": ["id", "role", "service", "found_in", "grade", "grade_by", "rationale", "agent_needed", "code_refs", "deploy_refs", "target", "risk"],
       "properties": {

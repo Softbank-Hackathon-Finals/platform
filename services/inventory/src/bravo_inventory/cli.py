@@ -85,7 +85,8 @@ def _trace(args: argparse.Namespace) -> int:
     adapter = _adapter(args.source_kind, args.exports, args.live)
     if isinstance(adapter, Unsupported):
         return _unsupported(adapter)
-    graph = adapter.trace(args.namespace).as_dict()
+    traced = adapter.trace(args.namespace)
+    graph = {"source_kind": traced.source_kind, **traced.as_dict()}
     text = json.dumps(graph, ensure_ascii=False, indent=2) + "\n"
     if args.output is None:
         sys.stdout.write(text)

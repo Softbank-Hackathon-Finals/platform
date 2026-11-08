@@ -84,7 +84,7 @@ def test_aws_trace_moved_into_aws_adapter_with_t16_names(exports):
     adapter = deploy_adapter_for("aws", exports)
     assert isinstance(adapter, aws_source.FileAdapter)
     g = adapter.trace("chat")
-    assert g.source_kind == "aws" and g.as_dict()["source_kind"] == "aws"
+    assert g.source_kind == "aws" and "source_kind" not in g.as_dict()  # deploy_digest input stays as in T16
     assert ("iam_role", "arn:aws:iam::000000000000:role/chat-irsa") in {(r.kind, r.name) for r in g.resources}
 
 
@@ -301,7 +301,7 @@ def test_onprem_inventory_has_no_iam_item_and_marks_non_cloud_evidence(tmp_path,
             adapter=OnpremFileAdapter(FIXTURES / "exports" / "onprem-source"), profiles=profiles,
         )
     roles = {i["role"]: i for i in doc["items"]}
-    assert doc["deploy"]["source_kind"] == "onprem"
+    assert doc["source"]["env_kind"] == "onprem" and "source_kind" not in doc["deploy"]
     store = roles["object_store"]
     assert store["code_refs"] and all(r["source_kind"] == "onprem" and r["cloud_dependency"] is False for r in store["code_refs"])
     assert all(r["cloud_dependency"] is False for r in store["deploy_refs"])
@@ -314,8 +314,18 @@ def test_reconcile_marks_non_cloud_evidence_and_keeps_target_default_without_sou
     findings = scan_repo(_write(tmp_path, ONPREM_APP), "app", "onprem")
     graph = OnpremFileAdapter(FIXTURES / "exports" / "onprem-source").trace("chat")
     store = [i for i in reconcile_module.reconcile(findings, graph, "onprem") if i.role == "object_store"][0]
-    assert "퍼블릭 클라우드 의존이 아니다" in store.rationale
+    assert "퍼블릭 클라우드 관리형 서비스 의존이 없다" in store.rationale
     assert all(r["source_kind"] == "onprem" for r in store.code_refs)
+
+
+def test_cloud_source_never_gets_the_non_cloud_note(repo, exports):
+    # aws: DB_HOST evidence has no cloud marker, but the database may be RDS. The db item keeps
+    # its T16 rationale (aws→onprem output = develop, see test_develop_parity).
+    items = reconcile_module.reconcile(scan_repo(repo, "app", "aws"), deploy_adapter_for("aws", exports).trace("chat"), "onprem")
+    db = next(i for i in items if i.role == "db")
+    assert all(not r["cloud_dependency"] for r in db.code_refs)
+    assert db.rationale == "같은 엔진(CNPG). 접속 주소만 교체, 데이터는 복제로 이전"
+    assert not any("퍼블릭 클라우드" in i.rationale for i in items)
 
 
 def test_reconcile_passes_source_kind_only_when_given_and_supported(tmp_path, monkeypatch):

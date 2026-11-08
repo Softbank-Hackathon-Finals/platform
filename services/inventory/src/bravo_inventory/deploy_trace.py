@@ -62,12 +62,15 @@ class DeployGraph:
     # (workload, env name, literal value) kept in memory only to match env settings against
     # resource names. Never serialised: ``as_dict`` does not include it.
     env_literals: list[tuple[str, str, str]] = field(default_factory=list, repr=False)
+    # Kind of the adapter that traced the graph (ADR-0034). Kept in memory for reconcile and
+    # written by ``bravo-inventory trace``. Not part of ``as_dict``: that is the inventory's
+    # ``deploy`` and the input of ``deploy_digest``, so an unchanged graph keeps its digest (the
+    # document already records the kind as ``source.env_kind``).
     source_kind: str = "aws"
 
     def as_dict(self) -> dict:
         return {
             "namespace": self.namespace,
-            "source_kind": self.source_kind,
             "workloads": self.workloads,
             "resources": [asdict(r) for r in self.resources],
             "api_calls": sorted(set(self.api_calls)),

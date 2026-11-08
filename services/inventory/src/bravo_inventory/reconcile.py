@@ -23,7 +23,12 @@ from .static_scan import Finding
 
 ROLE_KINDS = {"object_store": "s3_bucket", "secrets": "secret", "kms": "kms_key", "iam": "iam_role", "db": "cnpg_cluster", "registry": "image"}
 SPLIT_KINDS = ENV_NAMED_KINDS  # named by a workload setting, or deploy-only
-NON_CLOUD_NOTE = " 출발지({kind}) 증거가 모두 퍼블릭 클라우드 의존이 아니다(S3 호환 저장소 · OpenBao 등)."
+# Only a source that is not a public cloud gets this note. On aws/gcp, evidence without a cloud
+# marker (DB_HOST, a generic env name) does not show the backing service is self-run: it may be
+# RDS or Cloud SQL. Saying "not a cloud dependency" there would be wrong, so those items keep the
+# rationale they had before ADR-0034 (aws→onprem output = develop).
+NON_CLOUD_SOURCE_KINDS = frozenset({"onprem"})
+NON_CLOUD_NOTE = " 출발지({kind})는 퍼블릭 클라우드가 아니며, 이 항목의 코드 · 배포 증거에 퍼블릭 클라우드 관리형 서비스 의존이 없다(S3 호환 저장소 · OpenBao 등 자체 운영)."
 
 
 def _accepts(func, name: str) -> bool:
@@ -115,7 +120,7 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str,
             code_refs=_code_refs(code), deploy_refs=_deploy_refs(deploy, source_kind),
             target={"env_kind": env_kind, "impl": entry.get("impl", ""), "verify": entry.get("verify", "")},
         )
-        if code and not any(f.cloud_dependency for f in code) and not any(_cloud_resource(r.kind, source_kind) for r in deploy):
+        if source_kind in NON_CLOUD_SOURCE_KINDS and code and not any(f.cloud_dependency for f in code) and not any(_cloud_resource(r.kind, source_kind) for r in deploy):
             item.rationale += NON_CLOUD_NOTE.format(kind=source_kind)
         if found_in == "deploy":
             # The code never calls this role, but a policy grants it: implicit use (SSE-KMS, rotation
