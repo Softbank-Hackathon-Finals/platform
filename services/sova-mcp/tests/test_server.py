@@ -101,6 +101,12 @@ def test_unauthenticated_gets_resource_metadata_challenge(server):
     assert prm["resource"] == "http://127.0.0.1/mcp" and "sova:read" in prm["scopes_supported"]
 
 
+def test_standalone_get_stream_is_refused(server):
+    base, _, _ = server
+    response = httpx.get(base + "/mcp", headers={"Authorization": "Bearer alice", "Accept": "text/event-stream"}, timeout=5)
+    assert response.status_code == 405 and response.headers["allow"] == "POST"
+
+
 def test_initialize_carries_onboarding_instructions(server):
     base, _, _ = server
     result = rpc(base, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},

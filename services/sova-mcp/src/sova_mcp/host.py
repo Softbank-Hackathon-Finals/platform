@@ -74,7 +74,7 @@ def main(argv=None):
     # Without TLS the listener is plain HTTP for the tailnet proxy only (WireGuard to the client), like window intake.
     tls = {"ssl_certfile": str(args.tls_cert), "ssl_keyfile": str(args.tls_key)} if args.tls_cert else {}
     uvicorn.run(app, host="0.0.0.0", port=8443 if tls else 8080, workers=1, **tls, access_log=False,
-                proxy_headers=False, server_header=False, limit_concurrency=32, timeout_keep_alive=5)
+                proxy_headers=False, server_header=False, limit_concurrency=128, timeout_keep_alive=5)
 
 
 if __name__ == "__main__":

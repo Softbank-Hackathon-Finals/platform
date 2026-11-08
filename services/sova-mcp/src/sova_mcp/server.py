@@ -442,6 +442,10 @@ def create_app(backend: SovaBackend, verify, *, resource_url: str, allowed_hosts
         events = EVENTS_PATH.fullmatch(path)
         if path != "/mcp" and not (events and scope["method"] == "GET"):
             return await JSONResponse({"detail": {"code": "not_found"}}, 404)(scope, receive, send)
+        if path == "/mcp" and scope["method"] == "GET":
+            # Stateless: the server never pushes on a standalone stream, so refuse it instead of holding an
+            # idle connection per client (MCP clients treat 405 as "no stream"). Plan progress uses /v1/plans/{id}/events.
+            return await JSONResponse({"detail": {"code": "method_not_allowed"}}, 405, headers={"Allow": "POST"})(scope, receive, send)
         request = Request(scope)
         try:
             options = parse_options(dict(request.query_params))
