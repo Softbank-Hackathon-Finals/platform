@@ -437,9 +437,9 @@ EVENTS_PATH = re.compile(r"/v1/plans/([^/]+)/events")
 
 async def plan_events(backend: SovaBackend, request: Request, session: Session, plan_id: str, *,
                       poll_seconds: float = 1.0, clock=time.time):
-    """T10's SSE event contract for one plan, read-only. Access is re-checked on every read and the
-    stream ends when the caller's proof expires (≤60 s): the console reconnects with a new proof and
-    Last-Event-ID, so a revoked session stops receiving within a minute."""
+    """T10's SSE event contract for one plan, read-only. Every read re-checks the proof's expiry, the
+    tenant and the caller's current per-plan read grant: a revoked grant ends the stream at the next read,
+    and an expired proof (≤60 s) ends it too; the console reconnects with a new proof and Last-Event-ID."""
     def refuse(code, status):
         return JSONResponse({"detail": {"code": code}}, status)
 
@@ -457,7 +457,7 @@ async def plan_events(backend: SovaBackend, request: Request, session: Session, 
     actor = session.actor
 
     def authorize(_request, pid):
-        return actor.expires_at > clock() and backend.store.tenant_for(pid) == actor.tenant_id
+        return actor.expires_at > clock() and backend.readable(actor, pid)
 
     return StreamingResponse(
         event_stream(backend.store, request, plan_id, cursor, authorize, follow=True, poll_seconds=poll_seconds),

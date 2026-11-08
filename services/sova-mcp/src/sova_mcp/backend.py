@@ -3,7 +3,8 @@
 No new state machine, gate or executor: plan state, events and registrations come from the
 existing T10 PlanStore/Registry; observability and security come from their existing APIs
 through fixed upstream clients holding the MCP host's own read credentials (the caller's
-token is never forwarded). Every read re-checks the caller's tenant.
+token is never forwarded). Every plan read re-checks the caller's tenant and the caller's current
+per-plan `read` grant (T10 OperatorAccess), like the operator API and the console (ADR-0040).
 """
 
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import httpx
 from bravo_platform_events.contract import validate_identifier
+from bravo_platform_events.operator_access import OperatorAccess
 from bravo_platform_events.store import EventError
 
 CLIP = 4000  # Customer strings per item (Railshot diagnostics rule).
@@ -116,18 +118,47 @@ class SovaBackend:
     environments: dict = field(default_factory=dict)  # tenant → environment_id → {observability, security}
     observability: Upstream | None = None
     security: Upstream | None = None
+    # The T10 per-plan grants on the same store. The MCP caller is an SSO registration principal, so its
+    # subject's current `read` grant is checked (requires_subject), not an operator proof.
+    access: object = None
+
+    def __post_init__(self):
+        if self.access is None:
+            self.access = OperatorAccess(self.store)
+
+    def _can_read(self, c, actor, plan_row) -> bool:
+        if plan_row is None or plan_row["tenant_id"] != actor.tenant_id:
+            return False
+        try:
+            self.access.requires_subject("read")(c, dict(plan_row), actor.subject_id)
+        except EventError:
+            return False
+        return True
+
+    def readable(self, actor, plan_id: str) -> bool:
+        """Tenant and current per-plan read grant, read in one transaction (stream checks call this per read)."""
+        try:
+            validate_identifier(plan_id)
+        except ValueError:
+            return False
+        with self.store._transaction() as c:
+            row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+            return self._can_read(c, actor, row)
 
     # --- registrations and plans -------------------------------------------------------
     def _rows(self, actor):
         with self.store._transaction() as c:
             regs = c.execute("SELECT kind,object_id,receipt_json FROM registrations WHERE tenant_id=? "
                              "ORDER BY kind,object_id", (actor.tenant_id,)).fetchall()
-            plans = c.execute("SELECT plan_id,state,version,updated_at FROM plans WHERE tenant_id=? "
-                              "ORDER BY updated_at DESC LIMIT 100", (actor.tenant_id,)).fetchall()
+            rows = c.execute("SELECT * FROM plans WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 100",
+                             (actor.tenant_id,)).fetchall()
+            # Only plans the caller may read are listed (a plan without a grant is not disclosed).
+            plans = [{k: row[k] for k in ("plan_id", "state", "version", "updated_at")}
+                     for row in rows if self._can_read(c, actor, row)]
         out = {"environment": [], "workload": [], "plan": []}
         for row in regs:
             out.setdefault(row["kind"], []).append(json.loads(row["receipt_json"]))
-        return out, [dict(p) for p in plans]
+        return out, plans
 
     def context(self, actor, options) -> dict:
         regs, plans = self._rows(actor)
@@ -154,10 +185,10 @@ class SovaBackend:
     def plan(self, actor, plan_id: str) -> dict:
         try:
             validate_identifier(plan_id)
-            if self.store.tenant_for(plan_id) != actor.tenant_id:
-                raise SovaError("forbidden")  # Same as T10: no existence disclosure.
+            if not self.readable(actor, plan_id):
+                raise SovaError("forbidden")  # Same as T10: no existence disclosure, no grant no read.
             snapshot = self.store.snapshot(plan_id)
-            if self.store.tenant_for(plan_id) != actor.tenant_id:
+            if not self.readable(actor, plan_id):
                 raise SovaError("forbidden")
         except ValueError:
             raise SovaError("invalid_plan_id") from None

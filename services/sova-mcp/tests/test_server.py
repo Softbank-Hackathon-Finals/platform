@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import uvicorn
+from bravo_platform_events.operator_access import OperatorAccess
+from bravo_platform_events.operator_identity import OperatorPrincipal
 from bravo_platform_events.plans import PlanSpec, PlanStore
 from bravo_platform_events.registration import Registry
 from bravo_platform_events.registration_probe import EnvironmentRef, SourceRelease
@@ -38,6 +40,17 @@ def principal(subject, tenant=TENANT):
     return SsoRegistrationPrincipal(subject, tenant, t - 1, t + 300, "s-" + subject)
 
 
+def grant(store, plan_id, subject, permissions=("read",), revision=0):
+    """The T10 administrator's per-plan grant (set_permissions); the MCP caller is checked against it."""
+    t = int(time.time())
+    who = OperatorPrincipal(subject, TENANT, t - 1, t + 300, t - 1, "grant-" + subject)
+    OperatorAccess(store).set_permissions(
+        plan_id, who, permissions=list(permissions),
+        valid_after=datetime.fromtimestamp(t - 60, UTC).isoformat(),
+        expires_at=datetime.fromtimestamp(t + 3600, UTC).isoformat(), expected_revision=revision,
+        administration_ref="fixture-admin", command_key=f"grant-{subject}-{revision}")
+
+
 @pytest.fixture
 def server(tmp_path):
     store = PlanStore(tmp_path / "plans.db")
@@ -61,6 +74,9 @@ def server(tmp_path):
                           {TENANT: {"env-src": {"observability": "source", "security": "src-sec"}}}, obs, obs)
     t = int(time.time())
     actors = {"Bearer alice": principal("alice"), "Bearer mallory": principal("mallory", "other"),
+              "Bearer bob": principal("bob"),  # same tenant, no plan grant
+              # a short proof: a stream that is not closed by a revoked grant still ends by itself
+              "Bearer carol": SsoRegistrationPrincipal("carol", TENANT, t - 1, t + 8, "s-carol"),
               "Bearer brief": SsoRegistrationPrincipal("brief", TENANT, t - 1, t + 2, "s-brief")}
     app = create_app(backend, lambda r: actors.get(r.headers.get("authorization")),
                      resource_url="http://127.0.0.1/mcp", allowed_hosts=["127.0.0.1:*"])
@@ -149,6 +165,10 @@ def test_guided_registration_needs_matching_confirmation_then_plan_flows(server)
     _, p = call(base, "sova_create_plan", plan_in, query=q)
     _, plan = call(base, "sova_create_plan", plan_in | {"confirmation": p["confirmation"]}, query=q)
     plan_id = plan["data"]["plan_id"]
+    # Creating a plan grants nothing: like the T10 API, reading it needs the administrator's per-plan grant.
+    denied, _ = call(base, "sova_get_plan", {"plan_id": plan_id})
+    assert denied["isError"] is True
+    grant(store, plan_id, "alice")
 
     _, ctx = call(base, "sova_get_context")
     assert len(ctx["data"]["environments"]) == 2 and ctx["data"]["plans"][0]["plan_id"] == plan_id
@@ -218,6 +238,8 @@ def test_plan_events_stream_t10_sse_with_the_same_access_rules(server):
     base, _, store = server
     store.register_plan(PlanSpec("plan-sse", TENANT, "workload-x", "env-src", "env-dst", "a" * 64, "b" * 64),
                         run_id="fixture", occurred_at=datetime.now(UTC).isoformat())
+    grant(store, "plan-sse", "alice")
+    grant(store, "plan-sse", "brief")
     url = base + "/v1/plans/plan-sse/events"
     alice = {"Authorization": "Bearer alice"}
     assert httpx.get(url).status_code == 401
@@ -263,3 +285,32 @@ def test_registry_refusals_come_with_a_hint(server):
     body = json.loads(result["content"][0]["text"][result["content"][0]["text"].index("{"):])
     assert result["isError"] and body["hint"] and body["detail"]["code"] in (
         "registration_reference_unavailable", "invalid_environment_reference")
+
+
+def test_same_tenant_without_a_plan_grant_reads_nothing_and_a_revoked_grant_ends_the_stream(server):
+    # ADR-0040: MCP clients get the same per-plan permission check as the operator API and console (#987 review).
+    base, _, store = server
+    store.register_plan(PlanSpec("plan-grant", TENANT, "workload-x", "env-src", "env-dst", "a" * 64, "b" * 64),
+                        run_id="fixture", occurred_at=datetime.now(UTC).isoformat())
+    grant(store, "plan-grant", "alice")
+    bob = {"Authorization": "Bearer bob"}
+    url = base + "/v1/plans/plan-grant/events"
+    with httpx.stream("GET", url, headers=bob) as r:  # a stream would hang here; the refusal comes first
+        assert r.status_code == 403 and json.loads(r.read())["detail"]["code"] == "forbidden"
+    denied, _ = call(base, "sova_get_plan", {"plan_id": "plan-grant"}, token="bob")
+    assert denied["isError"] is True
+    _, ctx = call(base, "sova_get_context", token="bob")
+    assert "plan-grant" not in [p["plan_id"] for p in ctx["data"]["plans"]]
+    _, ctx = call(base, "sova_get_context")
+    assert "plan-grant" in [p["plan_id"] for p in ctx["data"]["plans"]]
+
+    grant(store, "plan-grant", "carol")
+    with httpx.stream("GET", url, headers={"Authorization": "Bearer carol"}, timeout=15) as r:
+        lines = r.iter_lines()
+        assert next(line for line in lines if line.startswith("id:")) == "id: plan-grant:1"
+        grant(store, "plan-grant", "carol", permissions=(), revision=1)  # the administrator revokes read
+        store.append(plan_id="plan-grant", run_id="gate-run", event_type="gate.completed", producer_key="gate-1",
+                     occurred_at=datetime.now(UTC).isoformat(),
+                     data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "PASS", "context_digest": "c" * 64})
+        rest = list(lines)  # ends at the next read (or, without the grant check, only when the proof expires)
+    assert "id: plan-grant:2" not in rest
