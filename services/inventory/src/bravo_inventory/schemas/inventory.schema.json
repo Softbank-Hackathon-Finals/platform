@@ -38,7 +38,9 @@
         "agent_needed": {"type": "boolean"},
         "code_refs": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "file", "line", "snippet"]}},
         "deploy_refs": {"type": "array", "items": {"type": "object", "required": ["kind", "name", "via"]}},
-        "target": {"type": "object"},
+        "target": {"type": "object",
+          "properties": {"source_kind": {"enum": ["aws", "gcp", "onprem"], "description": "ADR-0034 선택 필드: 조합 카탈로그가 목적지 기본값과 다른 값을 줄 때만 쓴다"},
+            "basis": {"enum": ["same_kind", "pair_exception", "target_default"], "description": "ADR-0034 선택 필드: 같은 종류 기본값 · (출발지, 목적지, 역할) 예외 · 목적지 기본값"}}},
         "risk": {"enum": ["", "migration_omission"]}
       },
       "allOf": [
