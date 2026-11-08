@@ -193,12 +193,12 @@ def create_ports(store, config_file="/workflow/ports.json"):
                                        **{k: spec[k] for k in ("write_rps", "read_rps", "duration") if k in spec}).sweep)
     demo = config.get("demo", {})  # T49 demo: {"skip": ["REHEARSE", "GATE"]} pass those states at once
     skip = demo.get("skip", []) if type(demo) is dict else None
-    if skip is None or set(demo) - {"skip"} or type(skip) is not list or set(skip) - {"REHEARSE", "GATE"}:
+    if skip is None or set(demo) - {"skip"} or type(skip) is not list or set(skip) - {"REHEARSE", "GATE", "WATCH"}:
         raise ValueError("workflow_demo_configuration_invalid")
     from .workflow import demo_reader
 
     for state in skip:
-        preparers.pop(state, None)
+        preparers.pop(state, None)  # WATCH: also no watch-fail record, so no delegated failback
         readers[state] = demo_reader(state)
     return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
             "background": background, "demo_skip": skip}
