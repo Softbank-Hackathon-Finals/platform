@@ -1,0 +1,23 @@
+# 목적지 OpenBao(T9)에 허용만 더한다: bravo-observability의 Collector 사이드카가 수신 서버 인증서를 받는다.
+# 기존 target-openbao 정책은 바꾸지 않는다. 그 Pod는 이미 격리돼 있어 이 정책이 새 격리를 만들지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-collector-app-pki
+  namespace: bravo-secrets
+  labels: {tier: observability, role: collector, domain: customer}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bravo-observability
+          podSelector:
+            matchLabels:
+              app: bravo-collector
+      ports:
+        - {port: 8200, protocol: TCP}

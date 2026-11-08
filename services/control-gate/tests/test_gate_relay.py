@@ -12,12 +12,14 @@ import sys
 from dataclasses import asdict, replace
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from bravo_platform_events import gate_relay
 from bravo_platform_events.store import EventError
 from test_gate_assembly import gate  # noqa: F401
 from test_readiness import ready  # noqa: F401
+from test_t13_executor_observation import FakeDb, site
 
 from bravo_gate.contract import GateError, fingerprint, time
 
@@ -144,6 +146,163 @@ def test_a_readiness_record_added_after_the_review_is_never_signed(relay):
     assert now["context"] == reviewed["context"]  # the same context: only the T13 record is new
     with pytest.raises(ValueError, match="subjects_not_confirmed"):
         cli.sign_requests(f.plan.plan_id, now, keys, None, reviewed["confirm"], f.clock.at, timedelta(minutes=5))
+
+
+def executor_observation(f):
+    from bravo_cutover.db_fingerprint import SequenceState
+    from bravo_cutover.readiness import Readiness, ReadinessRequest
+    from bravo_cutover.remote.db import Subscription
+    from bravo_cutover.sites import Config, Settings
+    from bravo_platform_events.readiness_observer import request_for
+
+    ctx = f.state["context"]
+    world = {"schema": {"src": {}, "dst": {}}, "sub": Subscription(enabled=True, workers=1), "login": False,
+             "seq": {"src": SequenceState(20, True, 20, 2**63 - 1), "dst": SequenceState(3, True, 20, 2**63 - 1)}}
+    config = Config(settings=Settings(), origin=ctx.source_environment_id,
+                    sites={ctx.source_environment_id: site(ctx.source_environment_id, "src"),
+                           ctx.target_environment_id: site(ctx.target_environment_id, "dst")})
+    pair = {side: {"environment_id": getattr(ctx, side + "_environment_id")} for side in ("source", "target")}
+    executor = Readiness(config, db=lambda dsn, control_functions: FakeDb(world, dsn), clock=lambda: f.clock.at)
+    return executor.observe(ReadinessRequest(**request_for(pair)))
+
+
+def capture_args(f, evaluate=True):
+    return SimpleNamespace(command="capture", plan_id=f.plan.plan_id, dir=f.keys_dir, ttl_minutes=5,
+                           evaluate=evaluate)
+
+
+def signed_context_and_runs(f):
+    """S1 as a person does it: record, bind, review `subjects` and sign the context and both runs."""
+    keys = cli.load_keys(f.keys_dir, create=True)
+    for request in cli.enroll_requests(f.keys_dir, f.plan.plan_id, keys, cli.PURPOSES, f.clock.at, 6):
+        f.call(request)
+    f.clock.at = f.state["now"]
+    f.base = f.state["context"]
+    bind_through_the_relay(f, run_doc(f, "source"), run_doc(f, "target"))
+    subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
+    for request in cli.sign_requests(f.plan.plan_id, subjects, keys, ["context", "run-source", "run-target"],
+                                     subjects["confirm"], f.clock.at, timedelta(minutes=5)):
+        f.call(request)
+
+
+def test_capture_records_the_executor_observation_signs_it_and_the_gate_passes(relay):
+    f = relay
+    signed_context_and_runs(f)
+    observation = executor_observation(f)
+    out = cli.run(capture_args(f), relay=f.call, now=f.clock.at, observe=lambda _: {"observation": observation},
+                  clock=lambda: f.clock.at)
+    assert [p["purpose"] for p in out["published"]] == list(cli.READINESS)
+    assert out["evaluated"]["decision"] == "PASS" and out["evaluated"]["data"] == "PASS"
+    assert out["readiness"]["diagnostics"]["sequences"] == {}
+    assert out["readiness"]["data"]["decision"] == "PASS" and out["readiness"]["data"]["blocked"] == []
+    # A later pass for the same context (before SHIFT or cutover): a new record, signed, not evaluated again
+    f.clock.at += timedelta(seconds=31)
+    later = executor_observation(f)
+    again = cli.run(capture_args(f, evaluate=False), relay=f.call, now=f.clock.at,
+                    observe=lambda _: {"observation": later}, clock=lambda: f.clock.at)
+    assert again["readiness"]["binding"] != out["readiness"]["binding"] and "evaluated" not in again
+    assert again["readiness"]["data"]["decision"] == "PASS" and len(again["published"]) == 2
+    subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
+    assert subjects["readiness-binding"] == again["readiness"]["binding"]
+
+
+def test_a_data_block_is_signed_but_never_spends_the_context_unless_asked(relay):
+    f = relay
+    signed_context_and_runs(f)
+    blocked = executor_observation(f)
+    blocked["replication"]["lag_bytes"] = None  # replication unknown at this moment
+    evaluated = []
+
+    def watching(request):
+        if request["op"] == "evaluate":
+            evaluated.append(request)
+        return f.call(request)
+
+    with pytest.raises(RuntimeError, match="hold:readiness_data_block") as held:
+        cli.run(capture_args(f), relay=watching, now=f.clock.at, observe=lambda _: {"observation": blocked},
+                clock=lambda: f.clock.at)
+    assert evaluated == []
+    # The hold says why (fixed row codes) and which readiness signatures are already published (#612 follow-up)
+    assert held.value.detail["blocked"] == [{"test_id": "replication:lag", "reason": "UNKNOWN"}]
+    subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
+    assert held.value.detail["published"] == [{"purpose": p, "subject": subjects[p]} for p in cli.READINESS]
+    args = capture_args(f)
+    args.record_block = True  # S1 may record its first BLOCK on purpose
+    f.clock.at += timedelta(seconds=1)
+    again = executor_observation(f)
+    again["replication"]["lag_bytes"] = None
+    out = cli.run(args, relay=watching, now=f.clock.at, observe=lambda _: {"observation": again},
+                  clock=lambda: f.clock.at)
+    assert out["evaluated"]["data"] == "BLOCK" and len(evaluated) == 1
+
+
+def test_the_operator_reads_a_hold_detail_on_one_line(monkeypatch, capsys):
+    detail = {"blocked": [{"test_id": "replication:lag", "reason": "UNKNOWN"}],
+              "published": [{"purpose": "readiness-binding", "subject": "a" * 64}]}
+
+    def hold(*_a, **_k):
+        raise cli.Hold("readiness_data_block", **detail)
+    monkeypatch.setattr(cli, "run", hold)
+    assert cli.main(["subjects", "--plan-id", "p", "--relay", "x"]) == 10
+    assert json.loads(capsys.readouterr().out) == {"status": "HOLD", "reason": "hold:readiness_data_block", **detail}
+
+
+def test_a_pass_that_would_expire_before_the_evaluation_holds_instead_of_spending_the_context(relay):
+    """Live S1 (11/8): signing took the 30 s record past its validity and the GATE recorded a freshness BLOCK."""
+    f = relay
+    signed_context_and_runs(f)
+    observation = executor_observation(f)
+    evaluated = []
+
+    def slow(request):
+        if request["op"] == "publish":
+            f.clock.at += timedelta(seconds=12)  # one kubectl exec round trip each
+        if request["op"] == "evaluate":
+            evaluated.append(request)
+        return f.call(request)
+
+    with pytest.raises(RuntimeError, match="hold:readiness_expires_before_evaluate"):
+        cli.run(capture_args(f), relay=slow, now=f.clock.at, observe=lambda _: {"observation": observation},
+                clock=lambda: f.clock.at)
+    assert evaluated == []  # the context is still unevaluated: the next capture can record its decision
+
+
+def test_one_relay_session_answers_many_requests_in_order():
+    import sys
+
+    fake = ("import json, sys\nprint(json.dumps({'status': 'READY'}), flush=True)\n"
+            "for line in sys.stdin:\n"
+            "    r = json.loads(line)\n"
+            "    print(json.dumps({'status': 'HOLD', 'code': 'NO'} if r['op'] == 'evaluate' else"
+            " {'status': 'PASS', 'op': r['op']}), flush=True)\n")
+    with cli.Session([sys.executable, "-c", fake]) as call:
+        assert [call({"op": op})["op"] for op in ("capture", "subjects", "publish")] == ["capture", "subjects", "publish"]
+        with pytest.raises(RuntimeError, match="hold:NO"):
+            call({"op": "evaluate"})
+    with pytest.raises(cli.RelayFailed, match="relay_session_unavailable"):
+        cli.Session([sys.executable, "-c", "print('no')"]).__enter__()
+
+
+def test_capture_signs_nothing_when_another_record_lands_first(relay):
+    f = relay
+    signed_context_and_runs(f)
+    observation = executor_observation(f)
+    published = []
+
+    def racing(request):
+        answer = f.call(request)
+        if request["op"] == "capture":  # someone else's T13 record lands before `subjects`
+            f.update(f.doc | {"sequences": []})
+            f.call({"op": "readiness", "plan_id": f.plan.plan_id, "binding": asdict(f.data["binding"]),
+                    "snapshot": {"ref": f.data["snapshot"].ref, "document": f.data["snapshot"].document}})
+        if request["op"] == "publish":
+            published.append(request)
+        return answer
+
+    with pytest.raises(RuntimeError, match="hold:readiness_record_superseded"):
+        cli.run(capture_args(f), relay=racing, now=f.clock.at, observe=lambda _: {"observation": observation},
+                clock=lambda: f.clock.at)
+    assert published == []
 
 
 def test_a_partly_done_enrollment_can_be_run_again(relay):

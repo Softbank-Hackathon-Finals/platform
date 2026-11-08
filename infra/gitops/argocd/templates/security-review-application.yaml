@@ -1,0 +1,95 @@
+{{- if .Values.securityReview.enabled }}
+{{- range $key, $_ := .Values.securityReview.runtime }}
+{{- if not (has $key (list "tenantId" "tokenReview" "database" "secrets" "configMaps" "audit" "resources")) }}
+{{- fail "security review runtime input contains an unapproved field" }}
+{{- end }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-security-review
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-security-review
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/charts/security-review
+    helm:
+      releaseName: security-review
+      valueFiles:
+        - ../../gitops/environments/development/security-review-image.json
+      valuesObject:
+        {{- toYaml .Values.securityReview.runtime | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true]
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-security-review
+spec:
+  description: Read-only Security Review service and bounded audit storage
+  sourceRepos: [https://github.com/Softbank-Hackathon-Finals/platform.git]
+  destinations: [{server: https://kubernetes.default.svc, namespace: platform-state}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-security-review
+  namespace: platform-state
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [security-review]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts]
+    resourceNames: [security-review]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [security-review-config]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch, create]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    resourceNames: [security-review-audit]
+    verbs: [update, patch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [security-review-egress]
+    verbs: [update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-security-review
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-security-review}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}

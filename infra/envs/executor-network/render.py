@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Add only the dedicated T12 caller's platform-state DB network path."""
+import argparse
 import json
 
-CALLER = {"app.kubernetes.io/name": "cutover-executor"}
+NAME = "cutover-executor"
 DATABASE = {"cnpg.io/cluster": "platform-db"}
 
 
@@ -18,15 +19,18 @@ def policy(name, namespace, spec):
             "spec": spec}
 
 
-def state_database():
+def state_database(pair=""):
+    """`pair` is the deploy.py suffix of a further Executor; empty renders the existing policies."""
+    name = f"{NAME}-{pair}" if pair else NAME
+    caller = {"app.kubernetes.io/name": name}
     return [
-        policy("cutover-executor-database", "platform-state", {
+        policy(name + "-database", "platform-state", {
             "podSelector": {"matchLabels": DATABASE}, "policyTypes": ["Ingress"],
-            "ingress": [{"from": [peer("bravo-platform", CALLER)],
+            "ingress": [{"from": [peer("bravo-platform", caller)],
                          "ports": [{"protocol": "TCP", "port": 5432}]}],
         }),
-        policy("cutover-executor-state", "bravo-platform", {
-            "podSelector": {"matchLabels": CALLER}, "policyTypes": ["Egress"],
+        policy(name + "-state", "bravo-platform", {
+            "podSelector": {"matchLabels": caller}, "policyTypes": ["Egress"],
             "egress": [{"to": [peer("platform-state", DATABASE)],
                         "ports": [{"protocol": "TCP", "port": 5432}]},
                        {"to": [peer("kube-system", {"k8s-app": "kube-dns"})],
@@ -36,4 +40,7 @@ def state_database():
 
 
 if __name__ == "__main__":
-    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": state_database()}, indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pair", default="")
+    items = state_database(parser.parse_args().pair)
+    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2))

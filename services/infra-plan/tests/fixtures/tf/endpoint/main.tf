@@ -1,4 +1,4 @@
-# Test stand-in for infra/envs/cluster-gke / cluster-eks: a "cluster" whose endpoint is an output.
+# Test stand-in for infra/envs/gcp-gke / cluster-eks: a "cluster" whose endpoint is an output.
 terraform {
   backend "local" {}
 }

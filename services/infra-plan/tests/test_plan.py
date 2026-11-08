@@ -12,9 +12,12 @@ from bravo_infra_plan.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
 STACK = REPO / "infra/stacks/target-onprem/stack.json"
-REQUEST = {"stack": "target-onprem", "environment_id": "env-onprem",
+REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
-                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9"}}
+                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9", "iac_revision": "a" * 40,
+                      "login": "edge", "login_public_url": "https://login.example.test", "app_origin": "https://chat.example.test"}}
+# Required only under a condition (tailnet=join, login=edge): not in the schema's unconditional list.
+CONDITIONAL = {"iac_revision", "login_public_url", "app_origin"}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
 REV, BASE = "1" * 40, "2" * 40
 
@@ -87,7 +90,8 @@ def test_plan_holds_no_secret_value_and_secret_steps_only_name_keys():
         for secret in step.get("secrets", []):
             for spec in secret["keys"].values():
                 assert set(spec) <= {"literal", "random"}
-                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator")
+                assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator", "cutover_control",
+                                                                    "bravo-admin")
 
 
 def test_charts_get_rendered_values_post_processing_and_the_kube_version():
@@ -142,6 +146,18 @@ def _doc():
     (lambda d: d["steps"][5].update(publish="identity"), "sync_without_publish"),
     (lambda d: d["steps"][4]["renders"][0].update(run="/etc/passwd"), "invalid_stack"),
     (lambda d: d["steps"][4]["renders"][0].update(run="../outside.py"), "invalid_stack"),
+    # A condition must name a closed parameter and only its values; a default must be one of them.
+    (lambda d: d["steps"][1].update(when={"param": "node_name", "in": ["x"]}), "invalid_step_condition"),
+    (lambda d: d["steps"][1].update(when={"param": "tailnet", "in": ["maybe"]}), "invalid_step_condition"),
+    (lambda d: d["params"]["tailnet"].update(default="maybe"), "invalid_parameter_default"),
+    # A conditionally required value: decided by a closed parameter, without a default, used only under it.
+    (lambda d: d["params"]["iac_revision"].update(required_when={"param": "node_name", "in": ["x"]}),
+     "invalid_parameter_condition"),
+    (lambda d: d["params"]["iac_revision"].update(default="a" * 40), "invalid_parameter_condition"),
+    (lambda d: d["steps"][4]["renders"][0]["args"].append("${iac_revision}"),
+     "conditional_parameter_outside_condition"),
+    (lambda d: d["steps"][4]["renders"][0]["args"].append("${login_public_url}"),
+     "conditional_parameter_outside_condition"),
 ])
 def test_malformed_stacks_are_refused_before_rendering(edit, code):
     document = _doc()
@@ -168,4 +184,163 @@ def test_cli_check_and_request_schema(capsys):
     assert capsys.readouterr().out.splitlines()[0].split() == ["1", "identity"]
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
-    assert schema["properties"]["params"]["required"] == sorted(REQUEST["params"])
+    assert schema["properties"]["params"]["required"] == sorted(set(REQUEST["params"]) - CONDITIONAL - {"login"})
+    conditions = {c["then"]["required"][0] for c in schema["properties"]["params"]["allOf"]}
+    assert conditions == CONDITIONAL
+
+
+def _desired_world(tmp_path, environments):
+    """A minimal repository with only T44 desired-state files and one operator step that reads them."""
+    for name, state in environments.items():
+        path = tmp_path / "infra/iac/environments" / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "environment": name, "modules": [
+            {"id": "target-object-exposure", "version": 1, "params": state}]}))
+    stack = parse_stack({"schema_version": 1, "stack": "desired-test", "charts": {},
+                         "params": {"node_name": {"description": "n"}}, "steps": [
+        {"id": "object-secrets", "kind": "operator_action", "owner": "T9", "description": "d",
+         "instruction": "i", "confirm": "seaweedfs-auth",
+         "desired": {"file": "infra/iac/environments/{environment_id}.json", "module": "target-object-exposure",
+                     "params": ["state", "bucket", "demo_run_id"]}}]})
+    return lambda env: Planner(stack, tmp_path).plan(
+        {"stack": "desired-test", "environment_id": env, "params": {"node_name": "n"}},
+        stack_revision=REV, target=TARGET, base_commit=BASE)
+
+
+def test_each_environment_gets_its_own_desired_state_and_a_missing_one_refuses(tmp_path):
+    plan_for = _desired_world(tmp_path, {
+        "target-dev": {"state": "open-demo", "bucket": "demo-chat-attachments", "demo_run_id": "demo-2026-11-08"},
+        "target-e2e": {"state": "closed", "bucket": "demo-chat-attachments"}})
+    assert plan_for("target-dev").document["steps"][0]["desired"]["state"] == "open-demo"
+    assert plan_for("target-e2e").document["steps"][0]["desired"] == {"state": "closed",
+                                                                       "bucket": "demo-chat-attachments"}
+    with pytest.raises(StackError, match="desired_state_unavailable"):  # never borrow target-dev's open-demo
+        plan_for("target-new")
+
+
+def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_binds_it():
+    joined = plan()
+    assert joined.document["request"]["params"]["tailnet"] == "join"  # the default is written into the plan
+    assert not any(s.get("omitted") for s in joined.document["steps"])
+    isolated_request = copy.deepcopy(REQUEST)
+    isolated_request["params"]["tailnet"] = "none"
+    charts = FakeCharts()
+    isolated = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        isolated_request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    omitted = {s["id"] for s in isolated.document["steps"] if s.get("omitted")}
+    # The T44 Application needs the Tailscale CRDs, so it is turned on only with the tailnet line.
+    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync", "tailscale-joined", "iac-application",
+                       "iac-application-check"}
+    assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
+    assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
+    assert isolated.plan_digest != joined.plan_digest
+
+
+def test_a_wif_target_renders_federated_operator_values_and_needs_no_oauth_secret():
+    """T48 (ADR-0035): the operator authenticates with a projected ServiceAccount token; no Secret is handed over."""
+    request = copy.deepcopy(REQUEST)
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+    charts = FakeCharts()
+    wif = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    assert {s["id"] for s in wif.document["steps"] if s.get("omitted")} == {"tailscale-oauth", "iac-application", "iac-application-check"}  # T44 Application: join only (operator step)
+    values = next(call[3] for call in charts.calls if call[0].startswith("tailscale-operator"))
+    assert values["oauth"] == {"clientId": "kFedTest123", "audience": "api.tailscale.com/kFedTest123"}
+    assert values["operatorConfig"]["defaultTags"] == ["tag:bravo-target-gke-operator"]
+    assert values["proxyConfig"]["defaultTags"] == "tag:bravo-target-gke-db"
+    assert values["apiServerProxyConfig"]["mode"] == "true"  # the platform Executor's API path, auth mode only
+    assert wif.plan_digest != plan().plan_digest
+    legacy = FakeCharts()
+    Planner(load_stack(STACK), REPO, chart_renderer=legacy).plan(
+        copy.deepcopy(REQUEST), stack_revision=REV, target=TARGET, base_commit=BASE)
+    joined = next(call[3] for call in legacy.calls if call[0].startswith("tailscale-operator"))
+    assert joined["oauth"] == {"clientId": "", "clientSecret": ""}  # existing environments keep the Secret
+    assert joined["operatorConfig"]["defaultTags"] == ["tag:bravo-target-operator"]
+    assert joined["apiServerProxyConfig"]["mode"] == "false"
+    unset = copy.deepcopy(REQUEST)
+    unset["params"]["tailnet"] = "wif"  # client ID and audience left at "-"
+    with pytest.raises(StackError, match="renderer_failed"):
+        Planner(load_stack(STACK), REPO, chart_renderer=FakeCharts()).plan(
+            unset, stack_revision=REV, target=TARGET, base_commit=BASE)
+
+
+def test_the_app_image_is_imported_offline_on_both_architectures_from_the_pin():
+    """The app runs with imagePullPolicy Never and destinations hold no GHCR credential (the package is private):
+    amd64 imports the pinned index as published, arm64 the recorded local build."""
+    stack = load_stack(STACK)
+    assert stack.applies("app-image", {"arch": "arm64"}) and stack.applies("app-image", {"arch": "amd64"})
+    assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}
+    pin = json.loads((REPO / "infra/envs/target-workloads/app-image.json").read_text())
+    expect = stack.steps["app-image"]["expect"]["images_by_arch"]
+    assert expect["amd64"] == [f"ghcr.io/softbank-hackathon-finals/demo-chat:{pin['source_sha'][:8]}",
+                               f"ghcr.io/softbank-hackathon-finals/demo-chat@{pin['index_digest']}"]
+    assert expect["arm64"][1] == pin["arm64"]["image"]
+
+
+def test_base_declares_the_observability_namespace_with_the_collector_labels():
+    """T44 #632/#673: T45 owns the namespaces its chart writes into, bravo-observability included."""
+    base = {name: json.loads(text)["items"] for name, text in plan().files["base"].items()}
+    [namespace] = base["base/observability-namespace.json"]
+    assert namespace["metadata"]["name"] == "bravo-observability"
+    labels = namespace["metadata"]["labels"]
+    assert labels["component"] == "platform" and labels["pod-security.kubernetes.io/enforce"] == "restricted"
+    # The same labels as the T37 collector manifest, so applying either never flips a value.
+    collector = (REPO / "services/observability/deploy/collector/resources.yaml").read_text()
+    for key, value in labels.items():
+        if key != "app.kubernetes.io/managed-by":
+            assert f"{key}: {value}" in collector, key
+
+
+def test_the_iac_revision_is_required_only_with_a_tailnet():
+    request = copy.deepcopy(REQUEST)
+    del request["params"]["iac_revision"]
+    with pytest.raises(StackError, match="invalid_plan_request"):  # tailnet defaults to join
+        plan(request)
+    request["params"]["tailnet"] = "none"
+    assert "iac_revision" not in plan(request).document["request"]["params"]
+
+
+def test_the_login_line_renders_keycloak_after_its_admin_secret_and_host_directory():
+    result = plan()
+    stack = load_stack(STACK)
+    levels = {step: n for n, level in enumerate(stack.levels) for step in level}
+    assert levels["login-admin"] < levels["login"] < levels["login-sync"] < levels["login-edge"] < levels["verify"]
+    assert {"login-admin", "host-dirs"} <= set(stack.steps["login"]["needs"])
+    assert "/var/lib/bravo-target-dev/login" in {p["path"] for p in stack.steps["host-dirs"]["expect"]["host_paths"]}
+    items = json.loads(result.files["login"]["login/server.json"])["items"]
+    [deploy] = [i for i in items if i["kind"] == "Deployment"]
+    env = {e["name"]: e for e in deploy["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["KC_HOSTNAME"]["value"] == "https://login.example.test"
+    assert env["KC_BOOTSTRAP_ADMIN_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "target-login-admin"
+    [secret] = stack.steps["login-admin"]["secrets"]
+    assert (secret["namespace"], secret["name"]) == ("target-dev", "target-login-admin")
+
+
+def test_without_an_edge_the_login_line_is_omitted_and_its_addresses_are_not_required():
+    request = copy.deepcopy(REQUEST)
+    request["params"].update(login="none", tailnet="none")
+    for name in CONDITIONAL:
+        del request["params"][name]
+    omitted = {s["id"] for s in plan(request).document["steps"] if s.get("omitted")}
+    assert {"login-admin", "login", "login-sync", "login-edge", "iac-application", "iac-application-check"} <= omitted
+    for name in CONDITIONAL:  # tailnet=join (default) and login=edge require each of them
+        request = copy.deepcopy(REQUEST)
+        del request["params"][name]
+        with pytest.raises(StackError, match="invalid_plan_request"):
+            plan(request)
+
+
+def test_the_destination_db_is_cutover_ready_as_built():
+    """T12 platform integration: CNPG never manages chat_app (the Executor fences and opens it with NOLOGIN/LOGIN),
+    cutover_control is the Executor's managed control login, and pg_hba admits it over TLS only."""
+    result = plan()
+    cluster = next(item for files in result.files.values() for text in files.values()
+                   for item in json.loads(text)["items"] if item["kind"] == "Cluster")["spec"]
+    roles = {r["name"]: r for r in cluster["managed"]["roles"]}
+    assert "chat_app" not in roles
+    assert roles["cutover_control"]["login"] and roles["cutover_control"]["inRoles"] == ["pg_read_all_stats"]
+    assert not any(roles["cutover_control"][k] for k in ("superuser", "createdb", "createrole"))
+    assert cluster["bootstrap"]["initdb"]["postInitSQL"] == ["CREATE ROLE chat_app NOLOGIN"]
+    hba = cluster["postgresql"]["pg_hba"]
+    assert "hostssl chat cutover_control all scram-sha-256" in hba and hba[-1] == "host all all all reject"

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stack": "cluster-gke",
-  "description": "A10(ADR-0034 target.build): GCP 기반(gcp-foundation) → GKE(cluster-gke) → 공통 기반(CNPG, Secret Manager + ESO, Tailscale operator, cloudflared). 종류 기준 스택이라 side로 출발지 · 목적지 어느 쪽에도 쓴다. 프로젝트 ID · backend 값은 저장소 밖 private_dir에서 온다.",
+  "description": "A10(ADR-0034 target.build): GKE(T50 gcp-gke, 이름 bravo-<side>-gke) → ESO의 Secret Manager 읽기 권한(gke-secret-reader) → 공통 기반(CNPG, Secret Manager + ESO, Tailscale operator, cloudflared). 종류 기준 스택이라 side로 출발지 · 목적지 어느 쪽에도 쓴다. GCP 위 RKE2 노드는 T50 gcp-rke2(onprem 종류, target-onprem 스택)가 맡는다. 프로젝트 ID · 번호 · backend 값은 저장소 밖 private_dir에서 온다.",
   "environment": {
     "kind": "gcp",
     "app_namespace": "${side}-dev",
@@ -13,8 +13,7 @@
     },
     "cluster_endpoint": {
       "from": "cluster",
-      "output": "cluster",
-      "path": "endpoint"
+      "output": "dns_endpoint"
     }
   },
   "params": {
@@ -57,49 +56,36 @@
   },
   "steps": [
     {
-      "id": "gcp-foundation",
-      "kind": "terraform",
-      "owner": "A10",
-      "description": "필수 API, VPC · 서브넷(보조 범위) · Cloud NAT",
-      "dir": "infra/envs/gcp-foundation",
-      "backend": {
-        "file": "${private_dir}/gcp-foundation.backend.hcl"
-      },
-      "var_file": "${private_dir}/gcp-foundation.tfvars.json"
-    },
-    {
       "id": "cluster",
       "kind": "terraform",
-      "owner": "A10",
-      "description": "GKE Standard(Workload Identity, Dataplane V2, 사설 노드), ESO의 Secret Manager 읽기 권한",
-      "dir": "infra/envs/cluster-gke",
+      "owner": "T50",
+      "description": "T50 gcp-gke로 GKE Standard(사설 노드, DNS endpoint, Workload Identity, Dataplane V2)를 만든다. 이름은 스택이 bravo-<side>-gke로 정해 T50 단독 실행(bravo-dest-gke)과 쪽끼리 겹치지 않는다",
+      "dir": "infra/envs/gcp-gke",
       "backend": {
         "file": "${private_dir}/cluster.backend.hcl"
       },
       "var_file": "${private_dir}/cluster.tfvars.json",
+      "vars": {
+        "name": "bravo-${side}-gke"
+      }
+    },
+    {
+      "id": "secret-reader",
+      "kind": "terraform",
+      "owner": "A10",
+      "description": "ESO 컨트롤러 서비스 계정에 Workload Identity로 Secret Manager 읽기(bravo- 접두사 비밀만)를 준다",
+      "dir": "infra/envs/gke-secret-reader",
+      "backend": {
+        "file": "${private_dir}/secret-reader.backend.hcl"
+      },
+      "var_file": "${private_dir}/secret-reader.tfvars.json",
       "needs": [
-        "gcp-foundation"
+        "cluster"
       ],
       "vars": {
-        "network": {
-          "from": "gcp-foundation",
-          "output": "foundation",
-          "path": "network"
-        },
-        "subnetwork": {
-          "from": "gcp-foundation",
-          "output": "foundation",
-          "path": "subnetwork"
-        },
-        "pod_range_name": {
-          "from": "gcp-foundation",
-          "output": "foundation",
-          "path": "pod_range_name"
-        },
-        "service_range_name": {
-          "from": "gcp-foundation",
-          "output": "foundation",
-          "path": "service_range_name"
+        "project_id": {
+          "from": "cluster",
+          "output": "project_id"
         }
       }
     },
@@ -107,11 +93,11 @@
       "id": "cluster-access",
       "kind": "operator_action",
       "owner": "A10",
-      "description": "실행기에 준 kubeconfig가 방금 만든 클러스터를 가리키는지 확인한다(API 서버 = terraform 출력 endpoint)",
+      "description": "실행기에 준 kubeconfig가 방금 만든 클러스터를 가리키는지 확인한다(API 서버 = gcp-gke 출력 dns_endpoint)",
       "needs": [
         "cluster"
       ],
-      "instruction": "gcloud container clusters get-credentials <cluster 출력 name> --location <cluster 출력 location> --dns-endpoint 를 실행기에 준 kubeconfig(KUBECONFIG)에 받는다. 다른 클러스터의 context를 쓰지 않는다. 확인은 kubeconfig 서버와 terraform 출력 endpoint의 대조로 한다.",
+      "instruction": "gcloud container clusters get-credentials <cluster 출력> --location <location 출력> --dns-endpoint 를 실행기에 준 kubeconfig(KUBECONFIG)에 받는다. 다른 클러스터의 context를 쓰지 않는다. 확인은 kubeconfig 서버와 terraform 출력 dns_endpoint의 대조로 한다.",
       "confirm": "cluster-access"
     },
     {
@@ -184,7 +170,7 @@
       "id": "db-secrets",
       "kind": "secret_generate",
       "owner": "T30",
-      "description": "DB 계정 비밀값을 메모리에서 만들어 Kubernetes에만 넣는다",
+      "description": "DB 계정 비밀값(앱 · 복제 · Cutover Executor 제어 로그인)을 메모리에서 만들어 Kubernetes에만 넣는다",
       "needs": [
         "base-sync"
       ],
@@ -209,6 +195,19 @@
           "keys": {
             "username": {
               "literal": "chat_replicator"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        },
+        {
+          "namespace": "${side}-dev",
+          "name": "cutover-db-control",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "cutover_control"
             },
             "password": {
               "random": 32
@@ -352,7 +351,8 @@
       "owner": "A10",
       "description": "GCP Secret Manager SecretStore를 올린다(ESO 컨트롤러의 Workload Identity, bravo- 접두사 비밀만 읽기)",
       "needs": [
-        "eso-sync"
+        "eso-sync",
+        "secret-reader"
       ],
       "path": "secret-store",
       "renders": [

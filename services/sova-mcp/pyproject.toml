@@ -1,0 +1,41 @@
+[project]
+name = "sova-mcp"
+version = "0.1.0"
+description = "SOVA MCP: guided agent surface over the existing T10 store and read APIs"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp==2.3.0",
+    "bravo-platform-events",
+    "httpx>=0.28,<1",
+    "uvicorn>=0.30,<1",
+]
+
+[project.optional-dependencies]
+host = ["bravo-platform-events[postgres]"]
+
+[project.scripts]
+sova-mcp = "sova_mcp.host:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.14,<0.18"]
+
+[tool.uv.sources]
+bravo-platform-events = { path = "../platform-events" }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sova_mcp"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

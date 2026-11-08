@@ -1,0 +1,76 @@
+{
+  "kind": "console-live-observation-qualification.v1",
+  "source_revision": "3b95d0d99cc971c9f327939badf273044c0d5f05",
+  "queried_at": "2026-11-07T15:47:36.195643+00:00",
+  "verified_console_files": 70,
+  "observed_environment_statuses": [
+    {
+      "lane": "source",
+      "status": "UNAVAILABLE"
+    },
+    {
+      "lane": "target",
+      "status": "CURRENT"
+    }
+  ],
+  "rendered_revision": "3",
+  "api_revision": 3,
+  "api_nodes": 19,
+  "rendered_nodes": 19,
+  "rendered_links": 19,
+  "http_probe_links": 1,
+  "operational_plan_connected": false,
+  "authorizes_execution": false,
+  "shared_resource_mutations": 0,
+  "cutover_post_status": 405,
+  "registration_post_status": 405,
+  "browser_javascript_errors": 0,
+  "desktop_horizontal_overflow": false,
+  "python_tests": {
+    "passed": 479,
+    "failed": 0
+  },
+  "javascript_tests": {
+    "passed": 305,
+    "failed": 0
+  },
+  "local_combined_test": {
+    "observation_source": "3b95d0d99cc971c9f327939badf273044c0d5f05",
+    "host_source": "624dfd7b109e308182fcdaec54075ff96b7aacd0",
+    "tree": "0e42feecdcc94ddbecf2482c9c5e9c51d767d3c5",
+    "passed": 498,
+    "failed": 0,
+    "operational_acceptance": false
+  },
+  "wheel": {
+    "sha256": "1b14fd4a70ce33794370baf645edaf69c72db19ac3aff907649857a668730329",
+    "matched_new_runtime_assets": 6
+  },
+  "evidence_summary_only": true,
+  "originals": [
+    {
+      "artifact": "browser-document.json",
+      "sha256": "904f7435d8a9c99ba7b0b1c1dc07dd4603f45352435a7599e0e99baee541fa1a"
+    },
+    {
+      "artifact": "browser-result.json",
+      "sha256": "984c03830ce29ff647e402ee9995b7e6e78183e86f9dbf9eab2ffea4fe3bf29b"
+    },
+    {
+      "artifact": "live-desktop.png",
+      "sha256": "5ad8f1fdc027e4bb49dcee4332208a2068bb8e71577b0b5fb1ad238b0ad33316"
+    },
+    {
+      "artifact": "live-mobile.png",
+      "sha256": "f6773b069f1b8f672ae9cf6fc1e39301d511d97cfcb65cffc64c9092d62c864b"
+    },
+    {
+      "artifact": "python-tests-profile-hardening.log",
+      "sha256": "d2665367a15d56350d96d477e9c9270423840a588d14276e055e87381057b037"
+    },
+    {
+      "artifact": "python-tests-combined-profile.log",
+      "sha256": "74c2a26cf27b47f2fd94b600bbc15f81dee5aa09da0b775309b054f0737fba5b"
+    }
+  ]
+}

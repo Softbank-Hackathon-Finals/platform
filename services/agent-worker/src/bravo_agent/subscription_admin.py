@@ -96,8 +96,8 @@ def run_worker(store, directory, args):
         return _isolated_worker("chatgpt-plan", {"ACCESS_TOKEN": token}, args)
 
 
-def api_key(path: Path) -> str:
-    """Anthropic API key file materialized for the broker user only (from platform OpenBao)."""
+def api_key(path: Path, pattern=r"sk-ant-[A-Za-z0-9_-]{20,4000}") -> str:
+    """API key file (Anthropic, or OpenAI with its pattern) materialized for the broker user only."""
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
@@ -106,7 +106,7 @@ def api_key(path: Path) -> str:
         key = os.read(fd, 4097).decode().strip()
     finally:
         os.close(fd)
-    if re.fullmatch(r"sk-ant-[A-Za-z0-9_-]{20,4000}", key) is None:
+    if re.fullmatch(pattern, key) is None:
         raise AuthFailure("API_KEY_INVALID")
     return key
 
@@ -121,6 +121,16 @@ def run_claude_worker(key_file, directory, args):
         return _isolated_worker("claude", {"ANTHROPIC_API_KEY": api_key(Path(key_file))}, args)
 
 
+def run_openai_worker(key_file, directory, args):
+    """Same isolated T11 worker with the OpenAI Agents SDK provider and a platform API key (T49, 11/8):
+    the ChatGPT-plan login needs a person to re-consent; an API key held by the platform does not."""
+    with broker_lock(directory):
+        return _isolated_worker("openai", {"OPENAI_API_KEY": api_key(Path(key_file), OPENAI_KEY)}, args)
+
+
+OPENAI_KEY = r"sk-(?!ant-)[A-Za-z0-9_-]{20,4000}"  # OpenAI user/project/service-account keys, never Anthropic
+
+
 def _isolated_worker(provider, credential, args):
     with tempfile.TemporaryDirectory(prefix="bravo-subscription-") as temp:
         command = [sys.executable, "-m", "bravo_agent.cli", "analyze", "--provider", provider,
@@ -130,6 +140,9 @@ def _isolated_worker(provider, credential, args):
         # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
         if getattr(args, "inventory", None) is not None:
             command += ["--inventory", str(args.inventory.absolute())]
+        # Optional T44 desired state of the target environment: enables infra.plan.
+        if getattr(args, "iac_state", None) is not None:
+            command += ["--iac-state", str(args.iac_state.absolute())]
         if getattr(args, "reasoning_effort", None) is not None:
             command += ["--reasoning-effort", args.reasoning_effort]
         if getattr(args, "sandbox_image", None) is not None:

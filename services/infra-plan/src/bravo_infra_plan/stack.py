@@ -73,6 +73,21 @@ class Stack:
                 params[name]["pattern"] = spec["pattern"]
             if "enum" in spec:
                 params[name]["enum"] = spec["enum"]
+        specs = self.document["params"]
+        required = sorted(n for n, spec in specs.items() if "default" not in spec and "required_when" not in spec)
+        conditional = []
+        for name, spec in sorted(specs.items()):
+            if "required_when" not in spec:
+                continue
+            when = spec["required_when"]
+            # The condition holds when the parameter has one of the values, or is omitted and defaults to one.
+            holds = [{"required": [when["param"]], "properties": {when["param"]: {"enum": when["in"]}}}]
+            if specs[when["param"]].get("default") in when["in"]:
+                holds.append({"not": {"required": [when["param"]]}})
+            conditional.append({"if": {"anyOf": holds}, "then": {"required": [name]}})
+        params_schema = {"type": "object", "additionalProperties": False, "required": required, "properties": params}
+        if conditional:
+            params_schema["allOf"] = conditional
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
@@ -81,8 +96,7 @@ class Stack:
             "properties": {
                 "stack": {"const": self.name},
                 "environment_id": {"type": "string", "pattern": IDENTIFIER},
-                "params": {"type": "object", "additionalProperties": False,
-                           "required": sorted(params), "properties": params},
+                "params": params_schema,
             },
         }
 
@@ -91,7 +105,16 @@ class Stack:
             jsonschema.Draft202012Validator(self.request_schema()).validate(request)
         except jsonschema.ValidationError as error:
             raise StackError("invalid_plan_request") from error
-        return json.loads(canonical(request))
+        request = json.loads(canonical(request))
+        # Defaults are written into the request, so the plan (and its digest) names every value it used.
+        for name, spec in self.document["params"].items():
+            if "default" in spec:
+                request["params"].setdefault(name, spec["default"])
+        return request
+
+    def applies(self, step_id, params) -> bool:
+        when = self.steps[step_id].get("when")
+        return when is None or params[when["param"]] in when["in"]
 
 
 # A stack without an `environment` block is the first one (target-onprem): these are its names.
@@ -129,7 +152,24 @@ def parse_stack(document) -> Stack:
         jsonschema.Draft202012Validator(_schema()).validate(document)
     except jsonschema.ValidationError as error:
         raise StackError("invalid_stack") from error
+    for spec in document["params"].values():
+        if "default" in spec and "enum" in spec and spec["default"] not in spec["enum"]:
+            raise StackError("invalid_parameter_default")
+        when = spec.get("required_when")
+        if when is not None:
+            decider = document["params"].get(when["param"])
+            # Like a step condition: a closed set decides it, and an optional value has no default.
+            if decider is None or "enum" not in decider or not set(when["in"]) <= set(decider["enum"]) \
+                    or "default" in spec or "required_when" in decider:
+                raise StackError("invalid_parameter_condition")
     steps = document["steps"]
+    for step in steps:
+        when = step.get("when")
+        if when is not None:
+            spec = document["params"].get(when["param"])
+            # Only a closed set of values can decide which steps exist; a free-form value cannot.
+            if spec is None or "enum" not in spec or not set(when["in"]) <= set(spec["enum"]):
+                raise StackError("invalid_step_condition")
     ids = [step["id"] for step in steps]
     if len(set(ids)) != len(ids):
         raise StackError("duplicate_step")
@@ -158,10 +198,26 @@ def parse_stack(document) -> Stack:
         for name in PLACEHOLDER.findall(json.dumps(step)):
             if name not in document["params"]:
                 raise StackError("unknown_parameter")
+            # A conditionally required value is only substituted in steps planned under that condition.
+            needed = document["params"][name].get("required_when")
+            when = step.get("when")
+            if needed is not None and (when is None or when["param"] != needed["param"]
+                                       or not set(when["in"]) <= set(needed["in"])):
+                raise StackError("conditional_parameter_outside_condition")
+    # A10 (ADR-0034): the environment block is read by every check of the run, so its names may only
+    # use parameters every request has.
     environment = document.get("environment", {})
     for name in PLACEHOLDER.findall(json.dumps(environment)):
         if name not in document["params"]:
             raise StackError("unknown_parameter")
+        if document["params"][name].get("required_when") is not None:
+            raise StackError("conditional_parameter_outside_condition")
+    # onprem checks (RKE2 destination) read the target-onprem names; another name would be checked against
+    # the wrong objects, and an onprem cluster already exists (no endpoint to bind to).
+    if environment.get("kind") == "onprem" and (
+            "cluster_endpoint" in environment
+            or any(environment.get(k, v) != v for k, v in ONPREM_DEFAULTS.items() if k != "kind")):
+        raise StackError("onprem_environment_names_fixed")
     endpoint = environment.get("cluster_endpoint")
     if endpoint is not None and by_id.get(endpoint["from"], {}).get("kind") != "terraform":
         raise StackError("cluster_endpoint_without_terraform")

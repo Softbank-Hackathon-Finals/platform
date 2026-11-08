@@ -25,14 +25,15 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 
-from .applications import application, application_name, project
+from .applications import application, application_name, default_namespace, project
 from .plan import Planner
 from .stack import StackError, canonical, environment_of, sha256_text, substitute
 from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
-DONE = frozenset({SKIPPED, APPLIED})
+OMITTED = "OMITTED"  # the approved plan left this step out (`when`); it never runs
+DONE = frozenset({SKIPPED, APPLIED, OMITTED})
 
 
 class StepOutcome(Exception):
@@ -75,23 +76,30 @@ class Executor:
 
     # --- entry points -------------------------------------------------------------------------
 
-    def start(self, *, request, migration_plan_id, approval_id, run_id, started_by):
+    def start(self, *, request, migration_plan_id, approval_id, run_id, started_by, infra_plan_id, requested_by):
+        """`infra_plan_id` and `requested_by` are the plan record's; with the re-rendered digest they
+        form the whole binding the T10 approval must equal (#603 review: a digest alone is not enough)."""
         if self.store.exists(run_id):
             return self.store.load(run_id)
         target = self.identity(request["params"])
         head = self.repo.head() if self.repo is not None else "0" * 40  # a stack without publish steps
         plan = self.planner.plan(request, stack_revision=self.stack_revision, target=target, base_commit=head)
+        binding = {"infra_plan_id": infra_plan_id, "plan_digest": plan.plan_digest, "requested_by": requested_by}
         run = dict(run_id=run_id, migration_plan_id=migration_plan_id, approval_id=approval_id,
-                   plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
+                   binding=binding, plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
                    files=plan.files, head=head, commits={}, confirmations={}, started_by=started_by,
                    created_at=self.clock(), status=PENDING,
-                   steps={s["id"]: {"status": PENDING} for s in plan.document["steps"]})
+                   steps={s["id"]: {"status": OMITTED if s.get("omitted") else PENDING}
+                          for s in plan.document["steps"]})
         approval = self.approvals.read(migration_plan_id, approval_id)
-        if approval.get("binding", {}).get("plan_digest") != plan.plan_digest:
+        approved = approval.get("binding") or {}
+        if approved.get("plan_digest") != plan.plan_digest:
             return self._refuse(run, "plan_digest_mismatch")
+        if approved != binding:
+            return self._refuse(run, "binding_mismatch")  # same digest, another plan record or requester
         if approval.get("revoked") or approval.get("claimed_run_id") not in (None, run_id):
             return self._refuse(run, "approval_unusable")
-        claim = self.approvals.claim(migration_plan_id, approval_id, run_id=run_id, plan_digest=plan.plan_digest)
+        claim = self.approvals.claim(migration_plan_id, approval_id, run_id=run_id, binding=binding)
         run["claim"] = {k: claim[k] for k in ("approved_by", "claimed_by", "claimed_at") if k in claim}
         self.store.save(run)
         self.ledger({"event": "infra.run.started", "run_id": run_id, "plan_digest": plan.plan_digest,
@@ -123,8 +131,10 @@ class Executor:
         approval = self.approvals.read(run["migration_plan_id"], run["approval_id"])
         if approval.get("revoked") or approval.get("claimed_run_id") != run["run_id"]:
             return self._hold(run, "approval_revoked")
+        if "binding" not in run:
+            return self._hold(run, "run_binding_missing")  # a run stored before the whole binding was kept
         self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"],
-                             plan_digest=run["plan_digest"])
+                             binding=run["binding"])
         if self.repo is not None and self.repo.head() != run["head"]:
             return self._hold(run, "config_repo_moved")
         for state in run["steps"].values():
@@ -169,18 +179,24 @@ class Executor:
                 finished, _ = wait(futures, return_when=FIRST_COMPLETED)
                 for future in finished:
                     step_id = futures.pop(future)
+                    error = None
                     try:
                         status, reason = future.result(), None
                     except StepOutcome as outcome:
                         status, reason = outcome.status, outcome.reason
-                    except StackError as error:
-                        status, reason = FAILED, str(error)
-                    except Exception:  # an adapter error is not a verdict: hold for a human
+                    except StackError as error_:
+                        status, reason = FAILED, str(error_)
+                    except Exception as error_:  # an adapter error is not a verdict: hold for a human
                         status, reason = HOLD, "adapter_error"
+                        # Which adapter call failed, so nobody reads process logs to find out. Adapters raise
+                        # RuntimeError with fixed messages; other types are named only (their text may carry argv).
+                        error = type(error_).__name__ + (f": {error_}"[:160] if type(error_) is RuntimeError else "")
                     with self._lock:
                         states[step_id].update(status=status, ended_at=self.clock())
                         if reason:
                             states[step_id]["reason"] = reason
+                        if error:
+                            states[step_id]["error"] = error
                         self.ledger({"event": "infra.step", "run_id": run["run_id"], "step": step_id,
                                      "status": status, "reason": reason, "at": states[step_id]["ended_at"]})
         with self._lock:
@@ -211,9 +227,15 @@ class Executor:
     # --- step kinds ---------------------------------------------------------------------------
 
     def _probe(self, run, step):
-        if self.checks.check(step["check"], run) is True:
-            return APPLIED
-        raise StepOutcome(FAILED, "check_failed")
+        """Read once, or with `timeout_seconds` keep reading until it holds: some states appear only after
+        the sync that precedes them (the Tailscale operator logs in after its Deployment is Healthy)."""
+        deadline = self.monotonic() + step.get("timeout_seconds", 0)
+        while True:
+            if self.checks.check(step["check"], run) is True:
+                return APPLIED
+            if self.monotonic() >= deadline:
+                raise StepOutcome(FAILED, "check_failed")
+            self.sleep(self.poll)
 
     def _operator_action(self, run, step):
         observed = self.checks.check(step["confirm"], run)
@@ -245,7 +267,8 @@ class Executor:
             self.store.save(run)  # the new head is durable before anything else can fail
         published = {k: v for k, v in run["files"].items() if _steps(run)[k]["kind"] == "gitops_publish"}
         manifests = [project(stack, repo_url=self.repo_url, files=published),
-                     application(stack, step["path"], repo_url=self.repo_url, revision=commit)]
+                     application(stack, step["path"], repo_url=self.repo_url, revision=commit,
+                                 namespace=default_namespace(files))]
         if self.cluster.diff(manifests):
             self.cluster.apply(manifests)
             status = APPLIED
@@ -259,10 +282,11 @@ class Executor:
         if expected is None:
             raise StepOutcome(HOLD, "publish_commit_unknown")
         deadline = self.monotonic() + step["timeout_seconds"]
+        accepted = set(step.get("health", ["Healthy"]))
         while True:
             status = self.cluster.application_status(name)
             if status and status.get("revision") == expected and status.get("sync") == "Synced" \
-                    and status.get("health") == "Healthy":
+                    and status.get("health") in accepted:
                 return APPLIED
             if self.monotonic() >= deadline:
                 raise StepOutcome(HOLD, "sync_timeout")
@@ -295,9 +319,26 @@ class Executor:
 
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]
+        if step.get("create_only"):
+            return self._create_only(items)
         if not self.cluster.diff(items):
             return SKIPPED
         self.cluster.apply(items)
+        return APPLIED
+
+    def _create_only(self, items):
+        """Make what is missing; never take over a live object (no server-side apply, no field
+        ownership). Equal to the plan: SKIPPED. Different (someone tuned it, T12 runs it): HOLD."""
+        missing = []
+        for item in items:
+            live = self.cluster.get_object(item)
+            if live is None:
+                missing.append(item)
+            elif not _contained(item.get("spec", {}), live.get("spec", {})):
+                raise StepOutcome(HOLD, "live_object_differs")
+        if not missing:
+            return SKIPPED
+        self.cluster.create(missing)
         return APPLIED
 
     def _secret_generate(self, run, step):
@@ -338,6 +379,13 @@ class Executor:
 
 def _params(run):
     return run.get("plan", {}).get("request", {}).get("params", {})
+
+
+def _contained(want, have):
+    """Every field the plan renders has the same value live (fields the plan does not render may differ)."""
+    if isinstance(want, dict):
+        return isinstance(have, dict) and all(k in have and _contained(v, have[k]) for k, v in want.items())
+    return want == have
 
 
 def _planned(run, step):

@@ -60,7 +60,7 @@ def _executor(args, stack):
     return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir), terraform=terraform),
                     stack_revision=revision, cluster=cluster,
                     repo=GitConfigRepo(args.config_repo, args.config_branch, args.config_workdir),
-                    approvals=approvals, checks=ClusterChecks(cluster, outputs=outputs), store=store,
+                    approvals=approvals, checks=ClusterChecks(cluster, repo_root, outputs=outputs), store=store,
                     repo_url=args.argo_repo_url or args.config_repo, ledger=ledger,
                     identity=identity_for(stack.kind, cluster), terraform=terraform)
 
@@ -121,6 +121,9 @@ def main(argv=None):
     run.add_argument("--approval-id", required=True)
     run.add_argument("--run-id", required=True)
     run.add_argument("--started-by", required=True)
+    # With the re-rendered digest these form the whole binding the T10 approval must equal.
+    run.add_argument("--infra-plan-id", required=True, help="the approved binding's infra_plan_id")
+    run.add_argument("--requested-by", required=True, help="the approved binding's requested_by")
     _executor_args(run)
     confirm = sub.add_parser("confirm", help="record that a human finished an operator step, then resume")
     confirm.add_argument("stack")
@@ -152,7 +155,8 @@ def main(argv=None):
         if args.command == "run":
             result = _executor(args, stack).start(
                 request=json.loads(Path(args.request).read_text()), migration_plan_id=args.migration_plan_id,
-                approval_id=args.approval_id, run_id=args.run_id, started_by=args.started_by)
+                approval_id=args.approval_id, run_id=args.run_id, started_by=args.started_by,
+                infra_plan_id=args.infra_plan_id, requested_by=args.requested_by)
             print(json.dumps(_summary(result), indent=2))
             return 0 if result["status"] in ("SUCCEEDED", "WAITING_OPERATOR") else 3
         if args.command == "confirm":

@@ -77,3 +77,21 @@ def test_build_rejects_missing_package(repository, tmp_path):
     revision = commit(repository)
     with pytest.raises(ValueError, match="committed_source_missing"):
         build.copy_committed_tree(revision, "src/package/", tmp_path / "context")
+
+
+def test_security_package_comes_from_the_exact_external_commit(tmp_path, monkeypatch):
+    upstream = tmp_path / "security"
+    package = upstream / "src/sova_security"
+    package.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(upstream)], check=True)
+    (package / "contract.py").write_text("PINNED = True\n")
+    subprocess.run(["git", "-C", str(upstream), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(upstream), "-c", "user.name=Fixture",
+                    "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"], check=True)
+    revision = subprocess.check_output(["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True).strip()
+    (package / "contract.py").write_text("UNCOMMITTED = True\n")
+    monkeypatch.setattr(build, "SECURITY_REPOSITORY", str(upstream))
+    monkeypatch.setattr(build, "SECURITY_REVISION", revision)
+    destination = tmp_path / "context/sova_security"
+    build.copy_security_tree(destination)
+    assert (destination / "contract.py").read_text() == "PINNED = True\n"

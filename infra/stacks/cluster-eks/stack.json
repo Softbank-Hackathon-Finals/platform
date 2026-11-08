@@ -182,7 +182,7 @@
       "id": "db-secrets",
       "kind": "secret_generate",
       "owner": "T30",
-      "description": "DB 계정 비밀값을 메모리에서 만들어 Kubernetes에만 넣는다",
+      "description": "DB 계정 비밀값(앱 · 복제 · Cutover Executor 제어 로그인)을 메모리에서 만들어 Kubernetes에만 넣는다",
       "needs": [
         "base-sync"
       ],
@@ -207,6 +207,19 @@
           "keys": {
             "username": {
               "literal": "chat_replicator"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        },
+        {
+          "namespace": "${side}-dev",
+          "name": "cutover-db-control",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "cutover_control"
             },
             "password": {
               "random": 32

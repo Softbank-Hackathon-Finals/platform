@@ -122,7 +122,12 @@ class Planner:
         steps, files, tree = [], {}, {}
         for step in self.stack.document["steps"]:
             entry = {"id": step["id"], "kind": step["kind"], "owner": step["owner"], "needs": step.get("needs", [])}
-            if step["kind"] in ("gitops_publish", "render_apply"):
+            if not self.stack.applies(step["id"], params):
+                # Not part of this target (its `when` does not match): nothing renders, nothing runs,
+                # and the omission itself is inside plan_digest, so an approval covers it.
+                entry["omitted"] = True
+                entry["digest"] = sha256_text(canonical(step))
+            elif step["kind"] in ("gitops_publish", "render_apply"):
                 rendered = self._render_step(step, params)
                 files[step["id"]] = rendered
                 entry["files"] = {name: sha256_text(text) for name, text in sorted(rendered.items())}
@@ -136,7 +141,7 @@ class Planner:
                                                          "change_set": entry["change_set"]}))
             elif step["kind"] == "operator_action" and "desired" in step:
                 # The values a person must use come from T44's desired state, bound into the plan.
-                entry["desired"] = self._desired(step["desired"])
+                entry["desired"] = self._desired(step["desired"], request["environment_id"])
                 entry["digest"] = sha256_text(canonical({"step": step, "desired": entry["desired"]}))
             else:
                 entry["digest"] = sha256_text(canonical(step))
@@ -203,8 +208,17 @@ class Planner:
             raise
         return planned["change_set"], planned["changes"]
 
-    def _desired(self, spec):
-        state = json.loads(self._repo_file(spec["file"]).read_text())
+    def _desired(self, spec, environment_id):
+        """The environment's own desired state: a missing file refuses the plan rather than borrowing
+        another environment's (2026-11-07 류지환 #642 review: target-dev's open-demo leaked into others)."""
+        relative = spec["file"].replace("{environment_id}", environment_id)
+        try:
+            path = self._repo_file(relative)
+        except StackError:
+            raise StackError("desired_state_unavailable") from None
+        state = json.loads(path.read_text())
+        if state.get("environment") not in (None, environment_id):
+            raise StackError("desired_state_environment_mismatch")
         modules = [m for m in state.get("modules", []) if m.get("id") == spec["module"]]
         if len(modules) != 1:
             raise StackError("desired_module_unavailable")

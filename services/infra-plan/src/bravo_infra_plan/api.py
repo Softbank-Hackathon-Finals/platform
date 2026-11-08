@@ -40,9 +40,10 @@ def plan_view(plan_id, document, requested_by, stack):
         "stack": document["stack"], "stack_revision": document["stack_revision"],
         "base_commit": document["base_commit"], "target": document["target"], "levels": document["levels"],
         "steps": [{k: s[k] for k in ("id", "kind", "owner", "needs", "digest")} | (
-            {"files": s["files"]} if "files" in s else {}) for s in document["steps"]],
+            {"files": s["files"]} if "files" in s else {}) | ({"omitted": True} if s.get("omitted") else {})
+            for s in document["steps"]],
         "operator_actions": [{"id": s["id"], "instruction": steps[s["id"]]["instruction"]}
-                             for s in document["steps"] if s["kind"] == "operator_action"],
+                             for s in document["steps"] if s["kind"] == "operator_action" and not s.get("omitted")],
         "binding": {"infra_plan_id": plan_id, "plan_digest": document["plan_digest"], "requested_by": requested_by},
     }
 
@@ -125,7 +126,7 @@ def create_app(*, stack, plans, executor_for, resolve_principal):
         # The executor re-renders and refuses unless the result equals the approved digest.
         launch(run_id, executor.start, request=saved["document"]["request"],
                migration_plan_id=body.migration_plan_id, approval_id=body.approval_id, run_id=run_id,
-               started_by=who.subject_id)
+               started_by=who.subject_id, infra_plan_id=plan_id, requested_by=saved["requested_by"])
         return {"run_id": run_id, "status": "ACCEPTED"}
 
     @app.get("/v1/infra/runs/{run_id}")
