@@ -13,6 +13,7 @@ Create these outside Git before enabling `securityReview` in the Argo CD bootstr
 | database Secret | `dsn`; dedicated SELECT-only reader using verify-full TLS |
 | grants ConfigMap | `grants.json`; exact caller SA UID, scope, `enforce`, and expiry |
 | API CA ConfigMap | `ca.crt`; platform Kubernetes API trust root |
+| `tokenReview.reviewerAudience` | current API server OIDC issuer/audience; distinct from the reviewed client audience |
 | audit storage | pre-provisioned `platform-local` volume from `infra/envs/platform-security-review` |
 | registry Secret | private GHCR pull credential |
 
@@ -24,6 +25,10 @@ Service DNAT on the platform Calico path, so `tokenReview.apiAddress` and `apiPo
 endpoint rather than the `kubernetes` ClusterIP. The chart renders only DNS, that API `/32`, and the registered
 database `/32` as egress. The caller ingress and T15 egress remain in
 `infra/envs/rehearsal-access/rehearsal-host-network.yaml`.
+
+The projected reviewer token uses `tokenReview.reviewerAudience`, while client tokens continue to use
+`registered-security-review-audience`. Reusing the client audience for the API caller makes the Kubernetes API
+reject the reviewer with HTTP 401 and is not a supported fallback.
 
 ## Enable and accept
 
