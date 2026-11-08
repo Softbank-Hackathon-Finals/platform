@@ -87,8 +87,11 @@ export const CODE_TEXT: Record<string, string> = {
   desktop_only: '본인 SSO·tailnet 신원이 필요해 데스크톱 앱에서 합니다.',
   access_required: 'Cloudflare Access 로그인이 만료됐습니다. 페이지를 새로 고치면 다시 로그인합니다.',
 };
-export const explain = (e: unknown) =>
-  e instanceof SovaError ? CODE_TEXT[e.code] ?? e.hint ?? e.code : String((e as Error)?.message ?? e);
+export const explain = (e: unknown) => {
+  // A SovaError, or a plain { code, hint } from the link status.
+  const c = e instanceof SovaError || (e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string') ? e as { code: string; hint?: string } : null;
+  return c ? CODE_TEXT[c.code] ?? c.hint ?? c.code : String((e as Error)?.message ?? e);
+};
 
 export const ago = (iso?: string | null) => {
   if (!iso) return '—';
