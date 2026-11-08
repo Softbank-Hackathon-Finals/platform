@@ -123,16 +123,19 @@ def test_executor_does_not_need_to_know_the_kind(store, monkeypatch, kinds):
 
 
 def test_no_executor_module_reads_the_kind():
-    """판정 · 실행 코드는 Site.kind를 읽지 않는다(필드 정의는 sites.py에만 있다)."""
+    """판정 · 실행 코드는 Site.kind를 읽지 않는다(필드 정의는 sites.py에만 있다).
+
+    잡는 것은 속성 읽기(`site.kind`)와 `getattr(site, "kind")`뿐이다. 문서의 "kind" 키(Kubernetes 객체의
+    Cluster · Deployment · Job, readiness.py의 관찰 문서 종류 등)는 Site 필드가 아니라 잡지 않는다."""
     readers = []
     for path in PACKAGE.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Attribute) and node.attr == "kind":
                 readers.append(f"{path.relative_to(PACKAGE)}:{node.lineno}")
-            if isinstance(node, ast.Constant) and node.value == "kind" and path.name != "sites.py":
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and node.args[1].value == "kind"):
                 readers.append(f"{path.relative_to(PACKAGE)}:{node.lineno}")
-    allowed = {"prepare.py", "deploy.py"}  # Kubernetes 객체의 "kind" 칸(Cluster · Deployment · Job …)
-    assert [r for r in readers if r.split(":")[0] not in allowed] == []
+    assert readers == []
 
 
 @pytest.mark.skipif(not CONTRACT.exists(), reason="environment-kinds.json 계약 없음")
