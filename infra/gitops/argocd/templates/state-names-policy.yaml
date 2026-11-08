@@ -1,4 +1,21 @@
-{{- if or .Values.publicEntry.enabled .Values.observability.enabled }}
+{{- if or .Values.publicEntry.enabled .Values.observability.enabled .Values.securityReview.enabled }}
+{{- $configMaps := list }}
+{{- $networkPolicies := list }}
+{{- $persistentVolumeClaims := list }}
+{{- $externalSecrets := list }}
+{{- if .Values.publicEntry.enabled }}
+{{- $configMaps = append $configMaps "public-entry-spec" }}
+{{- $networkPolicies = append $networkPolicies "public-entry" }}
+{{- $externalSecrets = append $externalSecrets "public-entry-cloudflare" }}
+{{- end }}
+{{- if .Values.observability.enabled }}
+{{- $networkPolicies = append $networkPolicies "bravo-collector-db-metrics" }}
+{{- end }}
+{{- if .Values.securityReview.enabled }}
+{{- $configMaps = append $configMaps "security-review-config" }}
+{{- $networkPolicies = append $networkPolicies "security-review-egress" }}
+{{- $persistentVolumeClaims = append $persistentVolumeClaims "security-review-audit" }}
+{{- end }}
 # platform-state objects the controller may write besides workloads, by name. Other namespaces are not matched here:
 # the observability namespaces are dedicated to that bundle and bounded by their own Role.
 apiVersion: admissionregistration.k8s.io/v1
@@ -12,7 +29,7 @@ spec:
       - apiGroups: ["", networking.k8s.io, external-secrets.io]
         apiVersions: ["*"]
         operations: [CREATE, UPDATE, DELETE]
-        resources: [configmaps, networkpolicies, externalsecrets]
+        resources: [configmaps, persistentvolumeclaims, networkpolicies, externalsecrets]
   matchConditions:
     - name: gitops-controller
       expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller'"
@@ -21,10 +38,11 @@ spec:
   validations:
     - expression: >-
         (object != null ? object.metadata.name : oldObject.metadata.name) in
-        (request.resource.resource == 'configmaps' ? [{{ if .Values.publicEntry.enabled }}'public-entry-spec'{{ end }}] :
-         request.resource.resource == 'networkpolicies' ? [{{ if .Values.publicEntry.enabled }}'public-entry', {{ end }}{{ if .Values.observability.enabled }}'bravo-collector-db-metrics'{{ end }}] :
-         [{{ if .Values.publicEntry.enabled }}'public-entry-cloudflare'{{ end }}])
-      message: In platform-state this controller may write only the named public entry and Collector objects.
+        (request.resource.resource == 'configmaps' ? {{ $configMaps | toJson }} :
+         request.resource.resource == 'persistentvolumeclaims' ? {{ $persistentVolumeClaims | toJson }} :
+         request.resource.resource == 'networkpolicies' ? {{ $networkPolicies | toJson }} :
+         {{ $externalSecrets | toJson }})
+      message: In platform-state this controller may write only explicitly adopted state objects.
     - expression: >-
         object == null || request.resource.resource != 'externalsecrets' ||
         (object.spec.secretStoreRef.name == 'cloudflare-gitops-reader' && object.spec.target.name == 'public-entry-cloudflare')

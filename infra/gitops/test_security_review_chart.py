@@ -6,6 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "infra/charts/security-review"
+GITOPS_CHART = ROOT / "infra/gitops/argocd"
 DIGEST = "sha256:" + "a" * 64
 REVISION = "b" * 40
 
@@ -21,6 +22,15 @@ def render():
         "--set", "configMaps.apiCA=security-review-api-ca",
     ], check=True, capture_output=True, text=True)
     return list(yaml.safe_load_all(result.stdout))
+
+
+def render_gitops():
+    result = subprocess.run([
+        "helm", "template", "bravo-gitops", str(GITOPS_CHART), "--namespace", "bravo-gitops",
+        "--set", "publicEntry.enabled=true", "--set", "observability.enabled=true",
+        "--set", "securityReview.enabled=true",
+    ], check=True, capture_output=True, text=True)
+    return [item for item in yaml.safe_load_all(result.stdout) if item]
 
 
 def test_review_workload_has_only_projected_review_identity_and_read_only_runtime():
@@ -52,3 +62,20 @@ def test_review_service_and_network_are_private_and_explicit():
     assert egress[1]["to"][0]["ipBlock"]["cidr"] == "10.43.0.1/32"
     assert egress[2]["to"][0]["ipBlock"]["cidr"] == "10.43.10.10/32"
     assert policy["spec"]["policyTypes"] == ["Egress"]
+
+
+def test_gitops_admission_and_rbac_allow_only_named_review_state_objects():
+    documents = render_gitops()
+    policy = next(item for item in documents if item["kind"] == "ValidatingAdmissionPolicy"
+                  and item["metadata"]["name"] == "platform-gitops-state-names")
+    rule, = policy["spec"]["matchConstraints"]["resourceRules"]
+    assert "persistentvolumeclaims" in rule["resources"]
+    expression = policy["spec"]["validations"][0]["expression"]
+    for name in ("security-review-config", "security-review-egress", "security-review-audit"):
+        assert name in expression
+
+    role = next(item for item in documents if item["kind"] == "Role"
+                and item["metadata"]["name"] == "platform-gitops-security-review")
+    create_rules = [rule for rule in role["rules"] if "create" in rule["verbs"]]
+    assert any(rule["resources"] == ["persistentvolumeclaims"]
+               and "resourceNames" not in rule for rule in create_rules)
