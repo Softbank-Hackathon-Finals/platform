@@ -47,6 +47,17 @@ resource "aws_vpc_security_group_egress_rule" "https" {
   to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
 }
+# Argo CD UI tunnel (infra/envs/argocd-exposure): cloudflared dials only Cloudflare's tunnel edge on 7844.
+# Ranges are Cloudflare's published tunnel edge (region1/region2); nothing else opens beyond HTTPS.
+resource "aws_vpc_security_group_egress_rule" "cloudflare_tunnel" {
+  for_each          = toset(["198.41.192.0/24", "198.41.200.0/24"])
+  security_group_id = aws_security_group.node.id
+  description       = "Outbound Cloudflare Tunnel edge (Argo CD UI connector)"
+  ip_protocol       = "tcp"
+  from_port         = 7844
+  to_port           = 7844
+  cidr_ipv4         = each.value
+}
 resource "aws_iam_role" "node" {
   name = var.name
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{

@@ -231,6 +231,7 @@ def test_static_assets_are_allowlisted_and_no_remote_scripts(fixture):
             "/console/app.js",
             "/console/transport.js",
             "/console/style.css",
+            "/console/workspace.js",
         ):
             response = c.get(path)
             assert (

@@ -1,0 +1,15 @@
+{
+  "apiVersion": "cert-manager.io/v1",
+  "kind": "ClusterIssuer",
+  "metadata": {
+    "name": "bravo-app-telemetry-bootstrap",
+    "labels": {
+      "tier": "observability",
+      "role": "collector",
+      "domain": "customer"
+    }
+  },
+  "spec": {
+    "selfSigned": {}
+  }
+}

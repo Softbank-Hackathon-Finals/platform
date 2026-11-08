@@ -1,0 +1,77 @@
+{{- if .Values.observability.enabled }}
+{{- range $ns := list "bravo-observability" "platform-telemetry" }}
+# Dedicated observability namespace: the controller manages the bundle's kinds here (names carry content hashes).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-observability
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-observability
+  namespace: {{ $ns }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-observability}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ $.Release.Namespace }}}
+---
+{{- end }}
+# platform-state: the controller writes only the DB metrics NetworkPolicy. The platform Collector's Pod discovery
+# Role/RoleBinding below belong to this release: Argo syncs RBAC with kubectl auth reconcile, which needs a
+# cluster-scoped namespace get that this controller does not have.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: platform-state
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bravo-collector-db-discovery}
+subjects:
+  - {kind: ServiceAccount, name: bravo-collector, namespace: platform-telemetry}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-observability
+  namespace: platform-state
+rules:
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [bravo-collector-db-metrics]
+    verbs: [update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-observability
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-observability}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}

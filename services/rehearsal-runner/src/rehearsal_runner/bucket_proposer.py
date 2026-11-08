@@ -42,8 +42,12 @@ def validate_coordinator_attempt(coordinator: Coordinator, *, run_id: str, sourc
             or type(coordinator.attempt) is not int or coordinator.attempt != attempt - 1):
         raise ValueError("task and coordinator mismatch")
     if attempt == 1:
+        summary = getattr(bundle, "summary", None)
+        # T10's initial model input appends one inventory line (initial_model_input.py); nothing else may differ.
+        finding = summary[len(initial_summary):] if isinstance(summary, str) and summary.startswith(initial_summary) else None
         if (coordinator.state != "READY" or feedback_digest is not None
-                or getattr(bundle, "summary", None) != initial_summary):
+                or not (finding == "" or (finding or "").startswith("\nInventory finding: ")
+                        and "\n" not in finding[1:])):
             raise ValueError("invalid initial proposal context")
     elif (coordinator.state != "RETRY_ALLOWED" or not isinstance(feedback_digest, str)
           or re.fullmatch(r"[a-f0-9]{64}", feedback_digest) is None

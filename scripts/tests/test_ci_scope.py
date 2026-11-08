@@ -204,6 +204,13 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(plan["projects"], [{"path": "services/a", "kind": "python"}])
         self.assertFalse(plan["infra"])
 
+    def test_infra_json_runs_repository_tool_tests(self):
+        # scripts/tests read infra JSON: every tailnet tag must be denied the collector port (#912 review).
+        for changed in ("infra/iac/environments/platform.json", "infra/tailnet/routes-policy.json"):
+            with self.subTest(changed=changed):
+                plan = scope.select(FILES, [changed])
+                self.assertTrue(plan["infra"] and plan["scripts"])
+
     def test_tf_checks_infra_without_services(self):
         plan = scope.select(FILES, ["infra/modules/network/aws/main.tf"])
         self.assertTrue(plan["infra"])

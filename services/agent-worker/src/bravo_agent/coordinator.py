@@ -25,7 +25,7 @@ ATTEMPT_FIELDS = frozenset({
     "audit_truncated", "proposal", "proposal_digest",
 })
 # ``observability`` is the OTEL trace reference telemetry.py sets on Tools; ``verification`` the receipt.
-OPTIONAL_ATTEMPT_FIELDS = frozenset({"observability", "verification"})
+OPTIONAL_ATTEMPT_FIELDS = frozenset({"observability", "verification", "infra_plans"})
 # Bounds a stored document, measured as UTF-8 (not ``\uXXXX`` escapes). Worst case on the normal
 # path is three proposals of four 32,768-character edits that JSON still escapes (6 bytes each),
 # about 2.4 MB, plus three attempts of 128 events and verifier/restart events.
@@ -35,6 +35,14 @@ MAX_AUDIT_EVENTS = 3 * 129 + 8
 
 class Provider(Protocol):
     async def propose(self, bundle: FailureBundle, tools: Tools) -> None: ...
+
+
+def _infra_plans(value) -> bool:
+    """The T44 plans bound to an attempt: at most the tool's 8, each {module, params, plan}."""
+    return (isinstance(value, list) and 1 <= len(value) <= 8
+            and all(isinstance(p, dict) and set(p) == {"module", "params", "plan"} and isinstance(p["module"], str)
+                    and isinstance(p["params"], dict) and isinstance(p["plan"], dict)
+                    and isinstance(p["plan"].get("plan_digest"), str) for p in value))
 
 
 class StateRejected(ValueError):
@@ -60,12 +68,13 @@ def _decide(receipt: VerificationReceipt, task: FailureBundle, proposal_digest: 
 
 class Coordinator:
     def __init__(self, bundle: FailureBundle, snapshot: Snapshot, inventory: InventorySummary | None = None,
-                 checkpoint: Callable[[dict], None] | None = None):
+                 checkpoint: Callable[[dict], None] | None = None, iac=None):
         if bundle.source_sha != snapshot.manifest.source_sha:
             raise ValueError("source revision mismatch")
         if inventory is not None and inventory.source_sha != bundle.source_sha:
             raise ValueError("inventory revision mismatch")
         self.bundle, self.snapshot, self.inventory = bundle, snapshot, inventory
+        self.iac = iac  # T44 planning port from the trusted control path; None: no infra.plan tool
         self.task = bundle  # kept across retries; ``bundle`` becomes the verifier's feedback
         self.attempt = 0
         self.state = "READY"
@@ -92,7 +101,8 @@ class Coordinator:
         if self.state not in {"READY", "RETRY_ALLOWED"} or self.attempt >= MAX_ATTEMPTS:
             raise ValueError("proposal not allowed in this state")
         self.attempt += 1
-        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory, task=self.task)
+        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory, task=self.task,
+                      iac=self.iac)
         self.proposal = None
         self.state = "ANALYZING"
         try:
@@ -126,6 +136,9 @@ class Coordinator:
                               "state": self.state,
                               "model_usage": dict(tools.usage),
                               **({"observability": tools.observability} if hasattr(tools, "observability") else {}),
+                              # T44: each infra.plan the model asked for, bound to this attempt's result
+                              # (module, params, the deterministic plan); T10 approves one by plan_digest.
+                              **({"infra_plans": list(tools.infra_plans)} if tools.infra_plans else {}),
                               "audit_event_count": tools.event_count,
                               "audit_truncated": tools.event_count > len(tools.events),
                               "proposal": self.proposal.model_dump() if self.proposal else None,
@@ -196,13 +209,13 @@ class Coordinator:
 
     @classmethod
     def restore(cls, state: dict, snapshot: Snapshot, inventory: InventorySummary | None = None,
-                checkpoint: Callable[[dict], None] | None = None) -> "Coordinator":
+                checkpoint: Callable[[dict], None] | None = None, iac=None) -> "Coordinator":
         """Continue a run in a fresh process. Raises ``StateRejected`` for any state that does not
         check out; the caller then hands the run to a human instead of starting over."""
         try:
             state = _checked(state, snapshot, inventory)
             task = FailureBundle.model_validate(state["task"])
-            coordinator = cls(task, snapshot, inventory, checkpoint=None)
+            coordinator = cls(task, snapshot, inventory, checkpoint=None, iac=iac)
             coordinator.bundle = FailureBundle.model_validate(state["bundle"])
             coordinator.proposal = (Proposal.model_validate(state["proposal"])
                                     if state["proposal"] is not None else None)
@@ -274,6 +287,8 @@ def _checked(state, snapshot: Snapshot, inventory: InventorySummary | None) -> d
                 or type(record["attempt"]) is not int or record["attempt"] != index):
             raise StateRejected("attempt record mismatch")
         if "observability" in record and not isinstance(record["observability"], dict):
+            raise StateRejected("attempt record mismatch")
+        if "infra_plans" in record and not _infra_plans(record["infra_plans"]):
             raise StateRejected("attempt record mismatch")
         given = FailureBundle.model_validate(record["input"])
         offered = Proposal.model_validate(record["proposal"]) if record["proposal"] is not None else None

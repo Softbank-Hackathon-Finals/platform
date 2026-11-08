@@ -121,7 +121,10 @@ class ProbeTests(unittest.TestCase):
 
 class PlanTests(unittest.TestCase):
     def test_plan_lists_apply_restart_probe_and_gate_in_order(self):
-        steps = exposure.plan("open-demo", BUCKET)["steps"]
+        release, *steps = exposure.plan("open-demo", BUCKET)["steps"]
+        # a new demo run first ends T31's single-writer claim; closing never touches it
+        self.assertIn("annotate secret target-seaweedfs-auth bravo.dev/exposure-owner-", release)
+        self.assertNotIn("exposure-owner", " ".join(exposure.plan("closed", BUCKET)["steps"]))
         self.assertIn("render --state open-demo", steps[0])
         self.assertIn("kubectl apply", steps[1])
         self.assertIn("rollout restart", steps[2])
