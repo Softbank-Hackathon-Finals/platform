@@ -129,7 +129,27 @@ def test_existing_stacks_keep_their_kinds():
     assert environment_of(onprem.document)["secret_store"] == {"kind": "Pod", "namespace": "bravo-secrets",
                                                                "name": "target-openbao-0"}
     platform = load_stack(REPO / "infra/stacks/aws-platform/stack.json")
-    assert platform.kind == "aws" and not platform.cluster_steps
+    assert platform.kind is None and not platform.cluster_steps  # terraform-only, undeclared: as on develop
+
+
+@pytest.mark.parametrize("name", ["target-onprem", "target-onprem-migration", "target-exit-map", "aws-platform"])
+def test_develop_stacks_carry_no_a10_declaration(name):
+    """The develop stacks are not edited by A10, so their documents (and plan digests) stay develop's."""
+    assert "environment" not in json.loads((REPO / f"infra/stacks/{name}/stack.json").read_text())
+
+
+def test_run_kind_keeps_the_aws_flag_for_undeclared_terraform_stacks():
+    from bravo_infra_plan.cli import run_kind
+
+    platform = load_stack(REPO / "infra/stacks/aws-platform/stack.json")
+    assert run_kind(platform, aws=True) == "aws"
+    with pytest.raises(StackError, match="stack_kind_required"):
+        run_kind(platform, aws=False)
+    gke = load_stack(REPO / "infra/stacks/cluster-gke/stack.json")
+    assert run_kind(gke, aws=False) == "gcp"
+    with pytest.raises(StackError, match="stack_kind_mismatch"):
+        run_kind(gke, aws=True)
+    assert run_kind(load_stack(REPO / "infra/stacks/target-onprem/stack.json"), aws=False) == "onprem"
 
 
 def test_gke_cluster_names_stay_apart_from_t50_and_from_each_other():
@@ -165,7 +185,8 @@ def _all_stacks():
 def test_every_stack_names_only_checks_its_kind_supports(name):
     stack = load_stack(REPO / f"infra/stacks/{name}/stack.json")
     used = {s.get("check") or s.get("confirm") for s in stack.document["steps"] if s.get("check") or s.get("confirm")}
-    assert used <= CHECKS_BY_KIND[stack.kind], sorted(used - CHECKS_BY_KIND[stack.kind])
+    supported = CHECKS_BY_KIND.get(stack.kind, frozenset())  # an undeclared terraform-only stack has none
+    assert used <= supported, sorted(used - supported)
 
 
 def _run(stack, params):

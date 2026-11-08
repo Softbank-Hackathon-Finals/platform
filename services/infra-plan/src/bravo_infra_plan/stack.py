@@ -52,8 +52,13 @@ class Stack:
         return environment_of(self.document)
 
     @property
-    def kind(self) -> str:
-        return self.environment["kind"]
+    def kind(self) -> str | None:
+        """The declared kind. Without an `environment` block a stack with cluster steps is onprem
+        (target-onprem's names); a terraform-only stack is undeclared (None) and the CLI's `--aws`
+        names it as on develop, so its document and plan digest stay unchanged (aws-platform)."""
+        if "environment" in self.document:
+            return self.document["environment"]["kind"]
+        return "onprem" if self.cluster_steps else None
 
     @property
     def cluster_steps(self) -> bool:

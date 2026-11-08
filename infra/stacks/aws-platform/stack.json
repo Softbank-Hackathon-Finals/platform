@@ -2,9 +2,6 @@
   "schema_version": 1,
   "stack": "aws-platform",
   "description": "infra/envs의 AWS Terraform 스택을 의존 순서로 묶고 앞 스택 출력을 다음 스택 입력으로 넘긴다(T45, ADR-0033 2차 범위). 스택 코드는 바꾸지 않는다. 계정 · 자원 ID와 backend 설정은 저장소 밖 private_dir의 <단계>.backend.hcl · <단계>.tfvars.json에서 오고, 계획에는 digest만 남는다. ci-validation-aws(로컬 backend, 일회성)와 아직 적용하지 않은 loadgen-aws · attachment-copy-reader는 넣지 않았다.",
-  "environment": {
-    "kind": "aws"
-  },
   "params": {
     "private_dir": {
       "description": "운영자 개인 입력 폴더(저장소 밖 절대 경로): <단계>.backend.hcl, <단계>.tfvars.json",

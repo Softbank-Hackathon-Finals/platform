@@ -29,6 +29,18 @@ from .stack import StackError, load_stack
 from .terraform import TerraformCli, outputs_reader
 
 
+def run_kind(stack, *, aws):
+    """The kind a run is bound to (A10). A declared kind decides and `--aws` must agree with it; a
+    terraform-only stack without `environment` (aws-platform, unchanged from develop) needs `--aws`."""
+    if stack.kind is None:
+        if not aws:
+            raise StackError("stack_kind_required")
+        return "aws"
+    if aws and stack.kind != "aws":
+        raise StackError("stack_kind_mismatch")
+    return stack.kind
+
+
 def _executor(args, stack):
     repo_root = Path(args.repo_root).resolve()
     revision = args.stack_revision or subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_root, check=True,
@@ -39,14 +51,12 @@ def _executor(args, stack):
     approvals, store = T10Approvals(args.t10_url, token), FileRunStore(args.runs_dir)
     ledger = (AuditLedger(args.audit_sink, store) if args.audit_sink
               else _jsonl(Path(args.runs_dir) / "ledger.jsonl"))
-    # The stack says what it is (A10): its kind picks the identity, its steps pick the ports.
-    if args.aws and stack.kind != "aws":
-        raise StackError("stack_kind_mismatch")  # `--aws` is kept for old scripts; the stack decides
+    kind = run_kind(stack, aws=args.aws)
     terraform = TerraformCli() if stack.terraform_steps else None
     if not stack.cluster_steps:  # terraform only: bound to the account or project, no cluster or repository
         return Executor(Planner(stack, repo_root, terraform=terraform), stack_revision=revision,
                         cluster=None, repo=None, approvals=approvals, checks=None, store=store, repo_url="",
-                        ledger=ledger, identity=identity_for(stack.kind), terraform=terraform)
+                        ledger=ledger, identity=identity_for(kind), terraform=terraform)
     if not (args.kubeconfig and args.config_repo and args.config_workdir and args.charts_dir):
         raise StackError("cluster_arguments_required")
     if stack.kind == "onprem":

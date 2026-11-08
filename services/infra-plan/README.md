@@ -71,7 +71,7 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - **승인이 묶는 것**: 스택 디렉터리와 그 디렉터리가 부르는 로컬 모듈의 코드 digest, `.terraform.lock.hcl`, 연결 정의, 그리고 저장소 밖 `private_dir`의 `<단계>.backend.hcl` · `<단계>.tfvars.json` **digest**. 계정 · 자원 ID와 backend 값은 Git과 계획 문서에 들어가지 않는다.
 - **변경 집합도 승인에 묶는다**: 계획을 만들 때 terraform 단계마다 `plan -lock=false`로 바뀔 주소와 actions(값 없이)를 뽑아 그 digest와 개수를 계획에 넣는다. 앞 스택이 아직 적용되지 않아 출력이 없으면 `PENDING_UPSTREAM`이고, 실행은 그 단계에서 `HOLD`(`terraform_change_set_unapproved`)한 뒤 새 계획 · 승인으로 이어간다(빈 계정의 첫 구축은 레벨마다 승인). 실행 때 다시 뜬 변경 집합이 승인한 것과 다르면 `HOLD`(`terraform_change_set_changed`).
 - **실행**: 단계마다 승인 때의 입력 digest를 다시 대조(다르면 `HOLD`) → 단계 전용 `TF_DATA_DIR`에서 `init -lockfile=readonly` → 앞 스택 출력을 상태에서 읽어 메모리로 연결 → `plan -out` → 변경이 없으면 `SKIPPED` → 삭제 · 교체 · `forget`(관리에서 빼기)이 하나라도 있으면 `HOLD`(`terraform_plan_destroys`, 사람이 판단) → 아니면 **그 계획 파일만** `apply`. 출력값은 실행 기록에 저장하지 않는다(여러 출력이 `sensitive`).
-- **대상 신원**: 클러스터 대신 STS의 AWS 계정. 스택의 `environment.kind: aws`로 정해진다(`--aws`는 옛 스크립트용으로 남고, 종류가 다르면 `stack_kind_mismatch`).
+- **대상 신원**: 클러스터 대신 STS의 AWS 계정. CLI는 develop과 같이 `--aws`로 실행한다. 이 스택은 `environment`를 선언하지 않아(terraform 전용 스택은 선택) 문서와 계획 digest가 develop과 같고, `--aws`가 없으면 `stack_kind_required`다. 종류를 선언한 스택에 다른 종류로 `--aws`를 주면 `stack_kind_mismatch`.
 - **범위 주의**: `platform-aws` · `platform-data` · `subscription-runtime` · `sandbox-session`은 이 실행기가 돌고 있는 플랫폼 자신을 바꿀 수 있다. 첫 실측은 읽기 전용 `verify`만 하고, 적용 범위는 담당(류지환)과 정한 뒤 연다.
 - backend 설정 값은 프로세스 인자로 넘기지 않는다(개인 backend 파일과 0600 임시 파일).
 - **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
