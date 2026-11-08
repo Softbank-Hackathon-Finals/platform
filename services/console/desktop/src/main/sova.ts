@@ -22,6 +22,12 @@ export function confirmRequest(body: Buffer): { name: string; args: Record<strin
   } catch { return null; }
 }
 
+/** An argument-schema failure from an MCP host, reduced to the field names: the raw text echoes the rejected values. */
+export function invalidFields(text: string): string[] | null {
+  if (!/^Error executing tool \S+: \d+ validation errors? for \S+\n/.test(text)) return null;
+  return [...new Set(text.split('\n').slice(1).filter((l) => l && !l.startsWith(' ')).map((l) => l.trim()))].sort();
+}
+
 export class SovaLink {
   readonly secret = randomBytes(32).toString('hex');
   private server?: http.Server;
@@ -152,6 +158,8 @@ export class SovaLink {
       if (r.isError) {
         const text: string = (r.content as any[])?.[0]?.text ?? '';
         // The SDK prefixes "Error executing tool <name>: " to the server's JSON detail.
+        const fields = invalidFields(text);
+        if (fields) return { ok: false, code: 'invalid_input', hint: `입력 형식이 맞지 않습니다: ${fields.join(', ')}` };
         try { const j = JSON.parse(text.slice(text.indexOf('{'))); return { ok: false, code: j.detail?.code ?? 'tool_error', hint: j.hint ?? undefined }; }
         catch { return { ok: false, code: 'tool_error', hint: text.slice(0, 300) }; }
       }

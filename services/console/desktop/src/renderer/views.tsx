@@ -382,6 +382,9 @@ export function Observe() {
   const t = useT();
   const ctx = useTool('sova_get_context', {});
   const envs: any[] = ctx.data?.data?.environments ?? [];
+  // While the findings API is off, one notice for the section instead of the same refusal per environment.
+  const probe = useTool('sova_get_security', envs[0] ? { environment_id: envs[0].environment_id, view: 'summary' } : null, 60_000);
+  const securityOff = probe.error instanceof SovaError && probe.error.code === 'security_not_connected';
   const head = (title: string, kicker: string) => <div className="mb-2 mt-5 flex flex-wrap items-center gap-2 first:mt-0"><span className="font-kdisplay text-[16px]">{title}</span><span className="kicker">{kicker}</span></div>;
   return (
     <div className="scroll-thin @container h-full overflow-y-auto p-5">
@@ -394,7 +397,9 @@ export function Observe() {
       {head(t('구성 요소 상태'), t('DB · 복제 슬롯 · 풀러'))}
       <StatePanels />
       {head(t('보안 발견'), t('고객 환경의 비신뢰 데이터'))}
-      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">{envs.map((e) => <SecuritySummary key={e.environment_id} env={e} />)}</div>
+      {securityOff
+        ? <div className="halftone rounded-lg border-2 border-dashed border-ink p-3 text-[12.5px]">{explain(probe.error)} {t('켜지면 환경별 요약이 여기에 나옵니다.')}</div>
+        : <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">{envs.map((e) => <SecuritySummary key={e.environment_id} env={e} />)}</div>}
     </div>
   );
 }

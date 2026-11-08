@@ -41,6 +41,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   PASSED: { label: 'PASS', cls: 'bg-wasabi' },
   FAILED: { label: 'FAIL', cls: 'bg-red text-cream' },
   BLOCKED: { label: '사람 대기', cls: 'bg-mustard' },
+  CANCELLED: { label: '취소함', cls: 'bg-paper' },
   UNKNOWN: { label: '미확인', cls: 'bg-[repeating-linear-gradient(135deg,#e9dcc0_0_5px,#fff3dc_5px_10px)]' },
   NEEDS_CONFIRMATION: { label: '확인 필요', cls: 'bg-mustard' },
 };

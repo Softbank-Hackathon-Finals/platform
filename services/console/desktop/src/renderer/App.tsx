@@ -119,6 +119,8 @@ export function App() {
   useEffect(() => {
     setConvs((all) => all.map((c) => {
       const next = { ...blankConversation(c.title), ...c, id: c.id, busy: false, thinking: false, retry: undefined };
+      // A reply cut off by an app restart says so, instead of leaving its last step "in progress" forever.
+      if (c.busy) next.items = [...c.items, { kind: 'note' as const, text: '앱이 다시 시작돼 이 답변은 중단됐습니다. 같은 질문을 다시 보내 주세요.', at: Date.now() }];
       // Claude-era sessions cannot resume on the OpenAI runtime: keep the transcript, start a new session.
       return c.model?.startsWith('claude') ? { ...next, model: '', sessionId: undefined, effort: 'medium' as const } : next;
     }));

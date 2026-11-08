@@ -175,4 +175,5 @@ mark { background: var(--color-mustard); color: inherit; border-radius: 3px; pad
 :root[data-reduced-motion=true] *, :root[data-reduced-motion=true] *::before { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .live-dot, .flow-dash, .wobble, .dip, .shimmer-text, .snake, .pop-in { animation: none; } }
 
-:focus-visible { outline: 3px solid var(--color-cold); outline-offset: 2px; }
+/* In the base layer so a component's own outline-none (the composer, whose border shows focus) can turn it off. */
+@layer base { :focus-visible { outline: 3px solid var(--color-cold); outline-offset: 2px; } }

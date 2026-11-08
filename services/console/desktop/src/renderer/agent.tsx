@@ -147,18 +147,18 @@ const TOOL_VERB: Record<string, [string, string]> = {
 const verb = (name = '', done: boolean) => TOOL_VERB[name]?.[done ? 1 : 0] ?? `${name} ${done ? '호출함' : '호출 중'}`;
 const pretty = (raw?: string) => { if (!raw) return '대기 중'; try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; } };
 
-function ToolRow({ items }: { items: ChatItem[] }) {
+function ToolRow({ items, stopped = false }: { items: ChatItem[]; stopped?: boolean }) {
   const [open, setOpen] = useState(false);
   const item = items.at(-1)!;
   let parsed: any = null;
   try { parsed = item.result ? JSON.parse(item.result) : null; } catch { /* plain text */ }
-  const running = !item.result;
+  const running = !item.result && !stopped;
   const write = /register|create_plan/.test(item.name ?? '');
   return (
     <div className="text-[12px]">
       <button onClick={() => setOpen(!open)} className="group flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-paper">
         <Wrench size={12} className={write ? 'text-red' : 'text-ink-soft'} />
-        <span className={running ? 'shimmer-text font-semibold' : 'font-semibold'}>{verb(item.name, !running)}</span>
+        <span className={running ? 'shimmer-text font-semibold' : 'font-semibold'}>{!item.result && stopped ? `${verb(item.name, false).replace(/ 중$/, '')} 멈춤` : verb(item.name, !running)}</span>
         {items.length > 1 && <span className="whitespace-nowrap text-ink-soft">· {items.length}회 호출</span>}
         {parsed?.status && <StatusBadge status={parsed.status} />}
         {item.isError && <StatusBadge status="FAILED" />}
@@ -227,7 +227,7 @@ function Turn({ conv, user, body, index, q, bookmarked, onBookmark, last }: {
       )}
       {(!done || open) && (
         <div className={`flex flex-col gap-1 ${done ? 'rounded-xl border-2 border-dashed border-ink/25 p-1.5' : ''}`}>
-          {foldTools(activity).map((x, i) => Array.isArray(x) ? <ToolRow key={i} items={x} />
+          {foldTools(activity).map((x, i) => Array.isArray(x) ? <ToolRow key={i} items={x} stopped={!done && !(last && conv.busy)} />
             : x.kind === 'assistant' ? <div key={i} className="flex gap-2"><span className="mt-0.5 shrink-0"><Mark size={18} /></span><Md text={x.text ?? ''} q={q} /></div>
               : x.kind === 'error' ? <div key={i} className="rounded-xl border-2 border-red bg-[#ffe3d6] px-3 py-2 text-[12px]">{x.text}</div>
                 : x.kind === 'note' ? <Note key={i} text={x.text ?? ''} /> : null)}

@@ -6,26 +6,30 @@ import { ArrowRight, Check, Cloud, Package, Route, Server } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Stamp, StatusBadge } from './brand';
 import { callTool, explain, sova, useTool } from './lib';
+import { checkEnvironment, checkWorkload, type Errors } from './register-checks';
 import { useLink } from './shell';
 
 type Kind = 'environment' | 'workload' | 'plan';
 const TOOL: Record<Kind, string> = { environment: 'sova_register_environment', workload: 'sova_register_workload', plan: 'sova_create_plan' };
 
-function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="kicker">{label}</span>
       {children}
-      {hint && <span className="text-[11px] text-ink-soft">{hint}</span>}
+      {error ? <span role="alert" className="text-[11px] font-semibold text-red">{error}</span> : hint && <span className="text-[11px] text-ink-soft">{hint}</span>}
     </label>
   );
 }
+// A field's error shows once it has a value or a send was tried, so an empty form does not start out red.
+const shown = (e: Errors, f: Record<string, string>, tried: boolean) => (k: string) => (tried || f[k] ? e[k] : undefined);
 const input = 'rounded-lg border-2 border-ink bg-[#fffaf0] px-2.5 py-1.5 text-[12.5px] outline-none focus:shadow-pop-sm';
 
 function useRegister(kind: Kind) {
   const qc = useQueryClient();
-  const [state, setState] = useState<{ phase: 'idle' | 'preview' | 'done' | 'error'; text?: string; data?: any }>({ phase: 'idle' });
+  const [state, setState] = useState<{ phase: 'idle' | 'sending' | 'preview' | 'done' | 'error' | 'cancelled'; text?: string; data?: any }>({ phase: 'idle' });
   const run = async (args: Record<string, unknown>) => {
+    setState({ phase: 'sending' });
     try {
       const preview = await callTool(TOOL[kind], args);
       setState({ phase: 'preview', text: preview.summary, data: preview.data });
@@ -34,10 +38,11 @@ function useRegister(kind: Kind) {
       setState({ phase: 'done', text: done.summary, data: done.data });
       await qc.invalidateQueries();
     } catch (e) {
-      setState({ phase: 'error', text: explain(e) });
+      // Declining in the confirm dialog is the person's choice, not a failure.
+      setState({ phase: (e as { code?: string })?.code === 'user_declined' ? 'cancelled' : 'error', text: explain(e) });
     }
   };
-  return { state, run, reset: () => setState({ phase: 'idle' }) };
+  return { state, run, busy: state.phase === 'sending' || state.phase === 'preview', reset: () => setState({ phase: 'idle' }) };
 }
 
 function Result({ s }: { s: ReturnType<typeof useRegister>['state'] }) {
@@ -45,8 +50,8 @@ function Result({ s }: { s: ReturnType<typeof useRegister>['state'] }) {
   return (
     <div className={`rounded-xl border-2 p-2.5 text-[12px] ${s.phase === 'error' ? 'border-red bg-[#ffe3d6]' : s.phase === 'done' ? 'border-ink bg-[#e9f5da]' : 'border-dashed border-ink bg-paper'}`}>
       <div className="flex items-center gap-2">
-        <StatusBadge status={s.phase === 'done' ? 'ACCEPTED' : s.phase === 'error' ? 'FAILED' : 'NEEDS_CONFIRMATION'} />
-        <span className="font-semibold">{s.phase === 'preview' ? '확인 창에서 입력을 확인해 주세요…' : s.text}</span>
+        <StatusBadge status={s.phase === 'done' ? 'ACCEPTED' : s.phase === 'error' ? 'FAILED' : s.phase === 'cancelled' ? 'CANCELLED' : s.phase === 'sending' ? 'RUNNING' : 'NEEDS_CONFIRMATION'} />
+        <span className="font-semibold">{s.phase === 'sending' ? '미리보기를 만드는 중…' : s.phase === 'preview' ? '확인 창에서 입력을 확인해 주세요…' : s.text}</span>
       </div>
       {s.phase === 'done' && s.data && <pre data-selectable className="scroll-thin mt-2 max-h-32 overflow-auto rounded-lg bg-ink p-2 font-mono text-[10.5px] text-cream">{JSON.stringify(s.data, null, 2)}</pre>}
     </div>
@@ -67,34 +72,40 @@ function Card({ icon, step, title, desc, children }: { icon: ReactNode; step: nu
 
 function EnvironmentForm({ connections }: { connections: string[] }) {
   const r = useRegister('environment');
-  const [f, setF] = useState({ name: '', kind: 'aws', role: 'source', connection_ref: connections[0] ?? '' });
+  const [edit, setEdit] = useState<{ name?: string; kind?: string; role?: string; connection_ref?: string }>({});
+  const [tried, setTried] = useState(false);
+  // Defaults come from the loaded context on every render, so a list that arrives later is not missed.
+  const f = { name: '', kind: 'aws', role: 'source', connection_ref: connections[0] ?? '', ...edit };
+  const e = checkEnvironment(f);
+  const err = shown(e, f, tried);
+  const send = () => { setTried(true); if (!Object.keys(e).length) void r.run({ name: f.name.trim(), kind: f.kind, role: f.role, connection_ref: f.connection_ref }); };
   return (
     <Card icon={<Cloud size={16} />} step={1} title="출발지·목적지 환경" desc="서버에 등록된 연결 참조로만 연결합니다. 자격 값을 넣지 않습니다. 출발지는 읽기만 합니다.">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="이름"><input className={input} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="예: demo-chat AWS EKS" /></Field>
+        <Field label="이름" error={err('name')}><input className={input} value={f.name} maxLength={128} onChange={(x) => setEdit({ ...edit, name: x.target.value })} placeholder="예: demo-chat AWS EKS" /></Field>
         <Field label="역할">
           <div className="flex overflow-hidden rounded-lg border-2 border-ink">
             {[['source', '출발지'], ['target', '목적지']].map(([v, l]) => (
-              <button key={v} onClick={() => setF({ ...f, role: v })} className={`flex-1 border-r-2 border-ink py-1.5 text-[12px] font-bold last:border-r-0 ${f.role === v ? (v === 'source' ? 'bg-red text-cream' : 'bg-cold text-white') : 'bg-[#fffaf0]'}`}>{l}</button>
+              <button key={v} type="button" onClick={() => setEdit({ ...edit, role: v })} className={`flex-1 border-r-2 border-ink py-1.5 text-[12px] font-bold last:border-r-0 ${f.role === v ? (v === 'source' ? 'bg-red text-cream' : 'bg-cold text-white') : 'bg-[#fffaf0]'}`}>{l}</button>
             ))}
           </div>
         </Field>
         <Field label="종류" hint="GCP 목적지는 고객별 확장 단계에서 열립니다">
           <div className="flex overflow-hidden rounded-lg border-2 border-ink">
             {[['aws', 'AWS'], ['onprem', '온프렘'], ['gcp', 'GCP']].map(([v, l]) => (
-              <button key={v} disabled={v === 'gcp'} onClick={() => setF({ ...f, kind: v })}
+              <button key={v} type="button" disabled={v === 'gcp'} onClick={() => setEdit({ ...edit, kind: v })}
                 className={`flex-1 border-r-2 border-ink py-1.5 text-[12px] font-bold last:border-r-0 disabled:opacity-35 ${f.kind === v ? 'bg-mustard' : 'bg-[#fffaf0]'}`}>{l}</button>
             ))}
           </div>
         </Field>
-        <Field label="연결 참조 (connection_ref)">
+        <Field label="연결 참조 (connection_ref)" error={err('connection_ref')}
+          hint={connections.length ? '플랫폼 운영자가 이 테넌트에 등록한 연결입니다.' : '이 SOVA 서버는 목록을 주지 않습니다. 운영자에게 받은 이름을 넣으세요(URL 아님).'}>
           {connections.length
-            ? <select className={input} value={f.connection_ref} onChange={(e) => setF({ ...f, connection_ref: e.target.value })}>{connections.map((c) => <option key={c}>{c}</option>)}</select>
-            : <input className={`${input} font-mono`} value={f.connection_ref} onChange={(e) => setF({ ...f, connection_ref: e.target.value })} placeholder="플랫폼 운영자가 등록한 참조" />}
+            ? <select className={input} value={f.connection_ref} onChange={(x) => setEdit({ ...edit, connection_ref: x.target.value })}>{connections.map((c) => <option key={c}>{c}</option>)}</select>
+            : <input className={`${input} font-mono`} value={f.connection_ref} maxLength={128} spellCheck={false} autoComplete="off" onChange={(x) => setEdit({ ...edit, connection_ref: x.target.value })} placeholder="예: bravo-source-collector" />}
         </Field>
       </div>
-      <button className="btn btn-red self-end" disabled={!f.name || !f.connection_ref || r.state.phase === 'preview'}
-        onClick={() => void r.run({ name: f.name, kind: f.kind, role: f.role, connection_ref: f.connection_ref })}>미리보기 후 등록 <ArrowRight size={14} /></button>
+      <button className="btn btn-red self-end" disabled={r.busy || (tried && Object.keys(e).length > 0)} onClick={send}>미리보기 후 등록 <ArrowRight size={14} /></button>
       <Result s={r.state} />
     </Card>
   );
@@ -103,34 +114,45 @@ function EnvironmentForm({ connections }: { connections: string[] }) {
 function WorkloadForm({ envs, releases }: { envs: any[]; releases: any[] }) {
   const r = useRegister('workload');
   const sources = envs.filter((e) => e.roles?.includes('source'));
-  const [f, setF] = useState({ name: '', repo_url: releases[0]?.repo_url ?? '', app_path: releases[0]?.app_path ?? '', iac_path: releases[0]?.iac_path ?? '',
-    source_environment_id: sources[0]?.environment_id ?? '', namespace: sources[0]?.namespace ?? '' });
-  const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [edit, setEdit] = useState<Partial<Record<'name' | 'repo_url' | 'app_path' | 'iac_path' | 'source_environment_id' | 'namespace', string>>>({});
+  const [tried, setTried] = useState(false);
+  const rel = releases[0];
+  const sourceId = edit.source_environment_id ?? rel?.environment_id ?? sources[0]?.environment_id ?? '';
+  const source = sources.find((x) => x.environment_id === sourceId);
+  const sourceNs: string | undefined = source?.checks?.namespace ?? source?.namespace; // read back by the server at registration
+  // Defaults follow the loaded context: the first approved release, and the chosen source's namespace.
+  const f = { name: '', repo_url: rel?.repo_url ?? '', app_path: rel?.app_path ?? '', iac_path: rel?.iac_path ?? '', namespace: sourceNs ?? '', ...edit, source_environment_id: sourceId };
+  const e = checkWorkload(f);
+  const err = shown(e, f, tried);
+  const set = (k: keyof typeof edit) => (x: { target: { value: string } }) => setEdit({ ...edit, [k]: x.target.value });
+  // Picking another source (or release) drops a typed namespace so the new source's own one applies.
+  const { namespace: _typed, ...keep } = edit;
+  const send = () => { setTried(true); if (!Object.keys(e).length) void r.run({ ...f, name: f.name.trim() }); };
   return (
     <Card icon={<Package size={16} />} step={2} title="옮길 앱" desc="저장소·앱 경로·IaC 경로가 출발지에 실제로 배포된 것과 같은지 서버가 확인합니다.">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="이름"><input className={input} value={f.name} onChange={set('name')} placeholder="예: demo-chat" /></Field>
-        <Field label="출발지 환경">
-          <select className={input} value={f.source_environment_id} onChange={set('source_environment_id')}>
+        <Field label="이름" error={err('name')}><input className={input} value={f.name} maxLength={128} onChange={set('name')} placeholder="예: demo-chat" /></Field>
+        <Field label="출발지 환경" error={err('source_environment_id')}>
+          <select className={input} value={f.source_environment_id} onChange={(x) => setEdit({ ...keep, source_environment_id: x.target.value })}>
             {sources.length === 0 && <option value="">먼저 출발지를 등록하세요</option>}
-            {sources.map((e) => <option key={e.environment_id} value={e.environment_id}>{e.name ?? e.environment_id}</option>)}
+            {sources.map((x) => <option key={x.environment_id} value={x.environment_id}>{x.name ?? x.environment_id}</option>)}
           </select>
         </Field>
         {releases.length > 0 && (
           <div className="col-span-2"><Field label="운영자가 승인한 저장소">
             <select className={`${input} font-mono`} value={releases.findIndex((x) => x.repo_url === f.repo_url && x.app_path === f.app_path && x.iac_path === f.iac_path)}
-              onChange={(e) => { const x = releases[Number(e.target.value)]; if (x) setF({ ...f, repo_url: x.repo_url, app_path: x.app_path, iac_path: x.iac_path, source_environment_id: x.environment_id }); }}>
+              onChange={(x) => { const v = releases[Number(x.target.value)]; if (v) setEdit({ ...keep, repo_url: v.repo_url, app_path: v.app_path, iac_path: v.iac_path, source_environment_id: v.environment_id }); }}>
               <option value={-1}>직접 입력</option>
               {releases.map((x, i) => <option key={i} value={i}>{x.repo_url.replace(/^https:\/\/github\.com\//, '')} · {x.app_path} · {x.environment_id}</option>)}
             </select>
           </Field></div>
         )}
-        <div className="col-span-2"><Field label="저장소 (GitHub URL)"><input className={`${input} font-mono`} value={f.repo_url} onChange={set('repo_url')} placeholder="https://github.com/org/app" /></Field></div>
-        <Field label="앱 경로"><input className={`${input} font-mono`} value={f.app_path} onChange={set('app_path')} placeholder="app" /></Field>
-        <Field label="IaC 경로"><input className={`${input} font-mono`} value={f.iac_path} onChange={set('iac_path')} placeholder="deploy/" /></Field>
-        <Field label="네임스페이스"><input className={`${input} font-mono`} value={f.namespace} onChange={set('namespace')} placeholder="app-src" /></Field>
+        <div className="col-span-2"><Field label="저장소 (GitHub URL)" error={err('repo_url')}><input className={`${input} font-mono`} value={f.repo_url} maxLength={512} spellCheck={false} autoComplete="off" onChange={set('repo_url')} placeholder="https://github.com/org/app" /></Field></div>
+        <Field label="앱 경로" error={err('app_path')}><input className={`${input} font-mono`} value={f.app_path} maxLength={256} spellCheck={false} onChange={set('app_path')} placeholder="app" /></Field>
+        <Field label="IaC 경로" error={err('iac_path')}><input className={`${input} font-mono`} value={f.iac_path} maxLength={256} spellCheck={false} onChange={set('iac_path')} placeholder="deploy/" /></Field>
+        <Field label="네임스페이스" error={err('namespace')} hint={sourceNs ? `출발지 환경에서 읽은 네임스페이스: ${sourceNs}` : undefined}><input className={`${input} font-mono`} value={f.namespace} maxLength={128} spellCheck={false} onChange={set('namespace')} placeholder="app-src" /></Field>
       </div>
-      <button className="btn btn-red self-end" disabled={!f.name || !f.repo_url || !f.source_environment_id || r.state.phase === 'preview'} onClick={() => void r.run(f)}>미리보기 후 등록 <ArrowRight size={14} /></button>
+      <button className="btn btn-red self-end" disabled={r.busy || (tried && Object.keys(e).length > 0)} onClick={send}>미리보기 후 등록 <ArrowRight size={14} /></button>
       <Result s={r.state} />
     </Card>
   );
@@ -167,7 +189,7 @@ function PlanForm({ envs, workloads, profiles, lastPlan }: { envs: any[]; worklo
         <Field label="평가 프로필"><select className={input} value={f.profile} onChange={(e) => setF({ ...edit, profile: e.target.value })}>
           {profiles.map((p) => <option key={`${p.profile_id}@${p.profile_version}`}>{`${p.profile_id}@${p.profile_version}`}</option>)}</select></Field>
       </div>
-      <button className="btn btn-red self-end" disabled={!f.workload_id || !f.target_environment_id || !pid || r.state.phase === 'preview'}
+      <button className="btn btn-red self-end" disabled={!f.workload_id || !f.target_environment_id || !pid || r.busy}
         onClick={() => void r.run({ workload_id: f.workload_id, target_environment_id: f.target_environment_id, profile_id: pid, profile_version: pver })}>미리보기 후 계획 생성 <ArrowRight size={14} /></button>
       <Result s={r.state} />
     </Card>

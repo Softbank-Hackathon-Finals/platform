@@ -183,7 +183,7 @@ export function ConfirmDialog() {
           <div className="sunburst-soft border-b-2 border-ink px-5 pb-4 pt-5">
             <Dialog.Title className="wordmark !text-[26px]">{TOOL_TITLE[pending?.name ?? ''] ?? '실행할까요?'}</Dialog.Title>
             <Dialog.Description className="mt-2 text-[12.5px] font-semibold text-cream [text-shadow:1px_1px_0_#1b1b1b]">
-              안내자가 아래 입력으로 SOVA에 등록을 요청합니다. 서버가 실제 대상 신원을 다시 확인하고 영수증을 남깁니다.
+              아래 입력으로 SOVA에 등록을 요청합니다(등록 화면 또는 안내자). 서버가 실제 대상 신원을 다시 확인하고 영수증을 남깁니다.
             </Dialog.Description>
           </div>
           <table className="m-5 w-[calc(100%-40px)] border-collapse text-[12.5px]">
@@ -201,7 +201,7 @@ export function ConfirmDialog() {
           </p>
           <div className="flex justify-end gap-2 p-5">
             <button className="btn" onClick={() => answer(false)}>취소</button>
-            <button className="btn btn-red" onClick={() => answer(true)}>확인하고 등록</button>
+            <button className="btn btn-red" onClick={() => answer(true)}>{pending?.name === 'sova_create_plan' ? '확인하고 계획 생성' : '확인하고 등록'}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
