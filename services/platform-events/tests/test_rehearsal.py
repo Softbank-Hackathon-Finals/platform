@@ -388,3 +388,30 @@ def test_malformed_authority_is_not_a_client_error(scenario, monkeypatch):
         s.reconcile(admission)
     with pytest.raises(EventError, match="rehearsal_incomplete"):
         s.guard()
+
+
+def test_demo_mode_passes_rehearse_and_gate_on_the_proposed_change(scenario):
+    # T49 demo: no T15 run, no change approval, no T19 recheck; the PROPOSE change carries through.
+    from bravo_platform_events.cutover import _get, _put
+    from bravo_platform_events.workflow import demo_reader
+
+    s = scenario
+    change = {"diff_hash": "sha256:" + "a" * 64, "image_digest": "sha256:" + "b" * 64}
+    with s.backend.store._transaction(write=True, plan_id=PLAN.plan_id) as c:
+        version = c.execute("SELECT version FROM plans WHERE plan_id=?", (PLAN.plan_id,)).fetchone()["version"]
+        _put(c, PLAN.plan_id, f"workflow:{version - 1}", {}, {"result": {"change": change}})
+    cutover = CutoverService(s.backend.store, object(), bindings=BINDINGS)
+    with pytest.raises(EventError, match="workflow_condition_unmet"):  # outside demo mode it is still checked
+        WorkflowRecovery(cutover, read_evidence=demo_reader("REHEARSE")).resume_once(PRINCIPAL, PLAN.plan_id)
+
+    def read(c, plan, previous, run):
+        return demo_reader(plan["state"])(c, plan, previous, run)
+
+    demo = WorkflowRecovery(cutover, read_evidence=read, demo_skip={"REHEARSE", "GATE"})
+    assert demo.resume_once(PRINCIPAL, PLAN.plan_id) == "GATE"
+    assert demo.resume_once(PRINCIPAL, PLAN.plan_id) == "AWAIT_APPROVAL"
+    with s.backend.store._transaction() as c:
+        gate = _get(c, PLAN.plan_id, f"workflow:{version + 1}")[1]["result"]
+    assert gate["verdict"] == "PASS" and gate["change"] == change
+    with pytest.raises(ValueError):
+        demo_reader("CUTOVER")
