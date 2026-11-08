@@ -63,6 +63,9 @@ body {
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 @keyframes live-dot { 0%, 100% { box-shadow: 0 0 0 0 rgba(140, 193, 82, .8); } 60% { box-shadow: 0 0 0 5px rgba(140, 193, 82, 0); } }
 .live-dot { animation: live-dot 1.6s ease-out infinite; }
+/* Migration map: dots run along an edge; speed is set per edge from the observed rate. */
+@keyframes flow-dash { to { stroke-dashoffset: -18; } }
+.flow-dash { animation: flow-dash 1s linear infinite; }
 input, textarea, [data-selectable] { user-select: text; }
 ::selection { background: var(--color-mustard); color: var(--color-ink); }
 
@@ -170,6 +173,6 @@ mark { background: var(--color-mustard); color: inherit; border-radius: 3px; pad
 .wobble { animation: wobble 2.4s ease-in-out infinite; }
 .dip { animation: dip 1.2s ease-in-out infinite; }
 :root[data-reduced-motion=true] *, :root[data-reduced-motion=true] *::before { animation: none !important; transition: none !important; }
-@media (prefers-reduced-motion: reduce) { .live-dot, .wobble, .dip, .shimmer-text, .snake, .pop-in { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .live-dot, .flow-dash, .wobble, .dip, .shimmer-text, .snake, .pop-in { animation: none; } }
 
 :focus-visible { outline: 3px solid var(--color-cold); outline-offset: 2px; }

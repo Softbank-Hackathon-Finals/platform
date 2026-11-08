@@ -27,7 +27,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1480, height: 940, minWidth: 1100, minHeight: 700, title: 'SOVA Console',
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 }, backgroundColor: '#FFF3D6',
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
+    // backgroundThrottling off: Force Play keeps the live dashboard current behind other windows (Play still pauses itself when hidden).
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
   });
   // Text and layout scale together with the window: 1.0 at 1440 wide, 0.9 at the minimum, at most 1.08.
   const fit = () => { const [w] = win!.getContentSize(); win!.webContents.setZoomFactor(Math.min(1.08, Math.max(0.9, w / 1440))); };

@@ -7,6 +7,7 @@ import { EFFORT_LABEL, type NextAction, type Settings } from '../shared/types';
 import { useModels } from './agent';
 import { useT } from './i18n';
 import { AlertStrip, DataPanels, LiveToolbar, StatePanels, TrafficPanels } from './live';
+import { MigrationMap } from './migration-map';
 import { Burst, MAIN_STAGES, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
 import { ago, callTool, explain, planAtom, sova, useTool, viewAtom } from './lib';
 import { useLink } from './shell';
@@ -201,6 +202,8 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
           </div>
           {planQ.isError ? <Problem error={planQ.error} /> : <StageRail state={p?.state} />}
         </section>
+
+        <div className="col-span-12"><MigrationMap /></div>
 
         <div className="col-span-12 grid grid-cols-2 gap-4 @4xl:grid-cols-4">
           <Tile label={t('현재 단계')} value={t(stageLabel(p?.state))} sub={p ? `버전 ${p.version} · 마지막 이벤트 ${p.last_event_id?.split(':')[1] ?? '—'}번` : '—'} tone="bg-mustard" />

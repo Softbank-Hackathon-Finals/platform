@@ -71,7 +71,9 @@ export function useLivePoller() {
   const ctx = useTool('sova_get_context', {}, 60_000);
   const envs: any[] = useMemo(() => ctx.data?.data?.environments ?? [], [ctx.data]);
   useEffect(() => {
-    if (!envs.length || live.every === 0 || live.play === 'paused') return;
+    if (!envs.length) return;
+    // Paused or off still shows one snapshot (an empty map reads like an outage); it just stops refreshing.
+    if (live.every === 0 || live.play === 'paused') { if (!store.at) void poll(envs); return; }
     let stop = false, first = true;
     const tick = async () => {
       if (stop) return;
