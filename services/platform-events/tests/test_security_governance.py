@@ -234,6 +234,19 @@ def test_php2shell_confirmed_compromise_blocks_the_normal_change_path(flow):  # 
     assert transport.calls == 1
 
 
+def test_review_ports_deployed_follows_the_running_image(monkeypatch, tmp_path):
+    (tmp_path / "token").write_text("t")
+    config = {"url": "https://security-review.platform-state.svc:8443", "ca_file": str(tmp_path / "ca.crt"),
+              "token_file": str(tmp_path / "token"), "subject_id": "approval-host", "source_revision": "deployed",
+              "registrar": {"tenant_id": "tenant", "subject_id": "registrar"}}
+    monkeypatch.delenv("BRAVO_PLATFORM_SOURCE_REVISION", raising=False)
+    with pytest.raises(ValueError, match="security_review_configuration_invalid"):
+        review_ports(config, clock=lambda: None)  # no pinned image revision: fail closed
+    monkeypatch.setenv("BRAVO_PLATFORM_SOURCE_REVISION", "1" * 40)
+    with pytest.raises(ValueError, match="security_review_mount_required"):
+        review_ports(config, clock=lambda: None)  # revision accepted; the missing CA is the next check
+
+
 def test_review_ports_rejects_config_from_another_platform_image(monkeypatch):
     monkeypatch.setenv("BRAVO_PLATFORM_SOURCE_REVISION", "1" * 40)
     config = {"url": "https://security-review.platform-state.svc:8443", "ca_file": "/missing/ca.crt",
