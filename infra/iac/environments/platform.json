@@ -316,6 +316,23 @@
       }
     },
     {
+      "id": "tailnet-peer-relay",
+      "version": "1",
+      "params": {
+        "tag": "tag:bravo-peer-relay",
+        "users": [
+          "tag:bravo-cutover-control",
+          "tag:bravo-source-control-pooler",
+          "tag:bravo-source-db",
+          "tag:bravo-source-replication",
+          "tag:bravo-target-control-pooler",
+          "tag:bravo-target-db",
+          "tag:bravo-target-pooler",
+          "tag:bravo-target-replication"
+        ]
+      }
+    },
+    {
       "id": "operator-access",
       "version": "1",
       "params": {
