@@ -29,7 +29,7 @@ export function useConsoleLinks() {
       eks: awsUrl(`eks/home?region=${region}#/clusters`), ec2: awsUrl(`ec2/home?region=${region}#Instances:`),
       cloudwatch: awsUrl(`cloudwatch/home?region=${region}`), home: awsUrl(`console/home?region=${region}`) },
     gcp: { ready: !!gcp, project: gcp, gke: gcp ? `https://console.cloud.google.com/kubernetes/list/overview?project=${gcp}` : null,
-      home: gcp ? `https://console.cloud.google.com/home/dashboard?project=${gcp}` : null },
+      home: gcp ? `https://console.cloud.google.com/?project=${gcp}` : null }, // the console root opens the project dashboard
     tailscale: { ready: true, tailnet, machines: `https://login.tailscale.com/admin/machines${tailnet ? `?tailnet=${encodeURIComponent(tailnet)}` : ''}` },
     forKind: (kind: string) => kind === 'aws' ? awsUrl(`eks/home?region=${region}#/clusters`) : kind === 'gcp' && gcp
       ? `https://console.cloud.google.com/kubernetes/list/overview?project=${gcp}` : `https://login.tailscale.com/admin/machines`,
