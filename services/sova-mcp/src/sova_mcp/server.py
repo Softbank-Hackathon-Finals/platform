@@ -83,13 +83,55 @@ def _session(ctx: Context) -> Session:
     return session
 
 
+HINTS = {
+    "forbidden": "권한이 없거나 없는 대상입니다. sova_get_context로 연결 범위를 확인하세요.",
+    "read_only_connection": "읽기 전용 연결입니다. 등록·계획 생성은 read_only=false 연결에서만 열립니다.",
+    "plan_scoped_connection": "이 연결은 하나의 계획으로 범위가 고정돼 있습니다.",
+    "confirmation_invalid": "확인 토큰이 입력과 맞지 않거나 만료됐습니다. 미리보기부터 다시 하세요.",
+    "upstream_unavailable": "조회 대상에 닿지 못했습니다. 결과 불명이며 재시도 전에 다시 조회하세요.",
+    # Registry outcomes (T10). None of them carries the submitted values back.
+    "registration_reference_unavailable": "연결 참조를 찾지 못했거나 그 대상에 닿지 못했습니다. sova_get_context의 connections에서 고르세요.",
+    "invalid_environment_reference": "이 테넌트에 없는 연결 참조입니다. sova_get_context의 connections에서 고르세요.",
+    "environment_role_mismatch": "이 연결 참조는 고른 역할(출발지·목적지)에 쓸 수 없습니다.",
+    "environment_changed": "같은 이름의 등록이 다른 입력으로 이미 있습니다. 다른 이름을 쓰거나 기존 등록을 쓰세요.",
+    "workload_changed": "같은 앱 등록이 다른 입력으로 이미 있습니다. 기존 등록을 쓰거나 이름을 바꾸세요.",
+    "registration_exists": "이미 등록돼 있습니다. sova_get_context에서 기존 등록을 쓰세요.",
+    "namespace_mismatch": "네임스페이스가 출발지 환경의 네임스페이스와 다릅니다.",
+    "invalid_release_path": "앱 경로·IaC 경로는 저장소 안의 상대 경로여야 합니다(.. 와 절대 경로 불가).",
+    "invalid_release_identity": "저장소·경로가 운영자가 승인한 배포와 맞지 않습니다. sova_get_context의 releases에서 고르세요.",
+    "missing_rollout_identity": "출발지에서 이 앱의 실제 배포를 찾지 못했습니다. 네임스페이스와 출발지 환경을 확인하세요.",
+    "evaluation_profile_unavailable": "이 평가 프로필은 쓸 수 없습니다. sova_get_context의 profiles에서 고르세요.",
+    "plan_conflict": "같은 입력의 계획이 다른 상태로 이미 있습니다. 기존 계획을 확인하세요.",
+    "command_key_conflict": "같은 확인 토큰이 다른 입력에 쓰였습니다. 미리보기부터 다시 하세요.",
+    "invalid_request": "요청 형식이 맞지 않습니다. 입력을 확인하세요.",
+}
+FIELD_HINTS = {
+    "connection_ref": "연결 참조는 URL이 아니라 운영자가 등록한 이름입니다(영문·숫자·-·_, 128자 이하).",
+    "source_environment_id": "출발지 환경 ID는 등록된 환경의 ID입니다(영문·숫자·-·_).",
+    "target_environment_id": "목적지 환경 ID는 등록된 환경의 ID입니다(영문·숫자·-·_).",
+    "namespace": "네임스페이스는 영문·숫자·-·_ 로 된 이름입니다.",
+    "name": "이름은 1~128자입니다.",
+    "repo_url": "저장소 주소는 1~512자입니다.",
+    "app_path": "앱 경로는 1~256자입니다.",
+    "iac_path": "IaC 경로는 1~256자입니다.",
+}
+
+
 def _fail(code: str):
-    hint = {"forbidden": "권한이 없거나 없는 대상입니다. sova_get_context로 연결 범위를 확인하세요.",
-            "read_only_connection": "읽기 전용 연결입니다. 등록·계획 생성은 read_only=false 연결에서만 열립니다.",
-            "plan_scoped_connection": "이 연결은 하나의 계획으로 범위가 고정돼 있습니다.",
-            "confirmation_invalid": "확인 토큰이 입력과 맞지 않거나 만료됐습니다. 미리보기부터 다시 하세요.",
-            "upstream_unavailable": "조회 대상에 닿지 못했습니다. 결과 불명이며 재시도 전에 다시 조회하세요."}.get(code)
-    raise ToolError(json.dumps({"detail": {"code": code}, "hint": hint}, ensure_ascii=False))
+    raise ToolError(json.dumps({"detail": {"code": code}, "hint": HINTS.get(code)}, ensure_ascii=False))
+
+
+VALIDATION = re.compile(r"^Error executing tool \S+: \d+ validation errors? for \S+\n")
+
+
+def invalid_input(text: str) -> str | None:
+    """Argument-schema failures name the fields only: the SDK's text also echoes the rejected values,
+    which may be anything a person pasted (a URL, a token) and would reach the agent and the screen."""
+    if not VALIDATION.match(text):
+        return None
+    fields = sorted({line.strip() for line in text.splitlines()[1:] if line and not line.startswith(" ")})
+    hint = " ".join(FIELD_HINTS.get(f, f"{f} 값의 형식이 맞지 않습니다.") for f in fields)
+    return json.dumps({"detail": {"code": "invalid_input", "fields": fields}, "hint": hint}, ensure_ascii=False)
 
 
 class Confirmations:
@@ -130,6 +172,11 @@ def build_server(backend: SovaBackend, confirmations: Confirmations | None = Non
         session = request.scope.get("sova") if request is not None else None
         if ctx.method == "tools/list" and (not isinstance(session, Session) or session.options.read_only):
             result["tools"] = [t for t in result["tools"] if t["name"] not in WRITE_TOOLS]
+        if ctx.method == "tools/call" and isinstance(result, dict) and result.get("isError"):
+            for item in result.get("content") or []:
+                safe = invalid_input(item.get("text") or "") if isinstance(item, dict) else None
+                if safe is not None:
+                    item["text"] = safe
         return result
 
     mcp = MCPServer(name="sova", title="SOVA", version="0.1.0", instructions=guide.INSTRUCTIONS,

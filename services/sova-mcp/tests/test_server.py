@@ -241,3 +241,25 @@ def test_plan_events_stream_t10_sse_with_the_same_access_rules(server):
                      occurred_at=datetime.now(UTC).isoformat(),
                      data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "PASS", "context_digest": "c" * 64})
         assert next(line for line in lines if line.startswith("id:")) == "id: plan-sse:2"
+
+
+def test_rejected_arguments_name_fields_without_echoing_values(server):
+    base, _, _ = server
+    pasted = "https://github.com/Softbank-Hackathon-Finals/demo-app"
+    bad = {"name": "src", "kind": "aws", "role": "source", "connection_ref": pasted}
+    result, _ = call(base, "sova_register_environment", bad, query="?read_only=false")
+    text = result["content"][0]["text"]
+    assert result["isError"] and "github" not in text and "input_value" not in text
+    body = json.loads(text)
+    assert body["detail"] == {"code": "invalid_input", "fields": ["connection_ref"]} and "URL" in body["hint"]
+
+
+def test_registry_refusals_come_with_a_hint(server):
+    base, _, _ = server
+    q = "?read_only=false"
+    env = {"name": "src", "kind": "aws", "role": "source", "connection_ref": "no-such-ref"}
+    _, preview = call(base, "sova_register_environment", env, query=q)
+    result, _ = call(base, "sova_register_environment", env | {"confirmation": preview["confirmation"]}, query=q)
+    body = json.loads(result["content"][0]["text"][result["content"][0]["text"].index("{"):])
+    assert result["isError"] and body["hint"] and body["detail"]["code"] in (
+        "registration_reference_unavailable", "invalid_environment_reference")
