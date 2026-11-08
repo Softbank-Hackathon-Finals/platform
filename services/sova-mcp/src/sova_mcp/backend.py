@@ -141,6 +141,11 @@ class SovaBackend:
             "plans": plans,
             "profiles": [dict(profile_id=p, profile_version=v) for t, p, v in
                          sorted(self.registry.evaluation_profiles) if t == actor.tenant_id],
+            # Operator-installed choices for the registration forms; the server still verifies each one.
+            "connections": sorted(ref for t, ref in self.registry.environments if t == actor.tenant_id),
+            "releases": [dict(environment_id=r.environment_id, repo_url=r.repo_url, app_path=r.app_path,
+                              iac_path=r.iac_path) for (t, *_), r in sorted(self.registry.releases.items())
+                         if t == actor.tenant_id],
             "console_url": self.console_url,
             "stage": plans[0]["state"] if len(plans) == 1 else None,
         })
