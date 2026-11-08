@@ -17,6 +17,7 @@ def render():
         "--set", f"image.digest={DIGEST}", "--set", f"sourceRevision={REVISION}",
         "--set", "tenantId=bravo", "--set", "tokenReview.apiAddress=10.81.0.191",
         "--set", "tokenReview.apiPort=6443",
+        "--set", "tokenReview.reviewerAudience=https://kubernetes.default.svc.cluster.local",
         "--set", "database.address=10.43.10.10", "--set", "secrets.tls=security-review-tls",
         "--set", "secrets.database=security-review-database",
         "--set", "configMaps.grants=security-review-grants",
@@ -50,7 +51,12 @@ def test_review_workload_has_only_projected_review_identity_and_read_only_runtim
     volumes = {item["name"]: item for item in pod["volumes"]}
     sources = volumes["api"]["projected"]["sources"]
     token = sources[0]["serviceAccountToken"]
-    assert token == {"path": "token", "audience": "registered-security-review-audience", "expirationSeconds": 600}
+    assert token == {
+        "path": "token",
+        "audience": "https://kubernetes.default.svc.cluster.local",
+        "expirationSeconds": 600,
+    }
+    assert token["audience"] != "registered-security-review-audience"
     assert sources[1]["configMap"]["name"] == "security-review-api-ca"
 
 

@@ -82,7 +82,7 @@ spec:
           projected:
             defaultMode: 288
             sources:
-              - serviceAccountToken: {path: token, audience: {{ .Values.audience }}, expirationSeconds: 600}
+              - serviceAccountToken: {path: token, audience: {{ .Values.tokenReview.reviewerAudience }}, expirationSeconds: 600}
               - configMap: {name: {{ .Values.configMaps.apiCA }}, items: [{key: ca.crt, path: ca.crt}]}
         - {name: audit, persistentVolumeClaim: {claimName: security-review-audit}}
         - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}

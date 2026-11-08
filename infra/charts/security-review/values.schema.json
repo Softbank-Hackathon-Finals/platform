@@ -19,11 +19,13 @@
     "tenantId": {"$ref": "#/definitions/name"},
     "audience": {"const": "registered-security-review-audience"},
     "tokenReview": {
-      "type": "object", "additionalProperties": false, "required": ["origin", "apiAddress", "apiPort"],
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "apiAddress", "apiPort", "reviewerAudience"],
       "properties": {
         "origin": {"const": "https://kubernetes.default.svc:443"},
         "apiAddress": {"$ref": "#/definitions/ipv4"},
-        "apiPort": {"type": "integer", "minimum": 1, "maximum": 65535}
+        "apiPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "reviewerAudience": {"type": "string", "pattern": "^https://[a-z0-9.-]+(?::[0-9]+)?$"}
       }
     },
     "database": {
