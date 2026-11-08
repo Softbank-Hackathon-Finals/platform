@@ -26,7 +26,7 @@ misconfigurations:
     paths:
       - infra/envs/tailnet-relay/main.tf
     expired_at: 2026-11-30
-    statement: The Tailscale peer relay forwards UDP to peers' NAT-assigned ports and reaches Tailscale control, DERP and SSM on addresses that change; who may relay is the tailnet grant. Inbound is the relay UDP port only, the host has no SSH key and holds no credentials, and the VPC peers with nothing. Remove with the stack after the demo.
+    statement: The Tailscale peer relay forwards UDP to peers' NAT-assigned ports and reaches Tailscale control, DERP and SSM on addresses that change; who may relay is the tailnet grant. Inbound is the relay UDP port only, the host has no SSH key and holds no credentials, and it uses its own security group in the default VPC. Remove with the stack after the demo.
   - id: AVD-AWS-0104
     paths:
       - infra/envs/sandbox-session/main.tf

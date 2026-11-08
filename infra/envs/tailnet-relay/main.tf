@@ -5,49 +5,27 @@ locals {
   named_tags = merge(var.tags, { Name = var.name })
 }
 
-# Peers reach the relay over the internet (the on-prem VM, AWS private subnets through their NAT gateways),
-# so it needs no peering and stays out of the VPCs whose routes it serves.
-resource "aws_vpc" "relay" {
-  cidr_block           = "10.94.0.0/24"
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-  tags                 = local.named_tags
+# Peers reach the relay over the internet (the on-prem VM, AWS private subnets through their NAT gateways), so it
+# needs no peering. The account is at its VPC quota, so the host uses the default VPC's subnet in zone a, which
+# routes to the internet gateway. This stack only adds its own security group there; it never manages the
+# default VPC, its subnets or its default security group, which other workloads use.
+data "aws_vpc" "default" { default = true }
+data "aws_subnet" "relay" {
+  vpc_id            = data.aws_vpc.default.id
+  availability_zone = "${var.region}a"
+  default_for_az    = true
 }
-resource "aws_default_security_group" "closed" {
-  vpc_id  = aws_vpc.relay.id
-  ingress = []
-  egress  = []
-  tags    = local.named_tags
-}
-resource "aws_internet_gateway" "relay" {
-  vpc_id = aws_vpc.relay.id
-  tags   = local.named_tags
-}
-resource "aws_subnet" "relay" {
-  vpc_id                  = aws_vpc.relay.id
-  cidr_block              = "10.94.0.0/27"
-  availability_zone       = "${var.region}a"
-  map_public_ip_on_launch = false
-  tags                    = local.named_tags
-}
-resource "aws_route_table" "relay" {
-  vpc_id = aws_vpc.relay.id
-  tags   = local.named_tags
-}
-resource "aws_route" "internet" {
-  route_table_id         = aws_route_table.relay.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.relay.id
-}
-resource "aws_route_table_association" "relay" {
-  subnet_id      = aws_subnet.relay.id
-  route_table_id = aws_route_table.relay.id
+data "aws_internet_gateway" "default" {
+  filter {
+    name   = "attachment.vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
 resource "aws_security_group" "relay" {
   name        = var.name
   description = "Tailscale peer relay: inbound only on the relay UDP port; operators use SSM"
-  vpc_id      = aws_vpc.relay.id
+  vpc_id      = data.aws_vpc.default.id
   tags        = local.named_tags
 }
 # Who may relay is decided by the tailnet grant (tailscale.com/cap/relay); packets without a relay session are dropped.
@@ -120,7 +98,7 @@ resource "aws_instance" "relay" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   key_name                    = ""
-  subnet_id                   = aws_subnet.relay.id
+  subnet_id                   = data.aws_subnet.relay.id
   associate_public_ip_address = false # the Elastic IP is the host's only public address
   vpc_security_group_ids      = [aws_security_group.relay.id]
   iam_instance_profile        = aws_iam_instance_profile.relay.name
@@ -144,8 +122,6 @@ resource "aws_instance" "relay" {
   }
   tags = local.named_tags
   depends_on = [
-    aws_route.internet,
-    aws_route_table_association.relay,
     aws_iam_role_policy_attachment.ssm,
     aws_iam_role_policy.deny_credentials,
     aws_vpc_security_group_egress_rule.https,
@@ -155,6 +131,10 @@ resource "aws_instance" "relay" {
     precondition {
       condition     = contains(data.aws_ec2_instance_type.relay.supported_architectures, "arm64")
       error_message = "The relay host image is arm64."
+    }
+    precondition {
+      condition     = data.aws_internet_gateway.default.internet_gateway_id != "" && data.aws_subnet.relay.vpc_id == data.aws_vpc.default.id
+      error_message = "The relay needs a default-VPC subnet with an internet gateway."
     }
   }
 }
