@@ -17,6 +17,8 @@ uv sync --locked && uvx ruff check . && uv run --locked pytest -q
 uv run bravo-function-runtime check --config runtime.json --source <출발지 설정 디렉터리>   # 지원 안 함이 있으면 종료 코드 2
 ```
 
+이미지는 develop에 병합될 때 `publish-function-runtime-image` 워크플로가 `ghcr.io/softbank-hackathon-finals/platform-function-runtime:sha-<커밋>`으로 발행한다(빌드 한 번 → 취약점 검사 → 같은 바이트 발행 → digest 확인). 핸들러를 얹은 함수 이미지는 핸들러가 있는 앱 레포가 이 베이스의 digest 위에 만들고, 핸들러 의존성은 Lambda zip처럼 `/var/task`에 넣는다.
+
 설정 예와 로컬 증명은 [`testing/local`](testing/local/README.md), 큐 서버 후보 비교는 [`testing/queue_compare`](testing/queue_compare/README.md).
 
 지원 범위는 SQS 표준 큐 → Python 핸들러다. FIFO · 이벤트 필터 · 배치 일부 실패 응답 · 배치 대기 · 자동 확장은 재현하지 않고 거부하거나 고정값으로 둔다.

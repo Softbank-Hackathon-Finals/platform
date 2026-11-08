@@ -1,7 +1,7 @@
 """Security reviews are fresh conditions; platform authority remains the executor gate."""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sova_security.adapters.modernization_codec import decode, encode
@@ -33,10 +33,15 @@ from bravo_platform_events.security_governance import (
     _host_binding,
     review_ports,
 )
-from bravo_platform_events.security_relay import probe
+from bravo_platform_events.security_relay import _access_clock, probe
 from bravo_platform_events.store import EventError
 
 BASELINE = "7" * 40
+
+
+def test_security_relay_adapts_server_clock_for_operator_access():
+    now = datetime(2026, 11, 8, 2, 0, tzinfo=UTC)
+    assert _access_clock(lambda: now)() == "2026-11-08T02:00:00+00:00"
 
 
 def _bundle(f, kind):
@@ -232,6 +237,19 @@ def test_php2shell_confirmed_compromise_blocks_the_normal_change_path(flow):  # 
             authority(connection, f.principal, plan, rehearsal_id="rehearsal",
                       now=f.state["now"].isoformat(), approved_by=None, approval_id=None)
     assert transport.calls == 1
+
+
+def test_review_ports_deployed_follows_the_running_image(monkeypatch, tmp_path):
+    (tmp_path / "token").write_text("t")
+    config = {"url": "https://security-review.platform-state.svc:8443", "ca_file": str(tmp_path / "ca.crt"),
+              "token_file": str(tmp_path / "token"), "subject_id": "approval-host", "source_revision": "deployed",
+              "registrar": {"tenant_id": "tenant", "subject_id": "registrar"}}
+    monkeypatch.delenv("BRAVO_PLATFORM_SOURCE_REVISION", raising=False)
+    with pytest.raises(ValueError, match="security_review_configuration_invalid"):
+        review_ports(config, clock=lambda: None)  # no pinned image revision: fail closed
+    monkeypatch.setenv("BRAVO_PLATFORM_SOURCE_REVISION", "1" * 40)
+    with pytest.raises(ValueError, match="security_review_mount_required"):
+        review_ports(config, clock=lambda: None)  # revision accepted; the missing CA is the next check
 
 
 def test_review_ports_rejects_config_from_another_platform_image(monkeypatch):

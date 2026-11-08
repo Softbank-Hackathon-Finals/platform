@@ -7,6 +7,7 @@ token is never forwarded). Every read re-checks the caller's tenant.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -141,6 +142,11 @@ class SovaBackend:
             "plans": plans,
             "profiles": [dict(profile_id=p, profile_version=v) for t, p, v in
                          sorted(self.registry.evaluation_profiles) if t == actor.tenant_id],
+            # Operator-installed choices for the registration forms; the server still verifies each one.
+            "connections": sorted(ref for t, ref in self.registry.environments if t == actor.tenant_id),
+            "releases": [dict(environment_id=r.environment_id, repo_url=r.repo_url, app_path=r.app_path,
+                              iac_path=r.iac_path) for (t, *_), r in sorted(self.registry.releases.items())
+                         if t == actor.tenant_id],
             "console_url": self.console_url,
             "stage": plans[0]["state"] if len(plans) == 1 else None,
         })
@@ -183,8 +189,9 @@ class SovaBackend:
             return self.registry.register(actor, kind, body, key)
         except EventError as e:
             raise SovaError(e.code) from None
-        except ValueError:
-            raise SovaError("invalid_request") from None
+        except ValueError as e:
+            # Registry ValueErrors carry a fixed code (invalid_release_path, …); anything else stays generic.
+            raise SovaError(str(e) if re.fullmatch(r"[a-z_]{3,64}", str(e)) else "invalid_request") from None
 
     # --- observability and security (fixed upstreams) ----------------------------------
     def _environment(self, actor, environment_id: str, service: str) -> str:

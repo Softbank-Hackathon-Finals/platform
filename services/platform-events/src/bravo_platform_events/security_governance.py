@@ -273,6 +273,9 @@ def review_ports(config, *, clock):
     """Build fixed-origin TLS and a rotating projected workload credential."""
     required = {"url", "ca_file", "token_file", "subject_id", "source_revision", "registrar"}
     deployed_revision = os.environ.get("BRAVO_PLATFORM_SOURCE_REVISION")
+    if type(config) is dict and config.get("source_revision") == "deployed":
+        # T49: follow the running image's pinned revision, so an image pin no longer needs a config change.
+        config = config | {"source_revision": deployed_revision or ""}
     if (type(config) is not dict or set(config) != required
             or _SHA.fullmatch(config.get("source_revision", "")) is None
             or deployed_revision != config.get("source_revision")):
