@@ -199,7 +199,8 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate", "security_review"} <= set(config) <= {"executor", "gate", "security_review", "write_pause_budget_ms", "failback", "edge", "iac", "delegation"}
+    if (type(config) is not dict or not {"executor", "gate", "security_review"} <= set(config) <= {"executor", "gate", "security_review", "write_pause_budget_ms", "failback", "edge", "iac", "delegation",
+                                                                  "demo"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -212,9 +213,9 @@ def create(store, config_file=CONFIG):
     module, name = config["gate"].split(":")
     records, load_gate = getattr(importlib.import_module(module), name)(store)
     rehearsal = rehearsal_ports(store)
-    authority = records.cutover_authority(
-        upstream=current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
-        load_gate=load_gate)
+    demo = config.get("demo", False) is True  # T49 demo: the workflow host skipped GATE, so no T19 session here
+    upstream = current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000))
+    authority = upstream if demo else records.cutover_authority(upstream=upstream, load_gate=load_gate)
     change_wrapper = None
     if config["security_review"] is not False:  # T49: false = review off (the db16f140 behaviour) until it is switched on
         from . import gate_services
@@ -258,7 +259,8 @@ def create(store, config_file=CONFIG):
                                          and ("shift_profile" not in delegation or "edge" in config)
                                          and type(delegation.get("auto_approver", "")) is str)):
         raise ValueError("operator_ports_configuration_invalid")
-    shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate)
+    shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate,
+                                                 demo=demo)
              } if type(delegation) is dict and "shift_profile" in delegation else {}
     if type(delegation) is dict and delegation.get("auto_approver"):
         shift["auto_approver"] = delegation["auto_approver"]
@@ -267,7 +269,7 @@ def create(store, config_file=CONFIG):
                             delegation=delegation is not False, first_run=rehearsal.first_run, **shift)
 
 
-def _delegated_shift(edge, profile_file, records, load_gate):
+def _delegated_shift(edge, profile_file, records, load_gate, *, demo=False):
     """T49 `delegation: {"shift_profile": ...}`: the SHIFT weights run as the delegated approver over this
     process's one LB journal (the `edge` mounts FAILBACK already uses) and the reviewed T36 profile."""
     from bravo_edge_control.provider import Binding, Cloudflare
@@ -285,7 +287,7 @@ def _delegated_shift(edge, profile_file, records, load_gate):
         return view.session(service, readiness)
 
     return lambda store, delegations: DelegatedShift(store, delegations, provider=provider, journal=journal,
-                                                     profile=profile, load_session=load_session)
+                                                     profile=profile, load_session=load_session, demo=demo)
 
 
 def _iac(value):

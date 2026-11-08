@@ -93,7 +93,7 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
             for g in found.grants(entry["params"]):
                 if g.get("tailnet", DEFAULT_TAILNET) == tailnet:
                     app = json.dumps(g["app"], sort_keys=True) if "app" in g else ""
-                    grants.add((g["src"][0], g["dst"][0], g["ip"][0], app))
+                    grants.add((g["src"][0], g["dst"][0], g["ip"][0] if "ip" in g else "", app))  # "": capability only
             for o in found.tag_owners(entry["params"]):
                 if o["tailnet"] == tailnet and owners.setdefault(o["tag"], o["owner"]) != o["owner"]:
                     raise IacError("IAC_TAG_OWNER_CONFLICT")
@@ -114,7 +114,7 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
                         if entry["id"] == "tailnet-operator" and tailnet_of(entry["params"]) == tailnet})
     return {
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
-        "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
+        "grants": [{"src": [s], "dst": [d], **({"ip": [i]} if i else {}), **({"app": json.loads(a)} if a else {})}
                    for s, d, i, a in sorted(grants)],
         # Each route device is also denied every other declared dst:port it was not granted, so a hand edit that
         # opens a declared device more widely (e.g. `*` toward tag:bravo-findings:8443) fails the policy tests.
@@ -144,10 +144,11 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
         for name, tags in table.items():
             missing += [f"AUTO_APPROVER:{name}:{tag}" for tag in tags if tag not in ((have.get(kind) or {}).get(name) or [])]
     for grant in want["grants"]:
-        src, dst, ip = grant["src"][0], grant["dst"][0], grant["ip"][0]
-        if not any(src in g.get("src", []) and dst in g.get("dst", []) and (ip in g.get("ip", []) or "*" in g.get("ip", []))
+        src, dst, ips = grant["src"][0], grant["dst"][0], grant.get("ip", [])
+        if not any(src in g.get("src", []) and dst in g.get("dst", [])
+                   and all(ip in g.get("ip", []) or "*" in g.get("ip", []) for ip in ips)
                    and ("app" not in grant or g.get("app") == grant["app"]) for g in policy.get("grants") or []):
-            missing.append(f"GRANT:{src}->{dst}:{ip}" + ("+app" if "app" in grant else ""))
+            missing.append(f"GRANT:{src}->{dst}" + "".join(f":{ip}" for ip in ips) + ("+app" if "app" in grant else ""))
     # What the desired state does not declare toward a declared API proxy would let a policy edit alone
     # hand out cluster access: a capability grant (the proxy may impersonate any group), or plain reach
     # to its 443 from another source (a transport proxy passes the caller's own credential through).
