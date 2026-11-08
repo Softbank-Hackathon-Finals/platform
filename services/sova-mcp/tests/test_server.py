@@ -146,6 +146,11 @@ def test_guided_registration_needs_matching_confirmation_then_plan_flows(server)
 
     _, ctx = call(base, "sova_get_context")
     assert len(ctx["data"]["environments"]) == 2 and ctx["data"]["plans"][0]["plan_id"] == plan_id
+    assert ctx["data"]["connections"] == ["source-reader", "target-reader"]
+    assert ctx["data"]["releases"] == [{"environment_id": "env-src", "repo_url": APP["repo_url"],
+                                        "app_path": "app", "iac_path": "compose.yaml"}]
+    _, other = call(base, "sova_get_context", token="mallory")
+    assert other["data"]["connections"] == [] and other["data"]["releases"] == []
     _, steps = call(base, "sova_next_steps", {"plan_id": plan_id})
     assert steps["data"]["state"] == "COLLECT" and steps["next_actions"][0]["tool"] == "sova_get_progress"
     _, progress = call(base, "sova_get_progress", {"plan_id": plan_id})

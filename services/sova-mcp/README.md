@@ -25,6 +25,7 @@ SOVA Console 데스크톱 앱(`services/console/desktop`)은 요청마다 증명
 리소스 `sova://guide/flow`(8단계) · `sova://glossary` · `sova://plans/{id}` · `sova://plans/{id}/next-actions`,
 프롬프트 `sova-onboarding` · `sova-migrate` · `sova-status` · `sova-rehearsal-review` · `sova-failback`.
 모든 도구는 `{status, summary, data, next_actions, poll_after_ms, cursor, console_url, confirmation, observed_at, source}`를 돌려준다.
+`sova_get_context`는 등록 화면의 선택 목록도 준다: `connections`(이 테넌트의 연결 참조), `releases`(운영자가 승인한 저장소·앱·IaC 경로). 서버는 등록 때 각 값을 다시 확인한다.
 승인·실행·복귀·reconcile·SAFE_HOLD·정리·리허설 시작은 도구가 없다(사람이 콘솔에서).
 
 콘솔용 진행 스트림 `GET /v1/plans/{id}/events`는 T10 SSE 계약(`id`·`event`·`data`, `Last-Event-ID` 재개, 409 `resync_required`)을
