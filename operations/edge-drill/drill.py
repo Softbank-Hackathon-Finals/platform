@@ -9,9 +9,8 @@ Runs on the operator's machine with the operator's own AWS SSO session; it never
 
 `approve` asks the approval host for each spec digest (`bravo_edge_control.drill digest`), then records one T10 infra
 approval per spec as the human. It grants nothing: permissions come from the administration path only. The requester
-must be another registered person (`operator_verifier`), never the approver. The approval id is written back into the
-local spec. The approval host refuses the approver as the person who runs the drill (`drill_executor_is_approver`);
-only `restore` stays open to them.
+is whoever prepared the spec (another person or the agent), never the approver; T10 refuses self-approval. The approval
+id is written back into the local spec. The approving human may run the drill (ADR-0039, 2026-11-08 amendment).
 `run` copies the spec to the approval host and streams a fresh proof every 20 s into the drill (60 s lifetime). If `sequence`/`watch` is interrupted (Ctrl-C, SIGTERM, a lost proof feed) or
 ends non-zero, it stops the remote drill and runs `restore` (retrying while the drill lock is held) so the weight goes
 back to 0%. Do not run it under a tool time limit shorter than the sequence.
@@ -51,8 +50,8 @@ verifiers = [SsoRegistrationVerifier(**(o | {"audience": OPERATOR_SSO_AUDIENCE})
 human = OperatorSsoVerifier(verifiers).verify(data["proof"])
 if human is None:
     raise SystemExit("operator proof not verified")
-if data["requested_by"] not in {v.subject_id for v in verifiers} or data["requested_by"] == human.subject_id:
-    raise SystemExit("requester must be another registered person")
+if data["requested_by"] == human.subject_id:
+    raise SystemExit("requester must not be the approver")
 store = PostgresPlanStore(runtime_connection())
 access = OperatorAccess(store)
 start = datetime.fromtimestamp(human.issued_at, UTC)
@@ -216,7 +215,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     a = sub.add_parser("approve")
     a.add_argument("specs", nargs="+", help="drill spec JSON files (one plan)")
-    a.add_argument("--requested-by", required=True, help="subject id of another registered person (not the approver)")
+    a.add_argument("--requested-by", required=True, help="who prepared the specs: another person or the agent (not the approver)")
     r = sub.add_parser("run")
     r.add_argument("spec")
     r.add_argument("action", choices=("register", "sequence", "watch", "restore"))
