@@ -1,0 +1,60 @@
+# 플랫폼 클러스터 자신의 Collector. 고객(출발지 · 목적지) Collector와 namespace · 수신 경로 · CA를 나눈다.
+#   namespace: platform-telemetry (저장소 bravo-observability와 분리)
+#   수신 경로: 클러스터 안 Service bravo-prometheus.bravo-observability.svc:9090 (고객은 tailnet proxy로만 들어온다)
+#   인증서: 플랫폼 수신 CA가 발급한 collector-platform. 저장소 ca.crt는 고객 CA + 플랫폼 수신 CA 묶음이다
+# 수집: Collector 생존 신호, 플랫폼 DB(platform-state/platform-db) CNPG 지표, bravo.observability/send=true namespace의 OTLP.
+# DB 쪽 권한 · 9187 허용은 deploy/collector-platform-db-access를 함께 적용한다.
+# 배포 전에 만들 것(git에 두지 않음): Secret bravo-collector-tls(ca.crt = 저장소 서버 CA, tls.crt · tls.key = collector-platform)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: platform-telemetry
+resources:
+  - ../collector-db
+  - namespace.yaml
+configMapGenerator:
+  # 플랫폼 경로에는 tailnet 이름이 없어 env를 git에 둔다. 서버 이름은 접속 주소의 이름을 그대로 검증한다
+  - name: bravo-collector-env
+    literals:
+      - BRAVO_ENV=platform
+      - PLATFORM_OTLP_ENDPOINT=https://bravo-prometheus.bravo-observability.svc:9090/api/v1/otlp
+      - BRAVO_DB_NAMESPACE=platform-state
+patches:
+  - target: {kind: Namespace, name: bravo-observability}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: bravo-observability
+  # 수신 구분: 이 Collector의 지표는 bravo_domain=platform. env는 이름으로 병합된다
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-collector
+      spec:
+        template:
+          metadata:
+            labels:
+              domain: platform
+          spec:
+            containers:
+              - name: collector
+                env:
+                  - {name: BRAVO_DOMAIN, value: platform}
+  # 저장소는 다른 namespace에 있다. 9090은 bravo-observability의 저장소 Pod로만 연다
+  - target: {kind: NetworkPolicy, name: bravo-collector}
+    patch: |-
+      - op: replace
+        path: /spec/egress/1
+        value:
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: bravo-observability
+              podSelector:
+                matchLabels:
+                  app: bravo-prometheus
+          ports:
+            - {port: 9090, protocol: TCP}

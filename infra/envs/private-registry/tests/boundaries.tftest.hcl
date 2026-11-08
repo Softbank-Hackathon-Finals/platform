@@ -5,6 +5,12 @@ mock_provider "aws" {
       client_id_list = ["sts.amazonaws.com"]
     }
   }
+  mock_data "aws_iam_role" {
+    defaults = {
+      arn  = "arn:aws:iam::000000000000:role/bravo-platform-runtime"
+      name = "bravo-platform-runtime"
+    }
+  }
 }
 variables {
   account_id           = "000000000000"
@@ -22,7 +28,7 @@ run "exact_publisher_boundary" {
     error_message = "Encryption and on-push scanning must remain enabled."
   }
   assert {
-    condition     = jsondecode(aws_iam_role.publisher.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == ["repo:Softbank-Hackathon-Finals@10001/demo-chat@20002:ref:refs/heads/main"]
+    condition     = jsondecode(aws_iam_role.publisher.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == ["repo:Softbank-Hackathon-Finals@10001/demo-app@20002:ref:refs/heads/main"]
     error_message = "OIDC must bind the exact immutable repository identity and branch."
   }
   assert {
@@ -33,6 +39,26 @@ run "exact_publisher_boundary" {
     condition     = jsondecode(aws_iam_role_policy.publisher.policy).Statement[1].Resource == aws_ecr_repository.application.arn && !contains(jsondecode(aws_iam_role_policy.publisher.policy).Statement[1].Action, "ecr:DeleteRepository") && !contains(jsondecode(aws_iam_role_policy.publisher.policy).Statement[1].Action, "ecr:SetRepositoryPolicy")
     error_message = "Publisher must only upload/read the exact repository, with no policy or deletion control."
   }
+}
+run "platform_candidate_boundary" {
+  command = apply
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.platform_candidate_push.policy).Statement[1].Resource == aws_ecr_repository.application.arn && !contains(jsondecode(aws_iam_role_policy.platform_candidate_push.policy).Statement[1].Action, "ecr:BatchDeleteImage") && !contains(jsondecode(aws_iam_role_policy.platform_candidate_push.policy).Statement[1].Action, "ecr:SetRepositoryPolicy")
+    error_message = "The platform host may only push to and read the exact repository."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.candidate_puller.assume_role_policy).Statement[0].Principal.AWS == "arn:aws:iam::000000000000:role/bravo-platform-runtime"
+    error_message = "Only the platform host may assume the candidate puller."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.candidate_puller.policy).Statement[1].Action == ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"] && jsondecode(aws_iam_role_policy.candidate_puller.policy).Statement[1].Resource == aws_ecr_repository.application.arn
+    error_message = "A destination token must be pull-only for the exact repository."
+  }
+}
+run "reject_other_host_role" {
+  command = plan
+  variables { platform_host_role = "other-role" }
+  expect_failures = [var.platform_host_role]
 }
 run "reject_wildcard_owner_identity" {
   command = plan

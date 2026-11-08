@@ -253,6 +253,12 @@ def test_push_requires_token_and_unauthorized_does_not_change_state(env):
     assert (
         client.post("/v1/security/ingest/kyverno", json=other_env, headers=AUTH).status_code == 403
     )
+    for source in ("falco", "bravo_controls"):
+        assert client.post(
+            f"/v1/security/ingest/{source}",
+            json={"environment_id": "env-aws", "events": []},
+            headers=AUTH,
+        ).status_code == 403
 
 
 def test_push_ingests_and_heartbeats(env):
@@ -464,6 +470,8 @@ class FakeSession:
         self.pages, self.calls = list(pages), []
 
     def get(self, url, params, timeout):
+        if "/securityCenterServices/" in url:  # detection reads ENABLED; test_gcp_scc covers the rest
+            return FakeResponse({"effectiveEnablementState": "ENABLED"})
         self.calls.append((url, dict(params)))
         return self.pages.pop(0)
 
@@ -473,19 +481,22 @@ def test_scc_pages_and_failure(rules):
     ingestor = Ingestor(store, Normalizer(rules))
     finding = raw("gcp-scc-public-bucket")
     finding.pop("_note")
+    finding["name"] = "projects/123456789/sources/111/locations/global/findings/publicbucket001"
     session = FakeSession(
         [
             FakeResponse({"listFindingsResults": [{"finding": finding}], "nextPageToken": "n"}),
-            FakeResponse({"listFindingsResults": []}),
+            FakeResponse({}),
         ]
     )
-    counts = run_once(ingestor, SccSource(session, "projects/demo"), "env-gcp", clock)
+    counts = run_once(ingestor, SccSource(session, "projects/123456789"), "env-gcp", clock)
     assert counts["created"] == 1
-    assert session.calls[0][0].endswith("/projects/demo/sources/-/findings")
+    assert session.calls[0][0] == (
+        "https://securitycenter.googleapis.com/v2/projects/123456789/sources/-/locations/global/findings"
+    )
     assert session.calls[1][1]["pageToken"] == "n"
     clock.now += MIN
     failing = FakeSession([FakeResponse({}, status=403)])
-    assert run_once(ingestor, SccSource(failing, "projects/demo"), "env-gcp", clock) == {
+    assert run_once(ingestor, SccSource(failing, "projects/123456789"), "env-gcp", clock) == {
         "failed": 1
     }
     assert store.source("gcp_scc", "env-gcp").error_code == "ACCESS_DENIED"
@@ -535,12 +546,26 @@ def test_agent_reports_unhealthy_falco_and_unreadable_kyverno():
     def healthy(path):
         if "daemonsets" in path:
             return {"status": {"desiredNumberScheduled": 1, "numberReady": 1}}
+        if "/deployments/" in path:
+            return {"spec": {"replicas": 1}, "status": {"readyReplicas": 1}}
         return {"items": []}
 
     assert collect(healthy, now) == [
         {"source": "kyverno", "events": []},
         {"source": "falco", "events": []},
     ]
+
+    # falcosidekick carries every alert, and reports-controller writes every report: either down is not "0 findings".
+    def stopped(name):
+        def get(path):
+            if path.endswith("/deployments/" + name):
+                return {"spec": {"replicas": 1}, "status": {}}
+            return healthy(path)
+
+        return {b["source"]: b.get("agent_error") for b in collect(get, now)}
+
+    assert stopped("falco-falcosidekick") == {"kyverno": None, "falco": "SOURCE_UNHEALTHY"}
+    assert stopped("kyverno-reports-controller") == {"kyverno": "SOURCE_UNHEALTHY", "falco": None}
 
     def broken(path):
         if "daemonsets" in path:

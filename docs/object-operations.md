@@ -106,6 +106,8 @@ uv run --python 3.12 python scripts/team_runtime.py objects close --access team-
 
 닫기는 닫힌 Secret 적용, Deployment Ready 확인, 첨부 버킷 정책의 부재 확인/기존 정책 제거, 익명 GET 403, 기존 첨부의 정상 인증 읽기와 바이트 대조, 이번 실행의 객체 삭제·부재 확인 순서다. 시험 객체는 예측 불가능한 run ID의 전용 경로에만 만든다. 기존 첨부, 다른 버킷 객체, PVC와 namespace는 삭제하지 않는다.
 
+**쓰는 주체는 하나다.** 승인된 변경으로 T31(`bravo-apply`)이 버킷을 닫으면, 같은 resourceVersion 검사 교체로 Secret에 `bravo.dev/exposure-owner: t31/<application_id>`를 남긴다. 이 표시가 있으면 `open`·`cycle`은 첫 변경 전에 `exposure_owned_by_platform`으로 FINISHED/FAIL이 되고, 쓰기 직전에도 같은 값으로 다시 확인한다. `close`·`check`는 그대로 된다. 새 데모를 위해 다시 여는 것은 운영자의 명시적 초기화(`object_exposure.py plan --state open-demo`의 첫 단계가 표시를 지운다)뿐이다. 플랫폼이 닫은 결정을 이 도구가 몰래 되돌려, 게이트 PASS와 실제 상태가 갈라지는 일을 막는다.
+
 결과는 이 저장소 운영 시험의 근거다. 앱의 전체 첨부 UI, 실제 AI 제안, T14 게이트, 승인·컷오버 성공을 대신하지 않는다. 한 운영자의 실제 실행과 다른 팀원의 기기에서 실제로 실행한 결과도 구분한다.
 
 ## 최초 설치와 변경

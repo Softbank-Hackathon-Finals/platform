@@ -223,10 +223,9 @@ def test_inventory_describe_is_denied_until_a_summary_is_attached(context):
 # ---- T44 infra.plan: the agent plans destination IaC through the control path's port, never applies
 
 def _iac_port(state="open-demo"):
-    import sys
-    repo = Path(__file__).resolve().parents[3]
-    sys.path.insert(0, str(repo / "services/iac/src"))  # pure stdlib package, not an image dependency
     from bravo_iac.agent import AgentPlanner
+
+    repo = Path(__file__).resolve().parents[3]
 
     committed = json.loads((repo / "infra/iac/environments/target-dev.json").read_text())
     if state == "closed":
@@ -246,10 +245,25 @@ def test_infra_plan_returns_a_plan_and_audits_only_its_digest(context):
     result = tools.dispatch("mcp__bravo__infra_plan", CLOSE)
     assert result["accepted"] and result["origin"] == "agent" and result["authorizes_apply"] is False
     assert result["effects"][0]["anonymous_access"]["after"] == []
-    assert tools.infra_plans == [result]
+    assert tools.infra_plans == [{"module": "target-object-exposure", "params": json.loads(CLOSE["params_json"]),
+                                  "plan": result}]
     event = tools.events[-1]
     assert (event["tool"], event["outcome"], event["refusal"]) == ("infra.plan", "ALLOWED", "NONE")
     assert event["plan_digest"] == result["plan_digest"] and "demo-chat-attachments" not in json.dumps(tools.events)
+
+
+def test_the_worker_is_told_to_close_a_planted_exposure_even_when_the_failure_is_about_code():
+    """The initial proposal's failure is CODE_CHANGE_REQUIRED (credential migration); the destination
+    gate finding (IAM-01.1, anonymous read) is not in it. ADR-0044 closes the bucket only from the
+    agent's own infra.plan, so the instruction and the tool description must lead there without it."""
+    from bravo_agent.tools import SYSTEM
+
+    flat = " ".join(SYSTEM.split())
+    assert "whatever the failure says" in flat and "unauthenticated access" in flat
+    assert "in addition to the code correction" in flat and "Plan nothing that widens access" in flat
+    described = _iac_port().describe()
+    assert "open-demo: also anonymous Read, the demo's planted defect" in described
+    assert '"state": "open-demo"' in described  # the committed value the worker reads
 
 
 def test_infra_plan_refuses_widening_and_records_the_code(context):

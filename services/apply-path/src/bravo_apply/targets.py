@@ -270,6 +270,24 @@ class OnpremApplier:
                                    renderer_sha256=prepared.context["renderer_sha256"],
                                    application_id=application_id, timeout_seconds=timeout_seconds, **hooks)
 
+    # ADR-0044 close after the image: T44's ``target-object-exposure`` is the SeaweedFS ``s3.json`` of
+    # this target, so the close (``desired.py``) is onprem's. ``exposure`` is what T10 passes to ``apply``.
+    def check_exposure(self, exposure: dict, approved_iac_plan_digest: str) -> dict:
+        from .desired import read_planned
+
+        return read_planned(Path(exposure["repo_root"]), exposure["environment_id"], exposure["base_revision"],
+                            exposure["iac_plan"], approved_iac_plan_digest, exposure["target"].bucket)
+
+    def close_exposure(self, exposure: dict, approved_iac_plan_digest: str, *, kube, receipts_dir: Path,
+                       plan_id: str | None, timeout_seconds: int, policy_hooks: dict | None) -> dict:
+        from .desired import apply_planned_exposure
+
+        return apply_planned_exposure(exposure["iac_plan"], approved_iac_plan_digest=approved_iac_plan_digest,
+                                      environment_id=exposure["environment_id"],
+                                      base_revision=exposure["base_revision"], repo_root=exposure["repo_root"],
+                                      kube=kube, receipts_dir=receipts_dir, target=exposure["target"],
+                                      plan_id=plan_id, timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+
 
 @dataclass(frozen=True)
 class CloudApplier:
@@ -380,3 +398,15 @@ def policy_applier(target, stores: dict[str, BucketPolicyStore] | None = None):
     if store is None:
         raise PolicyRefused("TARGET_APPLIER_UNAVAILABLE")
     return CloudApplier(kind, store)
+
+
+def exposure_closer(kind: str, exposure_target) -> OnpremApplier:
+    """The applier that closes a T44 exposure plan after an image change on a ``kind`` target.
+
+    Only onprem has one. aws/gcp (or a cloud target for the exposure) are UNSUPPORTED: refused before
+    anything is recorded or touched, so the application never half-applies."""
+    from .desired import DesiredRefused
+
+    if kind != "onprem" or target_kind(exposure_target) != "onprem" or not isinstance(exposure_target, PolicyTarget):
+        raise DesiredRefused("EXPOSURE_TARGET_KIND_UNSUPPORTED")
+    return OnpremApplier()

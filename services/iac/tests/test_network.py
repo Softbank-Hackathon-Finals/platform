@@ -76,6 +76,33 @@ def test_the_old_cli_stages_are_refused():
     assert T12.MOVED_TO_IAC >= {"pooler-ingress"}
 
 
+def test_operator_values_keep_existing_tags_and_render_wif_without_a_secret():
+    """ADR-0035: a new environment names its own tags and authenticates by federated identity."""
+    assert T8.values("target") == T8.values("target", "target", "join", "-", "-")  # existing target-dev unchanged
+    assert T8.values("target")["oauth"] == {"clientId": "", "clientSecret": ""}
+    wif = T8.values("target", "target-gke", "wif", "kFedTest123", "api.tailscale.com/kFedTest123")
+    assert wif["oauth"] == {"clientId": "kFedTest123", "audience": "api.tailscale.com/kFedTest123"}
+    assert "clientSecret" not in wif["oauth"]  # the chart then renders no oauth Secret
+    assert (wif["operatorConfig"]["defaultTags"], wif["operatorConfig"]["hostname"], wif["proxyConfig"]["defaultTags"]) == (
+        ["tag:bravo-target-gke-operator"], "bravo-target-gke-operator", "tag:bravo-target-gke-db")
+    for client_id, audience in (("-", "-"), ("", "api.tailscale.com/x"), ("kFed", "-"), ("k fed", "aud")):
+        with pytest.raises(ValueError):
+            T8.values("target", "target-gke", "wif", client_id, audience)
+    with pytest.raises(ValueError):
+        T8.values("target", "Target_GKE")
+
+
+def test_the_source_api_proxy_passes_the_callers_own_credential_through():
+    # source-dev declares `api-transport-access`: plain 443 reach, the caller's EKS IAM token decides.
+    # An auth proxy here would impersonate the tailnet user with no RBAC (403 on every request, 2026-11-08).
+    # allowImpersonation: RBAC for the separate auth ProxyGroup of platform workloads (workload-api-access).
+    assert T8.values("source")["apiServerProxyConfig"] == {"mode": "noauth", "allowImpersonation": "true"}
+    assert T8.values("target")["apiServerProxyConfig"] == {"mode": "false", "allowImpersonation": "false"}
+    source = next(s for s in STATES if s["environment"] == "source-dev")
+    assert [m["id"] for m in source["modules"] if m["id"] in ("api-transport-access", "operator-access")] == [
+        "api-transport-access"]
+
+
 def test_device_tags_are_owned_by_their_cluster_operator_and_granted_to_the_routes():
     policy = fragment(STATES)
     assert policy["tagOwners"]["tag:bravo-source-db"] == ["tag:bravo-source-operator"]

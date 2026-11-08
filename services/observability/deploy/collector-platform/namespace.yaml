@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-telemetry
+  labels:
+    component: platform
+    tier: observability
+    role: collector
+    domain: platform
+    app.kubernetes.io/part-of: bravo-platform
+    pod-security.kubernetes.io/enforce: restricted
