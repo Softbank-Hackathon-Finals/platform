@@ -22,10 +22,11 @@ def prepare(output, service="registration"):
     spec = importlib.util.spec_from_file_location("registration_base", HERE.parent / "product-read/build.py")
     base = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base)
-    if service not in {"registration", "product-reader", "rehearsal-host"}:
+    if service not in {"registration", "product-reader", "rehearsal-host", "security-review"}:
         raise ValueError("unknown_platform_service")
     output.mkdir(parents=True)
-    base.prepare_context(output, revision, rehearsal_host=service == "rehearsal-host")
+    base.prepare_context(output, revision, rehearsal_host=service == "rehearsal-host",
+                         security_review=service == "security-review")
     extras = (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")) if service == "registration" else ()
     if service == "registration":
         base.build_kubectl(output, revision)  # T31 apply from the workflow host (REHEARSE)
@@ -45,7 +46,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--service", choices=("registration", "product-reader", "rehearsal-host"), default="registration")
+    parser.add_argument("--service", choices=("registration", "product-reader", "rehearsal-host", "security-review"),
+                        default="registration")
     args = parser.parse_args()
     if args.receipt.exists():
         raise ValueError("new_receipt_required")

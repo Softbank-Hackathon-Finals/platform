@@ -275,3 +275,157 @@ def test_drip_response_has_whole_request_deadline():
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def pooler_body(env, *, paused=True, up=True, state=None):
+    return dict(
+        environment=env,
+        state=state or ("DOWN" if not up else "PAUSED" if paused else "OK"),
+        queried_at=datetime.now(UTC).isoformat(),
+        last_received_seconds_ago=2,
+        poolers=[
+            dict(
+                pooler="target-pooler",
+                up=up,
+                databases=[
+                    dict(name="chat", paused=paused, clients_active=3, clients_waiting=12,
+                         servers_active=0),
+                ],
+            )
+        ],
+    )
+
+
+class PooledSamples(Samples):
+    def __init__(self):
+        super().__init__()
+        self.pool_change = lambda body: body
+
+    async def pgbouncer(self, env):
+        self.calls.append("pgbouncer:" + env)
+        return self.pool_change(pooler_body(env))
+
+
+@pytest.fixture
+def pooled(tmp_path):
+    wrapped, *_ = setup(tmp_path / "pool.db")
+    samples = PooledSamples()
+    reader = PlanObservations(
+        wrapped.api,
+        samples,
+        environments={"env-source": "source", "env-target": "target"},
+        authorize=lambda *_: True,
+        pooled_environments={"target"},
+    )
+    return ConsoleApp(wrapped.api, public_origin=ORIGIN, observations=reader), samples
+
+
+def test_paused_pooler_is_shown_only_where_registered_and_never_a_gate_input(pooled):
+    app, samples = pooled
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
+        body = c.get("/v1/plans/plan-demo/observations").json()
+    assert body["for_gate_decisions"] is False
+    source, target = body["environments"]
+    assert source["pooler"] is None  # no PgBouncer registered: not "unobservable", not "OK"
+    assert target["pooler"] == {
+        "state": "PAUSED",
+        "last_received_seconds_ago": 2,
+        "databases": [
+            {"pooler": "target-pooler", "name": "chat", "paused": True, "clients_waiting": 12}
+        ],
+    }
+    assert sorted(samples.calls) == ["pgbouncer:target", "source", "target"]
+    assert source["last_received_seconds_ago"] == 1
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "stale",
+        "wrong-env",
+        "label-mismatch",
+        "unobservable",
+        "up-unknown",
+        "paused-unknown",
+        "old-heartbeat",
+        "no-poolers",
+        "negative-waiting",
+        "bad-pooler-id",
+        "too-many-databases",
+        "transport-error",
+    ],
+)
+def test_unverifiable_pooler_view_is_unobservable_not_ok(pooled, change):
+    app, samples = pooled
+
+    def bad(body):
+        db = body["poolers"][0]["databases"][0]
+        if change == "stale":
+            body["queried_at"] = (datetime.now(UTC) - timedelta(seconds=11)).isoformat()
+        elif change == "wrong-env":
+            body["environment"] = "source"
+        elif change == "label-mismatch":
+            body["state"] = "OK"  # but a database is paused
+        elif change == "unobservable":
+            body.update(state="UNOBSERVABLE", poolers=[])
+        elif change == "up-unknown":
+            body["poolers"][0]["up"] = None
+        elif change == "paused-unknown":
+            db["paused"] = None
+        elif change == "old-heartbeat":
+            body["last_received_seconds_ago"] = 31
+        elif change == "no-poolers":
+            body["poolers"] = []
+        elif change == "negative-waiting":
+            db["clients_waiting"] = -1
+        elif change == "bad-pooler-id":
+            body["poolers"][0]["pooler"] = "../x"
+        elif change == "too-many-databases":
+            body["poolers"][0]["databases"] = [dict(db, name=f"d{i}") for i in range(33)]
+        elif change == "transport-error":
+            raise RuntimeError("upstream unavailable")
+        return body
+
+    samples.pool_change = bad
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
+        target = c.get("/v1/plans/plan-demo/observations").json()["environments"][1]
+    assert target["pooler"] == {"state": "UNOBSERVABLE", "last_received_seconds_ago": None,
+                                "databases": []}
+    assert target["state"] == "OK"  # an unreadable pooler view does not hide HTTP samples
+
+
+def test_down_and_ok_pooler_states_are_recomputed_from_rows(pooled):
+    app, samples = pooled
+    for kwargs, expected in (({"paused": False}, "OK"), ({"paused": False, "up": False}, "DOWN")):
+        samples.pool_change = lambda body, kwargs=kwargs: pooler_body(body["environment"], **kwargs)
+        with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
+            target = c.get("/v1/plans/plan-demo/observations").json()["environments"][1]
+        assert target["pooler"]["state"] == expected
+
+
+def test_pooler_registration_must_name_a_registered_environment(tmp_path):
+    wrapped, *_ = setup(tmp_path / "reg.db")
+    with pytest.raises(ValueError, match="registered_pooler_environment_required"):
+        PlanObservations(
+            wrapped.api,
+            PooledSamples(),
+            environments={"env-source": "source", "env-target": "target"},
+            authorize=lambda *_: True,
+            pooled_environments={"another"},
+        )
+
+
+def test_pooler_route_rejects_unregistered_environment_names():
+    import asyncio
+
+    from bravo_console.observations import ObservationError
+
+    async def check():
+        client = T37Client("https://remote.invalid", "x" * 32)
+        try:
+            with pytest.raises(ObservationError, match="invalid_observation_environment"):
+                await client.pgbouncer("../admin")
+        finally:
+            await client.aclose()
+
+    asyncio.run(check())

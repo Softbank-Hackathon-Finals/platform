@@ -151,6 +151,7 @@ def _failure(error: Exception, *, secret: bool) -> dict:
 
 class _ReadProbe:
     _recheck_denial = False
+    tool, tool_version = TOOL, TOOL_VERSION  # an S3-compatible endpoint probe reports its own tool
 
     def _setup(
         self,
@@ -223,8 +224,8 @@ class _ReadProbe:
             "negative": negative,
             "postpositive": postpositive,
             "collected_at": collected.isoformat(),
-            "tool": TOOL,
-            "tool_version": TOOL_VERSION,
+            "tool": self.tool,
+            "tool_version": self.tool_version,
         }
         encoded = _canonical(payload)
         try:
@@ -238,8 +239,8 @@ class _ReadProbe:
             negative["outcome"] if positive_ok else None,
             "pass" if positive_ok else "fail",
             collected,
-            TOOL,
-            TOOL_VERSION,
+            self.tool,
+            self.tool_version,
             _digest(encoded),
             reason,
         )

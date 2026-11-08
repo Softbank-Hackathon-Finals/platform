@@ -149,6 +149,8 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3 cel-python==0.2.0
           helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
           helm dependency build infra/gitops/argocd
+          helm dependency build infra/iac/argocd
+          "$RUNNER_TEMP/helm-test/bin/python" infra/iac/test_customer_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
@@ -157,7 +159,10 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_workflow_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_iac_network_application.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_public_entry_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_security_findings_chart.py
           # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
           GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d
           KUBEBUILDER_ASSETS="$("$RUNNER_TEMP/envtest-bin/setup-envtest" use 1.35.0 --bin-dir "$RUNNER_TEMP/envtest" -p path)" \

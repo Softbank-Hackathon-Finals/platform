@@ -43,6 +43,14 @@ spec:
             matchLabels: {app.kubernetes.io/name: cutover-executor}
       ports:
         - {port: 8080, protocol: TCP}
+    # Evidence evaluation is an additional condition only. The review Service has no execution credential.
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: platform-state}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: security-review}
+      ports:
+        - {port: 8443, protocol: TCP}
     # T17 FailbackEdge and the in-Pod SHIFT CLI call api.cloudflare.com (resolved 2026-11-07 into
     # 104.19.192.0/22). Only the two published Cloudflare ranges that serve the API, port 443.
     - to:
@@ -59,6 +67,25 @@ spec:
         - ipBlock: {cidr: 43.202.75.96/32}
       ports:
         - {port: 443, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-review-from-rehearsal-host
+  namespace: platform-state
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: security-review}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: t15-rehearsal-host}
+      ports:
+        - {port: 8443, protocol: TCP}
 ---
 # Same egress proxy as bravo-rehearsal-control/rehearsal-host; added beside rehearsal-proxy-ingress.
 apiVersion: networking.k8s.io/v1

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from bravo_inventory import build_inventory, validate_inventory
-from bravo_inventory.capabilities import KIND_CAPABILITIES, load_profile
+from bravo_inventory.capabilities import KIND_CAPABILITIES, fit, load_profile, resolve
 from bravo_inventory.catalog import CATALOG, GRADES, KINDS, PAIR_EXCEPTIONS, ROLES, target_entry
 from bravo_inventory.deploy_trace import FileAdapter
 from bravo_inventory.grading import Item, _env_names, apply_pair, grade_role
@@ -171,19 +171,39 @@ def test_document_for_every_pair_validates(repo, exports, tmp_path, source, targ
     cand = doc["candidates"][0]
     assert cand["env_kind"] == target and cand["source_kind"] == source
     assert cand["migration"] == ("same_kind_cluster" if source == target else "cross_kind")
-    assert cand["missing_capabilities"] == []  # native managed services + declared CNPG cover the checked roles
+    assert cand["missing_capabilities"] == []  # managed services of the kind + declared CNPG cover the checked roles
     if source == target:
         assert {i["grade"] for i in doc["items"] if i["role"] != "unknown"} == {"config_swap"}
         assert cand["verdict"] == "fits"
 
 
-def test_aws_target_capabilities_are_native(repo, exports):
+def test_aws_target_managed_capabilities_use_contract_v1_sources(repo, exports):
     doc = build_inventory(app_id="demo-chat", repo=repo, app_path="app",
                           source_env={"env_id": "onprem-src", "env_kind": "onprem", "namespace": "chat"},
                           adapter=FileAdapter(exports), profiles=[PROFILES / "aws-eks.json"])
     caps = doc["candidates"][0]["capabilities"]
-    assert caps["s3_compatible"] == {"value": "s3", "source": "native: aws"}
-    assert caps["postgres_operator"]["source"] == "declared: profile"
+    # Contract v1: source stays declared|observed|unknown; the managed service is told apart by basis.
+    assert caps["s3_compatible"] == {"value": "s3", "source": "declared: aws 관리형 서비스(종류 기본값)", "basis": "managed"}
+    assert caps["postgres_operator"] == {"value": "cnpg", "source": "declared: profile"}
+    assert all(c["source"].split(":")[0] in {"declared", "observed", "unknown"} for c in caps.values())
+
+
+def test_managed_capabilities_follow_the_observation_rules():
+    profile = {"env_id": "aws-b", "env_kind": "aws", "provides": {"postgres_operator": "cnpg"}}
+    unknown = {"value": "unknown", "source": "unknown: services not readable"}
+    absent = {"value": "absent", "source": "observed: /apis"}
+    # unknown observation never replaces a registered value, managed or declared
+    caps = resolve(profile, {"s3_compatible": unknown, "postgres_operator": unknown})
+    assert caps["s3_compatible"]["basis"] == "managed" and caps["postgres_operator"]["value"] == "cnpg"
+    # absent replaces it, and neither absent nor unknown counts as provided
+    caps = resolve(profile, {"s3_compatible": absent})
+    assert caps["s3_compatible"] == absent
+    items = [{"role": "object_store", "grade": "config_swap"}, {"role": "db", "grade": "config_swap"}]
+    out = fit(items, profile, caps, "aws")
+    assert out["verdict"] == "blocked"
+    assert out["missing_capabilities"] == ["object_store 대체(s3)를 뒷받침할 's3_compatible' 기능이 관측되지 않음"]
+    out = fit(items, profile, {**caps, "s3_compatible": unknown}, "aws")
+    assert out["missing_capabilities"] == ["object_store 대체(s3)를 뒷받침할 's3_compatible' 기능이 등록되지 않음"]
 
 
 def test_report_without_profiles_uses_the_named_target_kind(repo):

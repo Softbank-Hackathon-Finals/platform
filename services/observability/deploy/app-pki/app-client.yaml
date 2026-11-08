@@ -1,0 +1,57 @@
+# demo-chat의 지표 전송용 클라이언트 인증서. 키는 OpenBao가 발급할 때만 만들어지고 이 Secret에만 있다.
+# ESO는 target-dev만 처리한다(T9). ServiceAccount 토큰은 ESO가 발급 요청 때만 만든다(audience openbao, 자동 마운트 없음).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-metrics-issuer
+  namespace: target-dev
+  labels: {tier: observability, role: collector, domain: customer}
+automountServiceAccountToken: false
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: VaultDynamicSecret
+metadata:
+  name: bravo-app-metrics-client
+  namespace: target-dev
+  labels: {tier: observability, role: collector, domain: customer}
+spec:
+  path: pki-telemetry/issue/app-metrics-client
+  method: POST
+  parameters:
+    common_name: demo-chat.target-dev
+  resultType: Data
+  provider:
+    server: https://target-openbao.bravo-secrets.svc:8200
+    caProvider: {type: ConfigMap, name: target-openbao-ca, key: ca.crt}
+    auth:
+      kubernetes:
+        mountPath: kubernetes
+        role: telemetry-app-client
+        serviceAccountRef:
+          name: bravo-metrics-issuer
+          audiences: [openbao]
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: bravo-app-metrics-client
+  namespace: target-dev
+  labels: {tier: observability, role: collector, domain: customer}
+spec:
+  # 인증서 72시간, 하루마다 새로 받는다. 앱은 다음 연결부터 새 파일을 쓴다
+  refreshInterval: 24h
+  target:
+    name: bravo-app-metrics-client
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        ca.crt: "{{ .issuing_ca }}"
+        tls.crt: "{{ .certificate }}"
+        tls.key: "{{ .private_key }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: VaultDynamicSecret
+          name: bravo-app-metrics-client

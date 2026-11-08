@@ -1,0 +1,12 @@
+# 출발지(AWS EKS) Collector: DB · PgBouncer 지표 + 앱 OTLP 수신 mTLS(Secret bravo-collector-app-tls).
+# 출발지에는 OpenBao가 없어 앱 CA는 cert-manager가 클러스터 안에서 만든다(deploy/app-pki-source). 목적지는 collector-target(OpenBao PKI).
+# app-pki-source를 먼저 적용해 두 Certificate가 Ready인 뒤 이 묶음을 적용한다(Secret에 ca.crt가 있어야 Collector가 뜬다).
+# 앱 namespace(source-dev)에는 bravo.observability/send=true 라벨과 클라이언트 인증서 Secret bravo-app-metrics-client가 필요하다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bravo-observability
+resources:
+  - ../collector-db-pgbouncer
+components:
+  - ../components/app-mtls
+  - ../components/app-mtls-cert-manager

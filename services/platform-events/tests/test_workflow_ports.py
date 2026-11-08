@@ -6,6 +6,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
+from test_candidate_build import FakeRegistry, seed
 from test_cutover import BINDINGS
 
 from bravo_platform_events import workflow_ports
@@ -28,8 +29,8 @@ def mounts(tmp_path, monkeypatch):
                                "subject": "system:serviceaccount:bravo-initial:initial-proposal",
                                "jwks_file": str(tmp_path / "jwks.json")}}
     (tmp_path / "reader.json").write_text(json.dumps(reader))
-    (tmp_path / "selections").mkdir()
     (tmp_path / "state").mkdir()
+    base = seed(FakeRegistry(), tmp_path)
     pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                             serialization.NoEncryption())
     (tmp_path / "app.pem").write_bytes(pem)
@@ -37,8 +38,9 @@ def mounts(tmp_path, monkeypatch):
     config = {"version": 1, "executor": {"url": "https://executor.invalid", "ca_file": "/x", "token_file": "/y",
                                           "registered_pair": {}},
               "propose": {"reader_config": str(tmp_path / "reader.json"), "principal": "operator-x",
-                          "runtime_source_sha": RUNTIME, "selections_dir": str(tmp_path / "selections"),
-                          "demo_chat_clone": str(tmp_path / "state" / "demo-chat")}}
+                          "runtime_source_sha": RUNTIME,
+                          "build": {"base_file": str(base), "credentials_file": str(tmp_path / "ecr.json"),
+                                    "receipts_dir": str(tmp_path / "state" / "candidate-builds")}}}
 
     def write(value):
         path = tmp_path / "ports.json"
@@ -50,17 +52,12 @@ def mounts(tmp_path, monkeypatch):
 def test_happy_path_ports_wire_propose_shift_and_cutover(backend, mounts):
     config, write, _ = mounts
     ports = workflow_ports.create_ports(backend.store, write(config))
-    assert set(ports["readers"]) == {"AWAIT_APPROVAL", "CUTOVER"} and set(ports["preparers"]) == {"PROPOSE"}
-    host = build(backend.store, lambda store: workflow_ports.create_ports(store, write(config)))
-    assert host.active() == []  # no plan yet; the host is constructible from the deployment config
-
-
-def test_github_app_section_builds_a_writer_with_exact_permissions(backend, mounts):
-    config, write, tmp = mounts
-    config["propose"]["github_app"] = {"app_id": 5643581, "key_file": str(tmp / "app.pem"),
-                                       "workflow_sha": "3a1a9135" + "0" * 32, "workflow_id": 408240730,
-                                       "state_file": str(tmp / "state" / "dispatches.json")}
-    assert "PROPOSE" in workflow_ports.create_ports(backend.store, write(config))["preparers"]
+    assert set(ports["readers"]) == {"ANALYZE", "AWAIT_APPROVAL", "CUTOVER"} and set(ports["preparers"]) == {"PROPOSE"}
+    with pytest.raises(ValueError, match="workflow_state_unwired:GATE,REHEARSE,WATCH"):
+        build(backend.store, lambda store: workflow_ports.create_ports(store, write(config)))  # undeclared gaps
+    host = build(backend.store, lambda store: workflow_ports.create_ports(
+        store, write(config | {"deferred": ["REHEARSE", "GATE", "WATCH"]})))
+    assert host.active() == []  # no plan yet; constructible once the deployment names what it does not drive
 
 
 @pytest.mark.parametrize("change", [
@@ -68,8 +65,10 @@ def test_github_app_section_builds_a_writer_with_exact_permissions(backend, moun
     lambda c: c.update(version=2),
     lambda c: c.update(extra=1),
     lambda c: c["propose"].update(runtime_source_sha="short"),
-    lambda c: c["propose"].update(selections_dir="relative"),
-    lambda c: c["propose"].update(github_app={"app_id": 1}),
+    lambda c: c["propose"].pop("build"),
+    lambda c: c["propose"]["build"].update(base_file="relative"),
+    lambda c: c["propose"]["build"].update(extra=1),
+    lambda c: c["propose"].update(github_app={"app_id": 1}),  # GitHub is no longer a PROPOSE port
     lambda c: c.update(application="not a factory"),
     lambda c: c.update(watch={"profile_file": "/x"}),
 ])

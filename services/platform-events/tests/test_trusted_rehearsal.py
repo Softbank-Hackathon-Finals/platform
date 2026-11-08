@@ -125,6 +125,23 @@ def test_one_host_uses_signed_original_for_http_rehearsal_and_approval(flow, sig
     assert [event[0] for event in flow["planner"].events] == ["create", "verify", "cleanup"]
 
 
+def test_first_run_reaches_the_operator_rehearsal_service(flow, signing_key, monkeypatch):
+    import bravo_platform_events.operator_access as operator_access
+
+    seen = []
+    real = operator_access.RehearsalService
+    monkeypatch.setattr(operator_access, "RehearsalService",
+                        lambda *a, **k: seen.append(k.get("first_run")) or real(*a, **k))
+    def first_run(*_):
+        return "proposal-run"
+    ports = TrustedHostPorts(SimpleNamespace(submit=lambda *_: None, read=lambda *_: None),
+        {"env-aws": "source", "env-onprem": "target"}, flow["service"].host.catalog,
+        flow["planner"], lambda *_a, **_k: None, first_run=first_run)
+    build_trusted_host(flow["store"], ports=ports, records=flow["records"], sender=flow["intake"].sender,
+                       verifier=Identity(signing_key).verifier, token_supplier=lambda: flow["token"])
+    assert seen == [first_run]
+
+
 def test_missing_ports_are_rejected_before_host_creation():
     with pytest.raises(ValueError, match="trusted_host_ports_required"):
         TrustedHostPorts(object(), {}, object(), object(), None)

@@ -9,6 +9,8 @@
     {"src": "tag:bravo-source-collector", "accept": ["tag:bravo-metrics:9090"], "deny": ["tag:bravo-metrics:22", "tag:bravo-window-intake:30981", "tag:bravo-source-db:5432", "tag:bravo-target-db:5432"]},
     {"src": "tag:bravo-target-collector", "accept": ["tag:bravo-metrics:9090"], "deny": ["tag:bravo-metrics:22", "tag:bravo-window-intake:30981", "tag:bravo-source-db:5432", "tag:bravo-target-db:5432"]},
     {"src": "tag:bravo-loadgen", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-entry", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-argocd", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-cutover-control", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-source-operator", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-target-operator", "deny": ["tag:bravo-metrics:9090"]},
@@ -25,6 +27,23 @@
     {"src": "tag:bravo-collector", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-apply", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-rehearsal", "deny": ["tag:bravo-metrics:9090"]},
-    {"src": "tag:bravo-target-api", "deny": ["tag:bravo-metrics:9090"]}
+    {"src": "tag:bravo-target-api", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-t49-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-source-api", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gke-operator", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-db", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-cutover-control-gce", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-source-gce-db", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-source-gce-control-pooler", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-source-gce-replication", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-control-pooler", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-pooler", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gce-replication", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-gke-db", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-objects", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-apply-objects", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-findings", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-target-findings", "deny": ["tag:bravo-metrics:9090"]}
   ]
 }
