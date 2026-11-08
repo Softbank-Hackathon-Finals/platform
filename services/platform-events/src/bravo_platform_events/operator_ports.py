@@ -251,7 +251,7 @@ def create(store, config_file=CONFIG):
              } if type(delegation) is dict else {}
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
                             change_authority_wrapper=secure_change, **failback, **iac,
-                            delegation=delegation is not False, **shift)
+                            delegation=delegation is not False, first_run=rehearsal.first_run, **shift)
 
 
 def _delegated_shift(edge, profile_file, records, load_gate):
