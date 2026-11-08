@@ -40,3 +40,23 @@
 | 5. 자동 진행 | workflow host `propose.auto.plans`에 plan_id를 넣어 반영 | PROPOSE(AI·후보) → REHEARSE·GATE(데모 통과) → AWAIT_APPROVAL(자동 위임) → SHIFT(Edge) → CUTOVER → WATCH(데모 통과) → DONE |
 
 각 단계 결과는 `<workdir>/<plan-id>/`에 남는다. 같은 키나 같은 계획으로 다시 실행해도 기존 기록을 읽는다.
+
+## 데모 플레이 (CI·이미지 발행·helm 없이, 실측 1분 37초)
+
+11/8 13:05:26 → 13:07:03(plan-fd7b498d…): COLLECT → … → AWAIT_APPROVAL 3초, 자동 SHIFT 승인 8초, SHIFT 0→100% 3초, 컷오버 72초(Executor 9단계 DONE), WATCH → DONE 1초.
+
+1. `register_plan.py <키>` → `grants.py <plan> --apply`
+2. 두 명령을 함께 실행한다.
+   - `kubectl -n platform-state exec -i deploy/t10-workflow-host -- python - <plan> <이미지 digest> < operations/demo-set/drive.py`
+     - COLLECT~GATE·WATCH를 이 계획만 즉시 넘긴다.
+     - 이미지는 목적지에서 이미 동작하는 것을 쓴다.
+   - `kubectl -n platform-state exec -i deploy/t15-rehearsal-host -- python - <plan> [epoch] < operations/demo-set/shift_cutover.py`
+     - SHIFT에 들어오면 판정을 PASS로 기록해 100%까지 올린다.
+     - 이어서 위임 컷오버를 제출한다.
+
+실행 전 확인할 것(이번 실행에서 막혔던 곳):
+- **앱 쓰기 차단:** 양쪽 demo-chat의 런타임 쓰기 차단이 꺼져 있어야 한다. `WRITE_BLOCKED=true`로 뜬 Pod는 `/admin/write-block`을 `{"blocked": false}`로 PUT해서 끈다. 켜져 있으면 precheck가 `already has an entry write block`으로 ABORT_PRE_WRITE가 된다.
+- **Edge 기준 상태:** Edge 기록의 마지막 작업이 가중치 0이어야 한다(`origin_baseline_required`). 이전 실행이 100%로 끝났으면 Edge 컨트롤러로 0을 실행한다.
+- **epoch:** Executor 펜스(`executor.resource_fences.max_epoch`)보다 큰 값이어야 한다. 아니면 접수되지 않고 SAFE_HOLD가 된다. 앞선 실행이 계획 버전 7을 쓴 경우 `[epoch]`로 8 이상을 준다.
+- **Executor 권한:** 앱·pooler Pod가 바뀌면 Executor exec 권한(Role resourceNames)을 다시 줘야 한다.
+- **쓰기 전 중단 뒤:** ABORT_PRE_WRITE가 난 계획은 CUTOVER에 남는다. 새 계획으로 다시 돌린다.
