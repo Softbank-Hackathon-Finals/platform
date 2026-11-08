@@ -102,15 +102,19 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
   `resolve`를 해도 다음 단계가 다시 버짓 실패로 끝난다. 새 기록을 만들면 `s2-ai-start` 같은 명령이
   같은 plan에 다시 실행될 수 있다. 다시 시연하려면 새 plan으로 처음부터 한다.
 
-### 선행 조건: S2 반영 승인이 claim에서 `approval_stale`이 되는 문제(#939 리뷰 1)
+### 선행 조건: 보안 검토가 켜져 있으면 S2 반영 승인이 claim에서 `approval_stale`이 된다(#939 리뷰 1)
 
-지금 develop에서는 이 각본이 S2를 넘지 못한다. 콘솔 승인 경로(`operator_ports.py`, `trusted_rehearsal.py`)는
+승인 호스트 설정의 `security_review`가 `false`이면 이 문제는 생기지 않는다(#989). 그때는 콘솔 승인과 T31 claim이
+모두 감싸지 않은 authority를 써서 승인 context가 같다. 아래는 `security_review`를 켰을 때(값이 `false`가 아닐 때)다.
+회차를 시작하기 전에 승인 호스트의 이 값을 확인한다.
+
+보안 검토가 켜져 있으면 이 각본은 S2를 넘지 못한다. 콘솔 승인 경로(`operator_ports.py`, `trusted_rehearsal.py`)는
 변경 승인 authority를 `SecurityReviewAuthority`로 감싸 승인 context revision이 `security-governance.v1`
 지문을 담는다. 반면 T31 claim 경로(`workflow_application.py`의 `ChangeApprovalService`)는 감싸지 않은
 `access.change_authority(ChangeIntake.current)`로 현재 context를 만든다. 그래서 `change.py`의 승인 context
 대조가 늘 달라 claim이 `approval_stale`로 거부되고, application ID가 생기지 않아 `s2-open-writes`에서 멈춘다.
-보안 우회는 아니다(실패 쪽으로 닫힌다). 수정 방법은 T31·T10 담당과 정한다. 그 수정이 develop에 들어가기 전에는
-실제 환경 S2 이후를 이 각본으로 인수하지 않는다.
+보안 우회는 아니다(실패 쪽으로 닫힌다). 수정 방법은 T31·T10 담당과 정한다(#958 제안). 그 수정이 develop에 들어가기 전에는
+보안 검토를 켠 실제 환경의 S2 이후를 이 각본으로 인수하지 않는다.
 
 - **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
 - **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.
