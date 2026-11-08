@@ -12,13 +12,23 @@
 
 ## 아키텍처
 
-![클라우드 출구전략 플랫폼 아키텍처](docs/assets/architecture.svg)
+**간략 구성도.** 기능 묶음 9개와 그 사이의 주요 흐름만 보인다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-overview-dark.png">
+  <img alt="플랫폼 간략 구성도" src="docs/assets/architecture-overview.png">
+</picture>
 
 운영팀이 이전을 시작하면 플랫폼이 수집 → 분석 → AI 제안 → 리허설 → **원본 대조 게이트** → **사람 승인** → 전환 → 감시 · 되돌리기 순서로 진행한다. 게이트를 통과하고 승인을 받아야만 전환이 시작된다. 원본은 [설계 문서](docs/design.html) 7.1.
 
-배치(어느 계정 · VPC · 머신에 무엇이 뜨는지)는 설계 문서 7.2.
+**상세 구성도.** 구성요소 20개와 작업 번호, 명령 · 자료 · 배포 경로를 나눠 보인다.
 
-![배치도](docs/assets/deployment.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-detail-dark.png">
+  <img alt="플랫폼 상세 구성도" src="docs/assets/architecture-detail.png">
+</picture>
+
+두 그림은 develop `e2e39e06` · 설계 문서 v0.8 기준의 논리 구성도다. 화살표는 이전 단계의 순서가 아니다. 워크로드 기능별 대체(Cognito → Keycloak, SQS · Lambda → ElasticMQ 등)와 VPC · 접속 · 자격 발급 상세는 생략했다. 배치(어느 계정 · VPC · 머신에 무엇이 뜨는지)는 설계 문서 7.2.
 
 ## 구성
 
