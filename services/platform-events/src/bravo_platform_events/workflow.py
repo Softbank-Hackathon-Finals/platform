@@ -204,6 +204,23 @@ def _satisfied(c, proof, spec, previous, run, now):
     )
 
 
+def demo_reader(state):
+    """T49 demo mode: REHEARSE/GATE evidence from the previous checkpoint's change, without T15, T31 or T19."""
+    if state not in ("REHEARSE", "GATE"):
+        raise ValueError("demo_state_unsupported")
+
+    def read(c, plan, previous, run):
+        spec = json.loads(plan["spec_json"])
+        change = Change(**previous["result"]["change"])
+        tag = f"demo-{state.lower()}-{plan['version']}"
+        result = (Application(change, tag, tag, tag, True, change.image_digest) if state == "REHEARSE"
+                  else Gate(change, tag, "0" * 64, "PASS"))
+        return Evidence(plan["plan_id"], spec["plan_digest"], spec["target_environment_id"], plan["version"],
+                        tag, result)
+
+    return read
+
+
 class WorkflowRecovery:
     """Internal host driver. The authority resolves *current authenticated* producer
     records, including holds, revocations and freshness, under the shared plan lock.
@@ -212,10 +229,12 @@ class WorkflowRecovery:
     """
 
     def __init__(self, cutover: CutoverService, *, read_evidence=unavailable_authority,
-                 failback: FailbackService | None = None):
+                 failback: FailbackService | None = None, demo_skip=()):
         self.cutover = cutover
         self.read_evidence = read_evidence
         self.failback = failback
+        # T49 demo mode: these states pass on the platform's own evidence (no rehearsal, approval or recheck).
+        self.demo_skip = frozenset(demo_skip)
 
     def _plan(self, c, principal, plan_id):
         # Use public host access policy on both sides of the out-of-lock GET.
@@ -259,7 +278,7 @@ class WorkflowRecovery:
             plan = self._plan(c, principal, plan_id)
             if (plan["state"], plan["version"]) != (state, version):
                 return plan["state"]
-            if state == "REHEARSE":
+            if state == "REHEARSE" and state not in self.demo_skip:
                 require_rehearsals_complete(c, plan)
             run = _observed_run(c, service, plan_id, command_id) if command_id else None
             if command_id and run is None:
@@ -285,7 +304,7 @@ class WorkflowRecovery:
                 raise EventError("workflow_evidence_unavailable")
             validate_identifier(proof.receipt_id)
             now = service.clock()
-            if not _satisfied(c, proof, spec, previous, run, now):
+            if state not in self.demo_skip and not _satisfied(c, proof, spec, previous, run, now):
                 raise EventError("workflow_condition_unmet")
             _put(c, plan_id, _checkpoint(version), {}, asdict(proof))
             c.execute(
