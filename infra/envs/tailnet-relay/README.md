@@ -1,6 +1,6 @@
 # Tailscale 피어 릴레이 EC2 (T44)
 
-온프렘 VM과 AWS 사이의 tailnet 경로가 DERP 중계를 타지 않게, 공인 UDP 포트가 하나 열린 `t4g.micro` 피어 릴레이를 전용 네트워크에 만든다. 누가 이 릴레이를 쓸지는 tailnet 정책의 `tailscale.com/cap/relay` grant가 정한다(`infra/iac/environments/platform.json`의 `tailnet-peer-relay`). 켜 두면 시간당 약 US$0.012(인스턴스 + Elastic IP)다.
+온프렘 VM과 AWS 사이의 tailnet 경로가 DERP 중계를 타지 않게, 공인 UDP 포트가 하나 열린 `t4g.micro` 피어 릴레이를 기본 VPC에 전용 보안 그룹으로 만든다. 누가 이 릴레이를 쓸지는 tailnet 정책의 `tailscale.com/cap/relay` grant가 정한다(`infra/iac/environments/platform.json`의 `tailnet-peer-relay`). 켜 두면 시간당 약 US$0.012(인스턴스 + Elastic IP)다.
 
 ## 왜 필요한가
 
@@ -13,7 +13,7 @@
 
 | 결정 | 이유 |
 |---|---|
-| 전용 VPC, 피어링 없음 | 피어는 인터넷으로 닿는다. 출발지 · 플랫폼 VPC와 그 상태 파일을 건드리지 않는다 |
+| 기본 VPC의 2a 기본 서브넷, 전용 보안 그룹 | 피어는 인터넷으로 닿는다. 계정이 리전 VPC 한도(5)에 차 있어 새 VPC를 만들 수 없다(2026-11-08 apply `VpcLimitExceeded`). 기본 VPC · 서브넷 · 기본 보안 그룹은 다른 워크로드가 쓰므로 이 스택은 읽기만 하고, 자기 보안 그룹만 더한다. 출발지 · 플랫폼 VPC와 그 상태 파일은 건드리지 않는다 |
 | Elastic IP | 껐다 켜도 릴레이 주소가 같다 |
 | 인바운드 UDP `relay_port`(기본 40000)만 | 릴레이 세션 없는 패킷은 버린다. tailscaled 자신의 41641과 겹치면 바인딩이 충돌해 변수 검사가 거부한다 |
 | 아웃바운드 TCP 443 + UDP 전체 | 피어의 NAT가 정한 포트로 중계 패킷을 돌려보낸다. 제어 · DERP · SSM · apt는 443이다 |

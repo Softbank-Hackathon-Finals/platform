@@ -14,23 +14,32 @@ import uvicorn
 AUDIENCE = "sova-mcp"
 CONFIG_FIELDS = {"resource_url", "allowed_hosts", "console_url", "identities", "environments",
                  "observability", "security"}
+OPTIONAL_FIELDS = {"access"}  # Cloudflare Access for the web console: {team_domain, aud, identities: {email: …}}
 
 
 def load(config_path: Path, store, catalog: Path, grants: Path):
     from bravo_platform_events.registration_server import build_registry
     from bravo_platform_events.registration_sso import SsoRegistrationVerifier
 
+    from .access import PREFIX as ACCESS_PREFIX
+    from .access import AccessVerifier
     from .backend import SovaBackend, Upstream
     from .server import create_app
 
     config = json.loads(config_path.read_text())
-    if type(config) is not dict or set(config) != CONFIG_FIELDS:
+    if type(config) is not dict or not CONFIG_FIELDS <= set(config) <= CONFIG_FIELDS | OPTIONAL_FIELDS:
         raise ValueError("invalid_sova_mcp_configuration")
     verifiers = [SsoRegistrationVerifier(**(row | {"audience": AUDIENCE})) for row in config["identities"]]
     if not verifiers or len({v.subject_id for v in verifiers}) != len(verifiers):
         raise ValueError("sova_mcp_identities_required")
+    access = AccessVerifier(**config["access"]) if config.get("access") else None
+    known = {v.subject_id for v in verifiers}
+    if access and any(row["subject_id"] not in known for row in access.identities.values()):
+        raise ValueError("access_identity_must_map_to_a_pinned_subject")
 
     def verify(request):
+        if request.headers.get("authorization", "").startswith("Bearer " + ACCESS_PREFIX):
+            return access(request) if access else None
         # ponytail: one STS call per pinned person until a proof matches; TokenCache makes it once per proof.
         return next((a for a in (v(request) for v in verifiers) if a is not None), None)
 

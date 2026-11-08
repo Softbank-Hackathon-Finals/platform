@@ -4,6 +4,15 @@ mock_provider "aws" {
       supported_architectures = ["arm64"]
     }
   }
+  mock_data "aws_vpc" {
+    defaults = { id = "vpc-0123456789abcdef0" }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", vpc_id = "vpc-0123456789abcdef0" }
+  }
+  mock_data "aws_internet_gateway" {
+    defaults = { internet_gateway_id = "igw-0123456789abcdef0" }
+  }
 }
 variables {
   account_id = "111122223333"
@@ -17,8 +26,8 @@ run "inbound_is_the_relay_port_only" {
     error_message = "The only inbound rule is the relay UDP port."
   }
   assert {
-    condition     = length(aws_default_security_group.closed.ingress) == 0 && length(aws_default_security_group.closed.egress) == 0
-    error_message = "The VPC default group stays closed."
+    condition     = aws_security_group.relay.vpc_id == data.aws_vpc.default.id && aws_instance.relay.subnet_id == data.aws_subnet.relay.id
+    error_message = "The host sits in the default VPC's subnet with its own security group."
   }
   assert {
     condition     = aws_instance.relay.key_name == "" && aws_instance.relay.metadata_options[0].http_tokens == "required" && aws_instance.relay.metadata_options[0].http_put_response_hop_limit == 1
@@ -49,20 +58,13 @@ run "source_declares_only_reviewed_resources" {
     condition = sort(flatten([for name in fileset(path.module, "*.tf") : [
       for match in regexall("(?m)^resource \"([a-z0-9_]+)\"", file("${path.module}/${name}")) : match[0]
       ]])) == sort([
-      "aws_default_security_group",
       "aws_eip",
       "aws_iam_instance_profile",
       "aws_iam_role",
       "aws_iam_role_policy",
       "aws_iam_role_policy_attachment",
       "aws_instance",
-      "aws_internet_gateway",
-      "aws_route",
-      "aws_route_table",
-      "aws_route_table_association",
       "aws_security_group",
-      "aws_subnet",
-      "aws_vpc",
       "aws_vpc_security_group_egress_rule",
       "aws_vpc_security_group_egress_rule",
       "aws_vpc_security_group_ingress_rule",
