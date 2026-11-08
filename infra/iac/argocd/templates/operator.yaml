@@ -16,11 +16,16 @@ spec:
   description: Tailscale operator of this cluster ({{ $environment }})
   sourceRepos:
     - {{ .Values.repoURL | quote }}
+  # tailscale-system, plus each namespace a workload-api-access RoleBinding lands in (install value).
   destinations:
+    {{- range .Values.operator.namespaces }}
     - server: https://kubernetes.default.svc
-      namespace: tailscale-system
+      namespace: {{ . | quote }}
+    {{- end }}
   # No CRDs: like the namespace, they are the cluster builder's.
   clusterResourceWhitelist:
+    - group: tailscale.com
+      kind: ProxyGroup
     - group: rbac.authorization.k8s.io
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
@@ -47,7 +52,7 @@ spec:
     targetRevision: {{ $revision | quote }}
     path: infra/iac/operators/{{ $environment }}
     directory:
-      include: operator.yaml
+      include: "*.yaml"
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale-system

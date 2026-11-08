@@ -9,6 +9,7 @@ from .modules import (
     TAILNET_INGRESS,
     TAILNET_OPERATOR,
     TARGET_OBJECT_EXPOSURE,
+    WORKLOAD_API_ACCESS,
     IacError,
     Module,
 )
@@ -16,7 +17,7 @@ from .node import CLUSTER_AUDIT, SERVICE_ACCOUNT_ISSUER
 
 CATALOG: dict[tuple[str, str], Module] = {
     (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, TAILNET_OPERATOR, OPERATOR_ACCESS,
-                                   API_TRANSPORT_ACCESS, CLUSTER_AUDIT, SERVICE_ACCOUNT_ISSUER)
+                                   API_TRANSPORT_ACCESS, WORKLOAD_API_ACCESS, CLUSTER_AUDIT, SERVICE_ACCOUNT_ISSUER)
 }
 SCHEMA_VERSION = "1"
 ENVIRONMENT_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")

@@ -41,7 +41,8 @@ def _api_proxies(states, tailnet=None):
     """(hostname, tag) of every API server proxy an access module names."""
     for state in states:
         for entry in check_state(state)["modules"]:
-            if entry["id"] in {"operator-access", "api-transport-access"} and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
+            if entry["id"] in {"operator-access", "api-transport-access", "workload-api-access"} and (
+                    tailnet is None or tailnet_of(entry["params"]) == tailnet):
                 yield entry["params"]["proxy_hostname"], entry["params"]["proxy_tag"]
 
 
@@ -85,7 +86,7 @@ def _impersonated(app) -> list[str]:
 
 
 def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
-    owners, grants, accepts = {}, set(), {}
+    owners, grants, accepts, approvers = {}, set(), {}, {}
     for state in states:
         for entry in check_state(state)["modules"]:
             found = module(entry["id"], entry["version"])
@@ -96,6 +97,9 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
             for o in found.tag_owners(entry["params"]):
                 if o["tailnet"] == tailnet and owners.setdefault(o["tag"], o["owner"]) != o["owner"]:
                     raise IacError("IAC_TAG_OWNER_CONFLICT")
+            for a in found.auto_approvers(entry["params"]):
+                if a["tailnet"] == tailnet:
+                    approvers.setdefault(a["kind"], {}).setdefault(a["name"], set()).add(a["approver"])
     # Policy tests cover tagged route devices only. Human group/role membership lives outside
     # this repository; check_policy matches its grants without inventing a test user.
     for src, dst, ip, app in grants:
@@ -118,6 +122,9 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
                    "deny": [f"{dst}:22" for dst in destinations]
                    + [d for d in granted if d not in accepts[src]]} for src in sorted(accepts)]
                  + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
+        # Only when a module needs one (a kube-apiserver ProxyGroup advertises a Tailscale Service).
+        **({"autoApprovers": {kind: {name: sorted(tags) for name, tags in sorted(table.items())}
+                              for kind, table in sorted(approvers.items())}} if approvers else {}),
     }
 
 
@@ -132,6 +139,10 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
     for tag, owner in want["tagOwners"].items():
         if owners.get(tag) != owner:
             missing.append(f"TAG_OWNER:{tag}")
+    have = policy.get("autoApprovers") if isinstance(policy.get("autoApprovers"), dict) else {}
+    for kind, table in (want.get("autoApprovers") or {}).items():
+        for name, tags in table.items():
+            missing += [f"AUTO_APPROVER:{name}:{tag}" for tag in tags if tag not in ((have.get(kind) or {}).get(name) or [])]
     for grant in want["grants"]:
         src, dst, ip = grant["src"][0], grant["dst"][0], grant["ip"][0]
         if not any(src in g.get("src", []) and dst in g.get("dst", []) and (ip in g.get("ip", []) or "*" in g.get("ip", []))

@@ -109,16 +109,31 @@ def test_the_committed_operator_is_the_render_of_the_pinned_chart_with_network_v
     assert "Secret" not in kinds  # operator-oauth belongs to whoever built the cluster, never to Git
 
 
-def test_the_operator_project_allows_exactly_what_the_operator_file_holds():
-    text = (REPO / "infra/iac/operators/source-dev/operator.yaml").read_text()
+def test_the_operator_project_allows_exactly_what_the_operator_files_hold():
     held = set()
-    for doc in text.split("\n---\n"):
-        api, kind = re.search(r"^apiVersion: (\S+)", doc, re.M), re.search(r"^kind: (\S+)", doc, re.M)
-        if api and kind:
-            held.add((api[1].rsplit("/", 1)[0] if "/" in api[1] else "", kind[1]))
+    for name in ("operator.yaml", "access.yaml"):
+        text = (REPO / "infra/iac/operators/source-dev" / name).read_text()
+        for api, kind in re.findall(r'^\s*"?apiVersion"?: "?([^"\n,]+)"?,?\n\s*"?kind"?: "?([^"\n,]+)"?', text, re.M):
+            held.add((api.rsplit("/", 1)[0] if "/" in api else "", kind))
     template = (ARGO / "templates/operator.yaml").read_text()
     allowed = set(re.findall(r"- group: \"?([^\"\n]*)\"?\n\s+kind: (\S+)", template))
     assert allowed == held
-    assert "namespace: tailscale-system" in template and "prune: false" in template
+    assert "range .Values.operator.namespaces" in template and "prune: false" in template
     values = (ARGO / "values.yaml").read_text()
     assert "operator:\n  enabled: false\n  autoSync: false" in values  # never on by default
+    assert "namespaces: [tailscale-system]" in values
+
+
+def test_workload_api_access_renders_one_group_per_tag_and_its_proxy():
+    # T48: platform workloads reach source through a separate auth proxy; each tag gets its own group and Role.
+    import json as _json
+    access = (REPO / "infra/iac/operators/source-dev/access.yaml").read_text().split("---\n")[1:]
+    objects = [_json.loads(o) for o in access]
+    [group] = [o for o in objects if o["kind"] == "ProxyGroup"]
+    assert group["spec"]["type"] == "kube-apiserver" and group["spec"]["kubeAPIServer"] == {
+        "mode": "auth", "hostname": "bravo-source-api"} and group["spec"]["tags"] == ["tag:bravo-source-api"]
+    bindings = {(o["metadata"]["namespace"], o["subjects"][0]["name"]) for o in objects if o["kind"] == "RoleBinding"}
+    assert bindings == {("source-dev", "bravo:cutover-executor"), ("source-gce", "bravo:cutover-executor-gce")}
+    network, values = network_values("source")
+    assert values["apiServerProxyConfig"] == {"mode": "noauth", "allowImpersonation": "true"}
+    assert "name: kube-apiserver-auth-proxy" in (REPO / "infra/iac/operators/source-dev/operator.yaml").read_text()

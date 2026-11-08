@@ -95,7 +95,8 @@ def test_operator_values_keep_existing_tags_and_render_wif_without_a_secret():
 def test_the_source_api_proxy_passes_the_callers_own_credential_through():
     # source-dev declares `api-transport-access`: plain 443 reach, the caller's EKS IAM token decides.
     # An auth proxy here would impersonate the tailnet user with no RBAC (403 on every request, 2026-11-08).
-    assert T8.values("source")["apiServerProxyConfig"] == {"mode": "noauth", "allowImpersonation": "false"}
+    # allowImpersonation: RBAC for the separate auth ProxyGroup of platform workloads (workload-api-access).
+    assert T8.values("source")["apiServerProxyConfig"] == {"mode": "noauth", "allowImpersonation": "true"}
     assert T8.values("target")["apiServerProxyConfig"] == {"mode": "false", "allowImpersonation": "false"}
     source = next(s for s in STATES if s["environment"] == "source-dev")
     assert [m["id"] for m in source["modules"] if m["id"] in ("api-transport-access", "operator-access")] == [

@@ -146,6 +146,15 @@ Tailscale의 정책 검증과 실제 조회를 수행한다. 다른 사람이 �
 대체된 세션만 종료한다. 온프렘용 개인 접속 도구와 플랫폼 kubeconfig를 혼용하지 않는다. 기존 SSM·포트포워딩은
 직접 접속 인수 전까지 보존하고, 비상 복구 경로와 공개 서비스 HTTPS는 별도로 관리한다.
 
+### 플랫폼 워크로드의 API 접속 (`workload-api-access`, T48)
+
+플랫폼 워크로드(Executor)는 자격 없이 tailnet 태그로 고객 클러스터 API에 들어온다(토큰 없는 kubeconfig). 사람용 전송 프록시와 섞지 않는다. 프록시 하나는 auth와 전송 중 하나만 된다. 그래서 auth 모드의 kube-apiserver ProxyGroup을 따로 둔다.
+
+- 모듈 파라미터: `proxy_hostname`, `proxy_tag`(소유자는 그 클러스터 operator 태그 `owner_tag`), `bindings`. `bindings`의 각 항목은 `source` 태그, `group`, `namespace`, `role`을 가진다. 태그 하나는 그룹 하나만 위임한다. 두 쌍이 그룹을 공유하면 거부한다(쌍 격리). `system:*` 그룹과 시스템 namespace도 거부한다.
+- 정책(`bravo-iac tailnet-policy`): 태그마다 capability grant 하나(`tcp:443`, 그 그룹 위임), 프록시 태그 소유자, ProxyGroup이 Tailscale Service를 광고하기 위한 `autoApprovers.services`(`svc:<hostname>`)를 만든다. `tailnet-check`는 선언하지 않은 위임 grant와 빠진 자동 승인을 잡는다.
+- 클러스터 객체: ProxyGroup(`type: kube-apiserver`, `kubeAPIServer.mode: auth`)과 그룹 → Role RoleBinding이다. `infra/iac/operators/render.py`가 같은 파라미터로 `operators/<환경>/access.yaml`을 만들고, operator Application이 반영한다. operator 값은 `allowImpersonation: "true"`(위임 RBAC)다. Role 자체(무엇을 할 수 있는지)는 워크로드 담당이 둔다.
+- 설치 값: operator Application이 RoleBinding을 쓸 namespace를 `operator.namespaces`로 준다(예: source-dev 클러스터 `{tailscale-system,source-dev,source-gce}`).
+
 ## 목적지 사람 접근 표준 (operator API 프록시 + `operator-access`)
 
 사람은 목적지마다 **그 클러스터 Tailscale operator의 내장 API 프록시(auth 모드)** 하나로 들어온다. 플랫폼(`bravo-platform-operator`)과 같은 구조다. 새 프록시를 따로 두지 않는다. 포트포워딩·개인 토큰 없이 tailnet 신원으로 인증하고, 권한은 쿠버네티스 그룹 하나의 ClusterRoleBinding이 정한다. 워크로드용 noauth 프록시와 발급 프록시는 섞지 않는다.

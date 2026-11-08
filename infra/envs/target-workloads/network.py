@@ -65,8 +65,10 @@ def values(side, env=None, auth="join", client_id="", audience=""):
         # (an EKS IAM token) through and never impersonates, so no new RBAC is made. Target: a wif destination is
         # a cluster the platform built (T45); the platform's Executor reaches its API through this proxy in auth
         # mode (tailnet identity -> RBAC, never noauth). Existing joined targets keep it off (operator-access).
+        # allowImpersonation (source): the impersonation RBAC for the separate auth-mode kube-apiserver ProxyGroup
+        # platform workloads use (source-dev `workload-api-access`); the built-in source proxy stays noauth.
         "apiServerProxyConfig": {"mode": "noauth" if side == "source" else ("true" if auth == "wif" else "false"),
-                                 "allowImpersonation": "false"},
+                                 "allowImpersonation": "true" if side == "source" else "false"},
         "ingressClass": {"enabled": False, "name": "bravo-t8-unused"},
     }
 

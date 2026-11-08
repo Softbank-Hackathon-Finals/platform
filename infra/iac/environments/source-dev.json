@@ -163,6 +163,29 @@
           "group:bravo-operators"
         ]
       }
+    },
+    {
+      "id": "workload-api-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-source-api",
+        "proxy_tag": "tag:bravo-source-api",
+        "owner_tag": "tag:bravo-source-operator",
+        "bindings": [
+          {
+            "source": "tag:bravo-cutover-control",
+            "group": "bravo:cutover-executor",
+            "namespace": "source-dev",
+            "role": "bravo-executor-cutover"
+          },
+          {
+            "source": "tag:bravo-cutover-control-gce",
+            "group": "bravo:cutover-executor-gce",
+            "namespace": "source-gce",
+            "role": "bravo-executor-cutover"
+          }
+        ]
+      }
     }
   ]
 }
