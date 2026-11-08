@@ -12,6 +12,7 @@ tokenReview:
 database:
   address: ""
   port: 5432
+  podSelector: {}
 secrets:
   tls: ""
   database: ""

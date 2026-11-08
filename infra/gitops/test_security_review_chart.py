@@ -11,8 +11,8 @@ DIGEST = "sha256:" + "a" * 64
 REVISION = "b" * 40
 
 
-def render():
-    result = subprocess.run([
+def render(*, database_selector=False):
+    command = [
         "helm", "template", "security-review", str(CHART), "--namespace", "platform-state",
         "--set", f"image.digest={DIGEST}", "--set", f"sourceRevision={REVISION}",
         "--set", "tenantId=bravo", "--set", "tokenReview.apiAddress=10.81.0.191",
@@ -22,7 +22,10 @@ def render():
         "--set", "secrets.database=security-review-database",
         "--set", "configMaps.grants=security-review-grants",
         "--set", "configMaps.apiCA=security-review-api-ca",
-    ], check=True, capture_output=True, text=True)
+    ]
+    if database_selector:
+        command += ["--set-json", 'database.podSelector={"cnpg.io/cluster":"platform-db","cnpg.io/instanceRole":"primary"}']
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
     return list(yaml.safe_load_all(result.stdout))
 
 
@@ -70,6 +73,17 @@ def test_review_service_and_network_are_private_and_explicit():
     assert egress[1]["ports"] == [{"port": 6443, "protocol": "TCP"}]
     assert egress[2]["to"][0]["ipBlock"]["cidr"] == "10.43.10.10/32"
     assert policy["spec"]["policyTypes"] == ["Egress"]
+
+
+def test_review_database_egress_can_follow_the_cnpg_primary():
+    policy = next(item for item in render(database_selector=True) if item["kind"] == "NetworkPolicy")
+    assert policy["spec"]["egress"][2] == {
+        "to": [{"podSelector": {"matchLabels": {
+            "cnpg.io/cluster": "platform-db",
+            "cnpg.io/instanceRole": "primary",
+        }}}],
+        "ports": [{"port": 5432, "protocol": "TCP"}],
+    }
 
 
 def test_gitops_admission_and_rbac_allow_only_named_review_state_objects():

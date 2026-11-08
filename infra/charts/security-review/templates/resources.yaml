@@ -111,5 +111,10 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{ipBlock: {cidr: {{ .Values.tokenReview.apiAddress }}/32}}]
       ports: [{port: {{ .Values.tokenReview.apiPort }}, protocol: TCP}]
+    {{- if .Values.database.podSelector }}
+    - to: [{podSelector: {matchLabels: {{ .Values.database.podSelector | toJson }}}}]
+      ports: [{port: {{ .Values.database.port }}, protocol: TCP}]
+    {{- else }}
     - to: [{ipBlock: {cidr: {{ .Values.database.address }}/32}}]
       ports: [{port: {{ .Values.database.port }}, protocol: TCP}]
+    {{- end }}

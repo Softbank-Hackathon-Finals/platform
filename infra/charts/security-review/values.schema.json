@@ -30,7 +30,24 @@
     },
     "database": {
       "type": "object", "additionalProperties": false, "required": ["address", "port"],
-      "properties": {"address": {"$ref": "#/definitions/ipv4"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}}
+      "properties": {
+        "address": {"$ref": "#/definitions/ipv4"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "podSelector": {
+          "type": "object",
+          "oneOf": [
+            {"maxProperties": 0},
+            {
+              "additionalProperties": false,
+              "required": ["cnpg.io/cluster", "cnpg.io/instanceRole"],
+              "properties": {
+                "cnpg.io/cluster": {"$ref": "#/definitions/name"},
+                "cnpg.io/instanceRole": {"const": "primary"}
+              }
+            }
+          ]
+        }
+      }
     },
     "secrets": {
       "type": "object", "additionalProperties": false, "required": ["tls", "database", "registry"],
