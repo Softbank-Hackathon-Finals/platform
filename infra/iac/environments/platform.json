@@ -158,8 +158,8 @@
               {
                 "service": "source-api-for-cutover",
                 "namespace": "bravo-platform",
-                "destination": "bravo-source-operator",
-                "destination_tag": "tag:bravo-source-operator",
+                "destination": "bravo-source-api",
+                "destination_tag": "tag:bravo-source-api",
                 "port": 443,
                 "port_name": "https"
               },
@@ -264,8 +264,8 @@
               {
                 "service": "source-gce-api-for-cutover",
                 "namespace": "bravo-platform",
-                "destination": "bravo-source-operator",
-                "destination_tag": "tag:bravo-source-operator",
+                "destination": "bravo-source-api",
+                "destination_tag": "tag:bravo-source-api",
                 "port": 443,
                 "port_name": "https"
               },
