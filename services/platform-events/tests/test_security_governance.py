@@ -1,7 +1,7 @@
 """Security reviews are fresh conditions; platform authority remains the executor gate."""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sova_security.adapters.modernization_codec import decode, encode
@@ -33,10 +33,15 @@ from bravo_platform_events.security_governance import (
     _host_binding,
     review_ports,
 )
-from bravo_platform_events.security_relay import probe
+from bravo_platform_events.security_relay import _access_clock, probe
 from bravo_platform_events.store import EventError
 
 BASELINE = "7" * 40
+
+
+def test_security_relay_adapts_server_clock_for_operator_access():
+    now = datetime(2026, 11, 8, 2, 0, tzinfo=UTC)
+    assert _access_clock(lambda: now)() == "2026-11-08T02:00:00+00:00"
 
 
 def _bundle(f, kind):
