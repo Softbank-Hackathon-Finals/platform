@@ -264,6 +264,8 @@ def create(store, config_file=CONFIG):
              } if type(delegation) is dict and "shift_profile" in delegation else {}
     if type(delegation) is dict and delegation.get("auto_approver"):
         shift["auto_approver"] = delegation["auto_approver"]
+    if demo:
+        shift["sweep_seconds"] = 0.5  # T49 demo: delegated approvals within half a second
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
                             change_authority_wrapper=change_wrapper, **failback, **iac,
                             delegation=delegation is not False, first_run=rehearsal.first_run, **shift)
