@@ -204,6 +204,54 @@ def _satisfied(c, proof, spec, previous, run, now):
     )
 
 
+def demo_reader(state, *, change=None, plans=None):
+    """T49 demo mode: the state's evidence without T14/T16, AI, T15, T31 or T19. PROPOSE uses `change` (an image
+    already proven on the destination); later states carry the previous checkpoint's change. Only `plans`, if given."""
+    if state not in ("ANALYZE", "PROPOSE", "REHEARSE", "GATE", "WATCH") or (state == "PROPOSE" and not change):
+        raise ValueError("demo_state_unsupported")
+
+    def read(c, plan, previous, run):
+        if plans is not None and plan["plan_id"] not in plans:
+            raise EventError("demo_plan_not_selected")
+        spec = json.loads(plan["spec_json"])
+        tag = f"demo-{state.lower()}-{plan['version']}"
+        if state == "ANALYZE":
+            result = Analysis(spec["collection_scope_digest"], "0" * 64, "0" * 64)
+        elif state == "PROPOSE":
+            result = Proposal("0" * 64, "0" * 64, Change(**change), True, True)
+        elif state == "WATCH":  # previous = the cutover's Integrity proof; run = the observed cutover run
+            result = Watch(run or Run(**previous["result"]["run"]), previous["receipt_id"], "PASS", "PASS")
+        else:
+            carried = Change(**previous["result"]["change"])
+            result = (Application(carried, tag, tag, tag, True, carried.image_digest) if state == "REHEARSE"
+                      else Gate(carried, tag, "0" * 64, "PASS"))
+        return Evidence(plan["plan_id"], spec["plan_digest"], spec["target_environment_id"], plan["version"],
+                        tag, result)
+
+    return read
+
+
+def demo_collector(store, plans):
+    """T49 demo mode: COLLECT -> ANALYZE for the selected plans without a T16 scan (background sweep)."""
+    from datetime import UTC, datetime
+
+    from .plans import CollectionProof
+
+    def sweep():
+        with store._transaction() as c:
+            rows = [dict(r) for r in c.execute("SELECT plan_id, spec_json FROM plans WHERE state='COLLECT'").fetchall()]
+        for row in rows:
+            if row["plan_id"] in plans:
+                spec = json.loads(row["spec_json"])
+                store.complete_collection(
+                    CollectionProof(row["plan_id"], spec["plan_digest"], spec["collection_scope_digest"],
+                                    "demo-collect-" + row["plan_id"][5:21], True),
+                    expected_version=1, command_key="demo-collect", run_id="demo-collect",
+                    occurred_at=datetime.now(UTC).isoformat())
+
+    return sweep
+
+
 class WorkflowRecovery:
     """Internal host driver. The authority resolves *current authenticated* producer
     records, including holds, revocations and freshness, under the shared plan lock.
@@ -212,10 +260,12 @@ class WorkflowRecovery:
     """
 
     def __init__(self, cutover: CutoverService, *, read_evidence=unavailable_authority,
-                 failback: FailbackService | None = None):
+                 failback: FailbackService | None = None, demo_skip=()):
         self.cutover = cutover
         self.read_evidence = read_evidence
         self.failback = failback
+        # T49 demo mode: these states pass on the platform's own evidence (no rehearsal, approval or recheck).
+        self.demo_skip = frozenset(demo_skip)
 
     def _plan(self, c, principal, plan_id):
         # Use public host access policy on both sides of the out-of-lock GET.
@@ -259,7 +309,7 @@ class WorkflowRecovery:
             plan = self._plan(c, principal, plan_id)
             if (plan["state"], plan["version"]) != (state, version):
                 return plan["state"]
-            if state == "REHEARSE":
+            if state == "REHEARSE" and state not in self.demo_skip:
                 require_rehearsals_complete(c, plan)
             run = _observed_run(c, service, plan_id, command_id) if command_id else None
             if command_id and run is None:
@@ -285,7 +335,7 @@ class WorkflowRecovery:
                 raise EventError("workflow_evidence_unavailable")
             validate_identifier(proof.receipt_id)
             now = service.clock()
-            if not _satisfied(c, proof, spec, previous, run, now):
+            if state not in self.demo_skip and not _satisfied(c, proof, spec, previous, run, now):
                 raise EventError("workflow_condition_unmet")
             _put(c, plan_id, _checkpoint(version), {}, asdict(proof))
             c.execute(

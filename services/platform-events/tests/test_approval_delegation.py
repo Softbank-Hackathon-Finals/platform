@@ -148,3 +148,36 @@ def test_a_delegated_shift_runs_the_edge_once_per_version_until_100(world, monke
     shift.runs[next(iter(shift.runs))].join()
     assert gates.sweep()[SPEC.plan_id] == {"shift": "finished"}  # one attempt per version
     assert started == [(SPEC.plan_id, world["store"].snapshot(SPEC.plan_id)["version"])]
+
+
+def test_auto_records_every_gate_as_the_standing_approver_and_renews_after_expiry(world):
+    w = world
+    w["access"].set_permissions(SPEC.plan_id, person("platform-approver", T0), permissions=[
+        "read", "approve_change", "approve_shift", "approve_cutover", "approve_failback", "start_rehearsal"],
+        valid_after=NOW, expires_at=(T0 + timedelta(hours=48)).isoformat(), expected_revision=0,
+        administration_ref="fixture", command_key="grant-platform")
+    first = w["delegations"].auto(SPEC.plan_id, "platform-approver")
+    assert first["approver"] == "platform-approver" and first["gates"] == sorted(
+        ["change", "shift", "cutover", "failback", "rehearsal"])
+    assert w["delegations"].auto(SPEC.plan_id, "platform-approver") is None  # a live one is kept
+    w["clock"].now += timedelta(hours=25)
+    renewed = w["delegations"].auto(SPEC.plan_id, "platform-approver")
+    assert renewed["delegation_id"] != first["delegation_id"]
+    w["delegations"].revoke(person("platform-approver", w["clock"].now), SPEC.plan_id)
+    with pytest.raises(EventError, match="forbidden"):  # the standing approver still needs each permission
+        w["delegations"].auto(SPEC.plan_id, "viewer")
+
+
+def test_a_reissued_grant_keeps_an_earlier_authentication(world):
+    w = world
+    receipt = delegate(w)
+    w["access"].set_permissions(SPEC.plan_id, person("approver", w["clock"].now), permissions=[
+        "read", "approve_shift", "approve_cutover", "security:read"], valid_after=(w["clock"].now + timedelta(
+            minutes=5)).isoformat(), expires_at=(T0 + timedelta(hours=12)).isoformat(), expected_revision=1,
+        administration_ref="system-update", command_key="regrant")
+    w["clock"].now += timedelta(minutes=10)
+    principal = w["delegations"].principal_for(SPEC.plan_id, "shift", binding={}, version=1)
+    with w["store"]._transaction() as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
+        w["access"].require(c, principal, plan, "approve_shift")  # no longer forbidden after the re-issue
+    assert principal.subject_id == receipt["approver"]

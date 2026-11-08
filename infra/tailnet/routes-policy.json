@@ -15,6 +15,9 @@
     "tag:bravo-findings": [
       "tag:bravo-platform-operator"
     ],
+    "tag:bravo-peer-relay": [
+      "autogroup:admin"
+    ],
     "tag:bravo-source-api": [
       "tag:bravo-source-operator"
     ],
@@ -256,6 +259,28 @@
         "tag:bravo-cutover-control"
       ],
       "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control"
+      ],
+      "dst": [
+        "tag:bravo-source-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control"
+      ],
+      "dst": [
         "tag:bravo-source-api"
       ],
       "ip": [
@@ -300,17 +325,6 @@
         "tag:bravo-cutover-control"
       ],
       "dst": [
-        "tag:bravo-source-operator"
-      ],
-      "ip": [
-        "tcp:443"
-      ]
-    },
-    {
-      "src": [
-        "tag:bravo-cutover-control"
-      ],
-      "dst": [
         "tag:bravo-target-control-pooler"
       ],
       "ip": [
@@ -334,6 +348,17 @@
       ],
       "dst": [
         "tag:bravo-target-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control-gce"
+      ],
+      "dst": [
+        "tag:bravo-source-api"
       ],
       "ip": [
         "tcp:443"
@@ -381,17 +406,6 @@
       ],
       "ip": [
         "tcp:5432"
-      ]
-    },
-    {
-      "src": [
-        "tag:bravo-cutover-control-gce"
-      ],
-      "dst": [
-        "tag:bravo-source-operator"
-      ],
-      "ip": [
-        "tcp:443"
       ]
     },
     {
@@ -451,6 +465,28 @@
     },
     {
       "src": [
+        "tag:bravo-source-control-pooler"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-source-db"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
         "tag:bravo-source-gce-replication"
       ],
       "dst": [
@@ -459,6 +495,17 @@
       "ip": [
         "tcp:5432"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-source-replication"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [
@@ -481,6 +528,28 @@
       "ip": [
         "tcp:9090"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-target-control-pooler"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-target-db"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [
@@ -520,11 +589,33 @@
         "tag:bravo-target-pooler"
       ],
       "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-target-pooler"
+      ],
+      "dst": [
         "tag:bravo-source-db"
       ],
       "ip": [
         "tcp:5432"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-target-replication"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [
@@ -547,11 +638,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -562,6 +653,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -579,9 +671,9 @@
     {
       "src": "tag:bravo-cutover-control",
       "accept": [
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
-        "tag:bravo-source-operator:443",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
         "tag:bravo-target-operator:443"
@@ -589,11 +681,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -606,6 +698,7 @@
         "tag:bravo-metrics:9090",
         "tag:bravo-source-gce-control-pooler:6432",
         "tag:bravo-source-gce-db:5432",
+        "tag:bravo-source-operator:443",
         "tag:bravo-target-argocd:80",
         "tag:bravo-target-gce-control-pooler:6432",
         "tag:bravo-target-gce-db:5432",
@@ -616,9 +709,9 @@
     {
       "src": "tag:bravo-cutover-control-gce",
       "accept": [
+        "tag:bravo-source-api:443",
         "tag:bravo-source-gce-control-pooler:6432",
         "tag:bravo-source-gce-db:5432",
-        "tag:bravo-source-operator:443",
         "tag:bravo-target-gce-control-pooler:6432",
         "tag:bravo-target-gce-db:5432",
         "tag:bravo-target-gce-operator:443"
@@ -626,11 +719,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -643,6 +736,7 @@
         "tag:bravo-metrics:9090",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
         "tag:bravo-target-argocd:80",
         "tag:bravo-target-control-pooler:6432",
         "tag:bravo-target-db:5432",
@@ -658,11 +752,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -673,6 +767,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -695,11 +790,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -709,6 +804,7 @@
         "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -732,11 +828,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -747,6 +843,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -769,11 +866,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -784,6 +881,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -806,11 +904,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -820,6 +918,7 @@
         "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -843,11 +942,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -857,6 +956,7 @@
         "tag:bravo-target-objects:22",
         "tag:bravo-target-operator:22",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -880,11 +980,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -895,6 +995,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -917,11 +1018,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -932,6 +1033,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -954,11 +1056,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -969,6 +1071,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-gce-control-pooler:6432",
         "tag:bravo-source-gce-db:5432",
@@ -991,11 +1094,11 @@
       "deny": [
         "tag:bravo-findings:22",
         "tag:bravo-metrics:22",
+        "tag:bravo-source-api:22",
         "tag:bravo-source-control-pooler:22",
         "tag:bravo-source-db:22",
         "tag:bravo-source-gce-control-pooler:22",
         "tag:bravo-source-gce-db:22",
-        "tag:bravo-source-operator:22",
         "tag:bravo-target-argocd:22",
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
@@ -1006,6 +1109,7 @@
         "tag:bravo-target-operator:22",
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-gce-control-pooler:6432",
         "tag:bravo-source-gce-db:5432",
@@ -1026,6 +1130,7 @@
       "deny": [
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -1047,6 +1152,7 @@
       "deny": [
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",
@@ -1068,6 +1174,7 @@
       "deny": [
         "tag:bravo-findings:8443",
         "tag:bravo-metrics:9090",
+        "tag:bravo-source-api:443",
         "tag:bravo-source-control-pooler:6432",
         "tag:bravo-source-db:5432",
         "tag:bravo-source-gce-control-pooler:6432",

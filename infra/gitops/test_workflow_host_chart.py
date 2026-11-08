@@ -15,7 +15,7 @@ VALUES = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40,
           "configuration": {"existingConfigMap": "workflow-config", "sha256": "c" * 64},
           "reader": {"existingConfigMap": "reader-config-v2", "catalogClaim": "catalog"},
           "stateClaim": "workflow-state",
-          "secrets": {"catalogKey": "catalog-key", "executor": "executor-read", "githubApp": "github-app"}}
+          "secrets": {"catalogKey": "catalog-key", "executor": "executor-read", "candidatePush": "platform-ecr-push"}}
 
 
 def render(values, chart=CHART):
@@ -97,12 +97,20 @@ class WorkflowHostChart(unittest.TestCase):
         values["secrets"]["executor"] = ""
         self.assertNotEqual(render(values)[0].returncode, 0)
 
-    def test_github_app_is_optional(self):
+    def test_candidate_push_mounts_only_the_docker_config_read_only_and_is_optional(self):
+        result, docs = render(VALUES)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "candidate-push")["secret"]
+        self.assertEqual((volume["secretName"], volume["items"]),
+                         ("platform-ecr-push", [{"key": ".dockerconfigjson", "path": ".dockerconfigjson"}]))
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "candidate-push")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/ecr-push", True))
         values = json.loads(json.dumps(VALUES))
-        values["secrets"]["githubApp"] = ""
+        values["secrets"]["candidatePush"] = ""
         result, docs = render(values)
         self.assertEqual(result.returncode, 0, result.stderr)
         pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("candidate-push", {v["name"] for v in pod["volumes"]})
         self.assertNotIn("github-app", {v["name"] for v in pod["volumes"]})
 
     def test_apply_credential_mounts_exec_config_and_excludes_the_token_secret(self):

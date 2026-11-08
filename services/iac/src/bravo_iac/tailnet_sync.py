@@ -53,10 +53,13 @@ def _tested(tests: list, want: dict) -> bool:
                for kind in ("accept", "deny") for a in want.get(kind, []))
 
 
+def _grant(entry) -> str:
+    # A capability-only grant (e.g. the peer relay's) has no ip.
+    return f"GRANT:{entry['src'][0]}->{entry['dst'][0]}" + "".join(f":{ip}" for ip in entry.get("ip", []))
+
+
 def _item(key, entry) -> str:
-    if key == "grants":
-        return f"GRANT:{entry['src'][0]}->{entry['dst'][0]}:{entry['ip'][0]}"
-    return f"TEST:{entry['src']}"
+    return _grant(entry) if key == "grants" else f"TEST:{entry['src']}"
 
 
 def prune(live, previous, wanted) -> tuple[dict, list[str], list[str]]:
@@ -118,7 +121,7 @@ def merge(live, wanted) -> tuple[dict, list[str], list[str]]:
         if not any(_covers(g, grant) for g in merged.get("grants") or []):
             merged.setdefault("grants", []).append(copy.deepcopy(grant))
             app = "+app" if "app" in grant else ""
-            added.append(f"GRANT:{grant['src'][0]}->{grant['dst'][0]}:{grant['ip'][0]}{app}")
+            added.append(_grant(grant) + app)
     for test in wanted.get("tests") or []:
         if not _tested(merged.get("tests") or [], test):
             merged.setdefault("tests", []).append(copy.deepcopy(test))

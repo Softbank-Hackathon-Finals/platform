@@ -262,3 +262,35 @@ def test_workload_api_access_refuses_shared_or_privileged_bindings(change):
         params["bindings"][0]["source"] = params["proxy_tag"]
     with pytest.raises(IacError):
         check_state(state)
+
+
+RELAY = "tag:bravo-peer-relay"
+RELAY_CAP = {"tailscale.com/cap/relay": []}
+
+
+def test_the_peer_relay_gives_each_user_the_relay_capability_and_no_tailnet_reach():
+    policy = fragment(STATES)
+    relayed = [g for g in policy["grants"] if g["dst"] == [RELAY]]
+    # Relayed packets go to the relay's public UDP port, so the grant has no `ip` and the policy tests no port.
+    assert relayed and all(g == {"src": g["src"], "dst": [RELAY], "app": RELAY_CAP} for g in relayed)
+    assert {"tag:bravo-target-pooler", "tag:bravo-source-db"} <= {g["src"][0] for g in relayed}
+    assert policy["tagOwners"][RELAY] == ["autogroup:admin"]  # an admin approves the relay host's login
+    assert not any(RELAY in rule for t in policy["tests"] for kind in ("accept", "deny") for rule in t.get(kind, []))
+    assert check_policy(policy, STATES) == []
+    without = {**policy, "grants": [g for g in policy["grants"] if g not in relayed]}
+    assert check_policy(without, STATES) == [f'GRANT:{g["src"][0]}->{RELAY}+app' for g in relayed]
+    with_reach = {**policy, "grants": [{**g, "ip": ["*"]} if g in relayed else g for g in policy["grants"]]}
+    assert check_policy(with_reach, STATES) == []  # a wider hand edit still covers the declared grant
+
+
+@pytest.mark.parametrize("params", [
+    {"tag": RELAY, "users": []},
+    {"tag": RELAY, "users": ["tag:a", "tag:a"]},
+    {"tag": RELAY, "users": [RELAY]},
+    {"tag": RELAY, "users": ["group:people"]},
+    {"tag": RELAY, "users": ["tag:a"], "tailnet": "default"},
+    {"tag": RELAY, "users": ["tag:a"], "port": 41641},
+])
+def test_the_peer_relay_refuses_what_it_does_not_declare(params):
+    with pytest.raises(IacError, match="IAC_PARAMS_INVALID"):
+        module("tailnet-peer-relay", "1").check(params)

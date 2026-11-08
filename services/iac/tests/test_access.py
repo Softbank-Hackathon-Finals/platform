@@ -63,12 +63,15 @@ def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_
         # Route tests only: who holds a tailnet role is not in the repository.
         assert not any(t["src"] == src for t in policy["tests"])
     assert check_policy(policy, STATES) == []
+    # Only the Kubernetes capability grants; the peer relay's capability grant is not cluster access.
+    kubernetes = "tailscale.com/cap/kubernetes"
     without_cap = copy.deepcopy(policy)
-    without_cap["grants"] = [{k: v for k, v in g.items() if k != "app"} for g in without_cap["grants"]]
+    without_cap["grants"] = [{k: v for k, v in g.items() if k != "app"} if kubernetes in g.get("app", {}) else g
+                             for g in without_cap["grants"]]
     assert check_policy(without_cap, STATES) == MISSING
     masters = copy.deepcopy(policy)
     for g in masters["grants"]:
-        if "app" in g:
+        if kubernetes in g.get("app", {}):
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
     undeclared = sorted(f"UNDECLARED_GRANT:{s}->{tag}+app" for proxies in (PER_PROXY, WORKLOADS)
                         for tag, sources in proxies.items() for s in sources)

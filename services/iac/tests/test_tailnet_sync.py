@@ -295,3 +295,11 @@ def test_cli_merges_offline_without_printing_the_policy(tmp_path, capsys):
     assert check_policy(json.loads(out.read_text()), STATES) == []
     assert main(["tailnet-sync", "--tailnet-name", "example.org", "--client-id", "c", *paths]) == 1
     assert json.loads(capsys.readouterr().out)["code"] == "IAC_OIDC_UNAVAILABLE"
+
+
+def test_a_capability_only_grant_is_merged_and_pruned_by_its_endpoints():
+    relay = {"src": ["tag:a"], "dst": ["tag:relay"], "app": {"tailscale.com/cap/relay": []}}
+    merged, added, _ = merge({}, {"grants": [relay]})
+    assert merged["grants"] == [relay] and added == ["GRANT:tag:a->tag:relay+app"]
+    pruned, removed, kept = prune(merged, {"grants": [relay]}, {})
+    assert pruned == {} and removed == ["GRANT:tag:a->tag:relay"] and kept == []

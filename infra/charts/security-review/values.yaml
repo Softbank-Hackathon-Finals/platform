@@ -7,6 +7,8 @@ audience: registered-security-review-audience
 tokenReview:
   origin: https://kubernetes.default.svc:443
   apiAddress: ""
+  apiPort: 6443
+  reviewerAudience: ""
 database:
   address: ""
   port: 5432
