@@ -91,9 +91,11 @@ def loadgen_client():
     """The load generator's (T18) client, kept apart so the browser client never takes a password.
 
     Confidential: a token needs this client's secret as well as the account's password. No browser flow and no
-    redirect target. fullScopeAllowed is off, so its access token carries no account-console roles. It is not
-    in the realm import: --import-realm never touches an existing realm, and the secret must not sit in the
-    rendered ConfigMap. The operator registers it through the admin API and Keycloak makes the secret (README).
+    redirect target. fullScopeAllowed is off, so its access token carries no account-console roles. No refresh
+    token and no optional scope, so no offline token either: one would outlive a password change and a user
+    logout, and the generator signs in again with the password anyway. It is not in the realm import:
+    --import-realm never touches an existing realm, and the secret must not sit in the rendered ConfigMap.
+    The operator registers it through the admin API and Keycloak makes the secret (README).
     """
     return {
         "clientId": LOADGEN_CLIENT_ID, "name": "demo-chat load generator", "enabled": True,
@@ -101,6 +103,11 @@ def loadgen_client():
         "standardFlowEnabled": False, "implicitFlowEnabled": False, "directAccessGrantsEnabled": True,
         "serviceAccountsEnabled": False, "frontchannelLogout": False, "fullScopeAllowed": False,
         "redirectUris": [], "webOrigins": [],
+        # Keycloak 26.0.7 drops the realm's default and optional scopes alike once either list is given, so
+        # both are written out. An empty optional list alone leaves the ID token without preferred_username.
+        # basic carries sub, profile preferred_username.
+        "defaultClientScopes": ["basic", "profile"], "optionalClientScopes": [],
+        "attributes": {"use.refresh.tokens": "false"},
     }
 
 

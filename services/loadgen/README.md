@@ -119,6 +119,8 @@ uv run bravo-loadgen measure <위와 같은 인자> \
   --auth-issuer <앱의 AUTH_ISSUER> --auth-client-id <부하 생성기 클라이언트 ID> --auth-username loadgen
 ```
 
+비밀을 클립보드에서 붙여 넣었다면 붙여 넣자마자 `pbcopy < /dev/null`(macOS)로 비우고, 측정이 끝나면 `unset BRAVO_LOADGEN_PASSWORD BRAVO_LOADGEN_CLIENT_SECRET`으로 지운다.
+
 받는 방법은 발급자 주소로 정한다. 둘 다 **부하 생성기 전용 클라이언트**를 쓴다. 브라우저 클라이언트(`demo-chat`)는 비밀번호를 받지 않게 만들어 두었다. 부하 클라이언트는 발급자가 계정에 묶지 않으므로, 앱이 그 클라이언트의 토큰을 부하 계정 이름일 때만 받는다(아래 설정의 세 번째 칸). 그래서 `--auth-username`은 그 이름이어야 한다. 출발지 · 목적지 부하 계정은 같은 비밀번호를 쓴다(회수 순서는 [source-identity](../../infra/envs/source-identity/README.md#부하-생성기-클라이언트)).
 
 | 발급자 | 받는 방법 | 필요한 것 |
@@ -139,7 +141,13 @@ uv run bravo-loadgen measure <위와 같은 인자> \
 - 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>|loadgen`
 - 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>|loadgen,<Keycloak 발급자>|demo-chat-loadgen|loadgen`
 - 부하 클라이언트 항목의 세 번째 칸은 부하 계정 이름이다(실제 이름이 `loadgen`이 아니면 그 이름). 그 클라이언트로 받은 토큰은 이 이름일 때만 앱이 받고, 다른 계정이면 401이다
-- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen|loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+- 이사가 끝나면 Cognito 두 항목을 지운다. 부하 항목은 측정할 때만 넣고 끝나면 지운다(아래 정리). Exit Drill은 AWS 주소만 보므로(`AWS_IDENTITY_TRUSTED`) Keycloak 부하 항목은 출구 판정과 관계없지만, 남겨 두면 비밀이 샜을 때 데모 뒤에도 `loadgen` 이름의 쓰기 토큰이 통한다
+
+**측정 · 데모가 끝나면 정리한다.** `loadgen`은 일반 계정이라 비밀번호만 있으면 브라우저 클라이언트로도 로그인되고, 앱의 이름 고정은 그 로그인을 막지 않는다. 그래서 측정하지 않는 동안에는 부하 경로를 모두 닫아 둔다. 명령은 [source-identity](../../infra/envs/source-identity/README.md#부하-생성기-클라이언트) · [target-workloads](../../infra/envs/target-workloads/README.md#부하-생성기-클라이언트)에 있다.
+
+1. 두 앱의 `AUTH_ALSO_TRUST`에서 부하 항목을 지운다. 이미 받은 부하 클라이언트 토큰은 여기서 바로 끊긴다.
+2. 목적지 부하 클라이언트를 지운다(다시 잴 때 새로 등록하면 비밀도 새로 생긴다). 출발지는 서명 권한(`source_user_pool_arn`)을 거둔다.
+3. 양쪽 `loadgen` 계정을 끈다. 끄기는 회수가 아니므로, 다시 켜기 전에 남은 갱신 · offline 토큰을 거둔다(출발지 global sign-out, 목적지 `consents`).
 
 
 ## 검사
