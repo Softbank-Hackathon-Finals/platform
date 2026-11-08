@@ -20,6 +20,10 @@ from .window_server import runtime_connection
 _CODE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
+def _access_clock(clock):
+    return lambda: clock().isoformat()
+
+
 def _principal(config, clock):
     now = int(clock().timestamp())
     registrar = config["security_review"]["registrar"]
@@ -30,7 +34,7 @@ def _principal(config, clock):
 def _ports(store, config, clock):
     module, name = config["gate"].split(":")
     records, load_gate = getattr(importlib.import_module(module), name)(store)
-    access = OperatorAccess(store, clock=clock)
+    access = OperatorAccess(store, clock=_access_clock(clock))
 
     def load_session(connection, principal, plan):
         view = records.view(connection, principal, plan)
