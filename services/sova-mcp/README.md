@@ -35,6 +35,26 @@ SOVA Console 데스크톱 앱(`services/console/desktop`)은 요청마다 증명
 계획을 읽는 도구·리소스·스트림은 테넌트에 더해 T10 계획별 `read` 권한(`OperatorAccess`, 관리자의 `set_permissions`)을
 읽을 때마다 확인한다(운영자 API·콘솔과 같은 기준). 같은 테넌트라도 권한이 없으면 목록에 계획이 나오지 않고 `forbidden`을 받는다.
 권한을 회수하면 열린 스트림은 다음 읽기에서 닫힌다. MCP로 만든 계획도 관리자가 `read`를 주기 전에는 만든 사람이 읽지 못한다.
+증명의 발급 시각이 grant의 `valid_after`보다 이르면 그 증명으로는 읽지 못한다(운영자 `require`의 `authenticated_at` 규칙과 같다).
+
+**배포 전 권한(롤아웃).** MCP 호출자의 subject는 콘솔 운영자 subject와 다르다. 콘솔은 `operator_id(issuer, sub)`이고,
+MCP는 `sova-mcp-config`의 `identities` 행마다 `registration_subject(expected_account, expected_sso_role_id, expected_caller_arn)`이다.
+그래서 콘솔에서 `read`를 받은 사람도 MCP subject에는 따로 받아야 한다. 이 변경을 배포하기 전에, MCP와 콘솔 데스크톱 진행
+스트림으로 볼 계획마다 그 사람의 MCP subject에 `read`를 준다. 주지 않으면 배포 직후 도구는 `forbidden`, 목록은 빈 값이 된다.
+
+```sh
+# 저장소 밖 설정에서 subject만 출력한다(다른 값은 출력하지 않는다)
+cd services/platform-events && uv run python - "$PRIVATE_DIR/sova-mcp-config.json" <<'PY'
+import json, sys
+from bravo_platform_events.registration_sso import registration_subject
+for row in json.load(open(sys.argv[1]))["identities"]:
+    print(row["tenant_id"], registration_subject(row["expected_account"], row["expected_sso_role_id"], row["expected_caller_arn"]))
+PY
+```
+
+권한은 관리 경로(`set_permissions`, 관리 근거 필요)로 준다. `set_permissions`는 그 계획·subject의 권한 집합을 통째로 바꾸므로,
+최신 grant(revision N, 권한 P)를 먼저 읽고 `permissions = P ∪ {"read"}`, `expected_revision = N`으로 부른다
+([운영 사전 점검](../../docs/operations/happy-path-preflight.md)의 권한 절과 같은 방식).
 
 ## 실행·검증
 
