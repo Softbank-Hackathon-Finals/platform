@@ -16,7 +16,22 @@ import { planAtom, sova, useTool } from './lib';
 
 type Tone = 'ok' | 'warn' | 'fail' | 'standby' | 'idle';
 interface Node { id: string; col: 'src' | 'plat' | 'dst' | 'top'; title: string; sub: string; value?: ReactNode; tone: Tone; badge?: string; src: string; ceiling: string }
-interface Edge { id: string; from: string; to: string; kind: 'data' | 'control' | 'observe' | 'traffic'; label: string; value: string; tone: Tone; rate: number; dashed?: boolean; src: string; ceiling: string }
+interface Edge { id: string; from: string; to: string; kind: 'data' | 'control' | 'observe' | 'traffic'; label: string; value: string; tone: Tone; rate: number; dashed?: boolean; src: string; ceiling: string; chip?: string }
+type Pt = { x: number; y: number };
+
+/** Orthogonal polyline with rounded corners. */
+function ortho(pts: Pt[], r = 9) {
+  const len = (a: Pt, b: Pt) => Math.hypot(b.x - a.x, b.y - a.y);
+  const toward = (from: Pt, to: Pt, d: number) => { const l = len(from, to) || 1; return { x: from.x + ((to.x - from.x) * d) / l, y: from.y + ((to.y - from.y) * d) / l }; };
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [a, b, c] = [pts[i - 1], pts[i], pts[i + 1]];
+    const k = Math.min(r, len(a, b) / 2, len(b, c) / 2), p = toward(b, a, k), q = toward(b, c, k);
+    d += ` L${p.x},${p.y} Q${b.x},${b.y} ${q.x},${q.y}`;
+  }
+  const z = pts[pts.length - 1];
+  return `${d} L${z.x},${z.y}`;
+}
 
 const FLOWS = [
   ['all', '전체', []],
@@ -68,7 +83,7 @@ export function MigrationMap() {
 
   const nodes: Node[] = [
     { id: 'users', col: 'top', title: t('사용자 · 부하'), sub: 'demo-chat', tone: 'idle', src: '관측 API http 뷰(두 환경 합)', ceiling: '요청 출처를 구분하지 않는다(부하 발생기 포함)' },
-    { id: 'console', col: 'top', title: t('SOVA 콘솔 (사람)'), sub: 'SSO bravo-operator', tone: 'ok', src: '이 앱', ceiling: '사람 승인만 보낸다. 안내자는 승인 불가' },
+    { id: 'console', col: 'plat', title: t('SOVA 콘솔 (사람)'), sub: 'SSO bravo-operator', value: run ? (run.ok ? `${t('승인')} → ${run.body.state} · ${run.body.owner}` : `${t('승인')} HTTP ${run.status}`) : undefined, tone: !run ? 'idle' : run.ok ? 'ok' : 'fail', src: '이 앱 · T15 승인 호스트 run-state', ceiling: '사람 승인만 보낸다. 안내자는 승인 불가' },
     { id: 'src-app', col: 'src', title: 'demo-chat', sub: 'source-dev', value: rps(last(aws)?.rps), tone: !aws ? 'idle' : (last(aws)?.err ?? 0) > 0.01 ? 'fail' : 'ok', src: 'http · aws', ceiling: '1분 창 RPS·오류율·p95' },
     { id: 'src-pool', col: 'src', title: pool(aws)?.pooler ?? 'source-pgbouncer', sub: 'PgBouncer', value: pool(aws) ? `${last(aws)?.active ?? 0} active · ${last(aws)?.waiting ?? 0} wait` : undefined, tone: !aws ? 'idle' : pool(aws)?.up ? (pool(aws)?.databases ?? []).some((d: any) => d.paused) ? 'warn' : 'ok' : 'fail', badge: (pool(aws)?.databases ?? []).some((d: any) => d.paused) ? 'PAUSE' : undefined, src: 'pgbouncer · aws', ceiling: 'exporter 상태. 컷오버 판정 입력 아님' },
     { id: 'src-db', col: 'src', title: 'source-db', sub: 'CNPG · AWS EKS', value: aws?.db?.instances?.[0] ? `${aws.db.instances[0].role} · ${aws.db.instances[0].up ? 'up' : 'down'}` : undefined, tone: !aws ? 'idle' : aws.samples.at(-1)?.dbUp ? 'ok' : 'fail', badge: w === 'src' ? t('쓰기') : undefined, src: 'database · aws', ceiling: '쓰기 표시는 계획 단계 기준(DB 실측 아님)' },
@@ -85,12 +100,12 @@ export function MigrationMap() {
     { id: 'p-dst', from: 'dst-app', to: 'dst-pool', kind: 'traffic', label: 'SQL', value: `${last(onp)?.active ?? '—'} conn`, tone: onp ? 'ok' : 'idle', rate: (last(onp)?.active ?? 0) * 10, src: 'pgbouncer · onprem', ceiling: '클라이언트 연결 수' },
     { id: 'repl', from: 'src-db', to: 'dst-db', kind: 'data', label: 't8_source_to_target', value: fwd ? `${fwd.active ? t('복제 중') : t('멈춤')} · ${t('지연')} ${mib(fwd.lag_bytes)}` : t('미관측'), tone: !fwd ? 'idle' : !fwd.active ? (w === 'src' ? 'fail' : 'standby') : fwd.lag_bytes > 64 * 1048576 ? 'warn' : 'ok', rate: fwd?.active ? 400 : 0, src: 'database · aws replication_slots', ceiling: '논리 복제 슬롯 상태·지연 바이트' },
     { id: 'reverse', from: 'dst-db', to: 'src-db', kind: 'data', label: 't8_target_to_source', value: rev ? `${rev.active ? t('복제 중') : t('되돌리기 대기')} · WAL ${mib(rev.lag_bytes)}` : t('미관측'), tone: !rev ? 'idle' : rev.active ? 'ok' : w === 'dst' ? 'fail' : 'standby', rate: rev?.active ? 400 : 0, dashed: !rev?.active, src: 'database · onprem replication_slots · t8-replication-health.md', ceiling: '컷오버 전 대기는 설계대로. 컷오버 뒤 꺼져 있으면 장애' },
-    { id: 'tel-src', from: 'src-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: aws ? `${Math.round(aws.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !aws ? 'idle' : stale(aws) ? 'fail' : 'ok', rate: aws ? 60 : 0, src: 'last_received_seconds_ago · aws', ceiling: '마지막 수신 시각' },
-    { id: 'tel-dst', from: 'dst-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: onp ? `${Math.round(onp.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !onp ? 'idle' : stale(onp) ? 'fail' : 'ok', rate: onp ? 60 : 0, src: 'last_received_seconds_ago · onprem', ceiling: '마지막 수신 시각' },
-    { id: 'approve', from: 'console', to: 'plat-ctl', kind: 'control', label: t('사람 승인'), value: run ? (run.ok ? `${run.body.state} · ${run.body.owner}` : `HTTP ${run.status}`) : '—', tone: !run ? 'idle' : run.ok ? 'ok' : 'fail', rate: 0, src: 'T15 승인 호스트 run-state', ceiling: 'SSO 운영자 증명. 사전 위임이 있으면 호스트가 진행' },
-    { id: 'collect', from: 'plat-ctl', to: 'src-app', kind: 'control', label: t('읽기 수집'), value: t('쓰기 거부 확인'), tone: 'ok', rate: 0, src: 'T10 등록 영수증 checks(read_access verified, create_pods denied)', ceiling: '등록 시점의 권한 확인' },
-    { id: 'cut-src', from: 'plat-ctl', to: 'src-pool', kind: 'control', label: 'PAUSE', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님' },
-    { id: 'cut-dst', from: 'plat-ctl', to: 'dst-pool', kind: 'control', label: 'RESUME', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님' },
+    { id: 'tel-src', from: 'src-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: aws ? `${Math.round(aws.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !aws ? 'idle' : stale(aws) ? 'fail' : 'ok', rate: aws ? 60 : 0, src: 'last_received_seconds_ago · aws', ceiling: '마지막 수신 시각', chip: aws ? `OTLP · ${Math.round(aws.lastSecondsAgo ?? 0)}s` : undefined },
+    { id: 'tel-dst', from: 'dst-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: onp ? `${Math.round(onp.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !onp ? 'idle' : stale(onp) ? 'fail' : 'ok', rate: onp ? 60 : 0, src: 'last_received_seconds_ago · onprem', ceiling: '마지막 수신 시각', chip: onp ? `OTLP · ${Math.round(onp.lastSecondsAgo ?? 0)}s` : undefined },
+    { id: 'approve', from: 'console', to: 'plat-ctl', kind: 'control', label: t('사람 승인'), value: run ? (run.ok ? `${run.body.state} · ${run.body.owner}` : `HTTP ${run.status}`) : '—', tone: !run ? 'idle' : run.ok ? 'ok' : 'fail', rate: 0, src: 'T15 승인 호스트 run-state', ceiling: 'SSO 운영자 증명. 사전 위임이 있으면 호스트가 진행', chip: '' },
+    { id: 'collect', from: 'plat-ctl', to: 'src-app', kind: 'control', label: t('읽기 수집'), value: t('쓰기 거부 확인'), tone: 'ok', rate: 0, src: 'T10 등록 영수증 checks(read_access verified, create_pods denied)', ceiling: '등록 시점의 권한 확인', chip: t('읽기 수집') },
+    { id: 'cut-src', from: 'plat-ctl', to: 'src-pool', kind: 'control', label: 'PAUSE', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님', chip: `PAUSE · ${cutting ? t('진행') : t('대기')}` },
+    { id: 'cut-dst', from: 'plat-ctl', to: 'dst-pool', kind: 'control', label: 'RESUME', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님', chip: `RESUME · ${cutting ? t('진행') : t('대기')}` },
   ];
   const active = FLOWS.find(([k]) => k === flow)![2] as readonly string[];
   const lit = (e: Edge) => flow === 'all' || active.includes(e.id);
@@ -114,27 +129,40 @@ export function MigrationMap() {
     const ro = new ResizeObserver(() => measure()); if (box.current) ro.observe(box.current);
     return () => ro.disconnect();
   }, []);
-  const path = (e: Edge) => {
+  // Orthogonal routes that never cross a box: neighbours in a row get a straight connector across the gap,
+  // offset rows a short elbow inside the gap, a box above another column drops onto it from its side, and
+  // DB ↔ DB replication runs in its own two lanes under the boundaries (it does not pass through the platform).
+  const route = (e: Edge): { d: string; chip: Pt; maxW: number } | null => {
     const a = geo[e.from], b = geo[e.to]; if (!a || !b) return null;
-    const ac = { x: a.x + a.width / 2, y: a.y + a.height / 2 }, bc = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-    const horiz = Math.abs(bc.x - ac.x) > Math.max(a.width, b.width) / 2;
-    let p1, p2, c1, c2;
+    const cx = (r: DOMRect) => r.x + r.width / 2, cy = (r: DOMRect) => r.y + r.height / 2;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
     if (e.id === 'repl' || e.id === 'reverse') {
-      // DB ↔ DB runs in its own lane under the three boundaries; the two directions are two parallel arcs.
-      const dx = e.id === 'repl' ? -18 : 18, drop = e.id === 'repl' ? 46 : 70;
-      p1 = { x: ac.x + dx, y: a.y + a.height }; p2 = { x: bc.x - dx, y: b.y + b.height };
-      c1 = { x: p1.x, y: p1.y + drop }; c2 = { x: p2.x, y: p2.y + drop };
-    } else if (horiz) {
-      const dir = Math.sign(bc.x - ac.x);
-      p1 = { x: dir > 0 ? a.x + a.width : a.x, y: ac.y }; p2 = { x: dir > 0 ? b.x : b.x + b.width, y: bc.y };
-      const k = Math.max(40, Math.abs(p2.x - p1.x) / 2.4); c1 = { x: p1.x + dir * k, y: p1.y }; c2 = { x: p2.x - dir * k, y: p2.y };
-    } else {
-      const dir = Math.sign(bc.y - ac.y) || 1;
-      p1 = { x: ac.x, y: dir > 0 ? a.y + a.height : a.y }; p2 = { x: bc.x, y: dir > 0 ? b.y : b.y + b.height };
-      const k = Math.max(30, Math.abs(p2.y - p1.y) / 2.4); c1 = { x: p1.x, y: p1.y + dir * k }; c2 = { x: p2.x, y: p2.y - dir * k };
+      const floor = Math.max(...['src', 'plat', 'dst'].map((c) => (geo[`col-${c}`] ? geo[`col-${c}`].y + geo[`col-${c}`].height : 0)));
+      const fwd = e.id === 'repl', lane = floor + (fwd ? 16 : 38), s = fwd ? a : b, t = fwd ? b : a;
+      // Forward is the inner lane, the failback slot the outer one; their verticals sit side by side, so they never cross.
+      const x1 = cx(s) + (fwd ? 12 : -12), x2 = cx(t) + (fwd ? -12 : 12);
+      const pts = fwd ? [{ x: x1, y: s.y + s.height }, { x: x1, y: lane }, { x: x2, y: lane }, { x: x2, y: t.y + t.height }]
+        : [{ x: x2, y: t.y + t.height }, { x: x2, y: lane }, { x: x1, y: lane }, { x: x1, y: s.y + s.height }];
+      return { d: ortho(pts), chip: { x: x1 + (x2 - x1) * (fwd ? 0.32 : 0.68), y: lane }, maxW: 260 };
     }
-    const mid = { x: 0.125 * p1.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * p2.x, y: 0.125 * p1.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * p2.y };
-    return { d: `M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`, mid, end: p2, c2 };
+    const apart = Math.abs(cx(b) - cx(a)) > (a.width + b.width) / 2;
+    if (apart && a.y + a.height <= b.y) {
+      // From the side of a box above (users), across the top, down into the inner part of the target's top edge.
+      const dir = Math.sign(cx(b) - cx(a)), y = cy(a), x = b.x + b.width * (dir < 0 ? 0.72 : 0.28);
+      const x0 = dir > 0 ? a.x + a.width : a.x;
+      return { d: ortho([{ x: x0, y }, { x, y }, { x, y: b.y }]), chip: { x: (x0 + x) / 2, y }, maxW: Math.abs(x - x0) - 12 };
+    }
+    if (apart) {
+      const dir = Math.sign(cx(b) - cx(a)), x1 = dir > 0 ? a.x + a.width : a.x, x2 = dir > 0 ? b.x : b.x + b.width;
+      const lo = Math.max(a.y, b.y) + 10, hi = Math.min(a.y + a.height, b.y + b.height) - 10, gap = Math.abs(x2 - x1) - 6;
+      if (hi >= lo) { const y = (lo + hi) / 2; return { d: ortho([{ x: x1, y }, { x: x2, y }]), chip: { x: (x1 + x2) / 2, y }, maxW: gap }; }
+      const y1 = clamp(cy(b), a.y + 12, a.y + a.height - 12), y2 = clamp(cy(a), b.y + 12, b.y + b.height - 12), gx = (x1 + x2) / 2;
+      return { d: ortho([{ x: x1, y: y1 }, { x: gx, y: y1 }, { x: gx, y: y2 }, { x: x2, y: y2 }]), chip: { x: gx, y: (y1 + y2) / 2 }, maxW: gap };
+    }
+    // Same column: a straight drop through the shared span (the approval line keeps clear of the boundary chip).
+    const lo = Math.max(a.x, b.x), hi = Math.min(a.x + a.width, b.x + b.width), x = lo + (hi - lo) * (e.id === 'approve' ? 0.8 : 0.5);
+    const down = cy(b) > cy(a), y1 = down ? a.y + a.height : a.y, y2 = down ? b.y : b.y + b.height;
+    return { d: ortho([{ x, y: y1 }, { x, y: y2 }]), chip: { x, y: (y1 + y2) / 2 }, maxW: 200 };
   };
   const speed = (r: number) => (r <= 0 ? 0 : Math.max(0.35, 3.2 - Math.log10(r + 1) * 0.7)); // seconds per dash cycle
 
@@ -180,7 +208,7 @@ export function MigrationMap() {
               ))}
             </defs>
             {edges.map((e) => {
-              const g = path(e); if (!g) return null;
+              const g = route(e); if (!g) return null;
               const on = lit(e), sp = speed(e.rate);
               return (
                 <g key={e.id} opacity={on ? 1 : 0.15}>
@@ -194,22 +222,30 @@ export function MigrationMap() {
             })}
           </svg>
           {edges.map((e) => {
-            const g = path(e); if (!g || !lit(e)) return null;
+            const g = route(e); if (!g || !lit(e) || e.chip === '') return null;
             return (
-              <span key={e.id} title={`${e.label} — ${e.src} · ${e.ceiling}`} style={{ left: g.mid.x, top: g.mid.y }}
-                className={`pointer-events-auto absolute z-20 max-w-[170px] -translate-x-1/2 -translate-y-1/2 truncate whitespace-nowrap rounded-md border-[1.5px] border-ink px-1.5 py-px text-[10.5px] font-bold shadow-[1px_1px_0_#1b1b1b] ${TONE[e.tone].chip}`}>
-                {e.label} · <span className="tnum">{e.value}</span>
+              <span key={e.id} title={`${e.label} · ${e.value} — ${e.src} · ${e.ceiling}`} style={{ left: g.chip.x, top: g.chip.y, maxWidth: Math.max(44, g.maxW) }}
+                className={`pointer-events-auto absolute z-20 -translate-x-1/2 -translate-y-1/2 truncate whitespace-nowrap rounded-md border-[1.5px] border-ink px-1.5 py-px text-[10.5px] font-bold shadow-[1px_1px_0_#1b1b1b] ${TONE[e.tone].chip}`}>
+                {e.chip ?? <>{e.label} · <span className="tnum">{e.value}</span></>}
               </span>
             );
           })}
-          <div className="relative grid grid-cols-2 gap-3 px-[18%] pb-7">{col('top')}</div>
-          <div className="relative grid grid-cols-3 items-start gap-x-[clamp(36px,6cqw,96px)]">
-            {([['src', 'AWS EKS · 출발지', 'bg-red text-cream'], ['plat', '플랫폼 RKE2 (AWS)', 'bg-ink text-cream'], ['dst', '온프렘 RKE2 · 목적지', 'bg-cold text-white']] as const).map(([c, l, chip]) => (
-              <div key={c} className={`relative flex flex-col gap-5 rounded-2xl border-2 border-dashed border-ink/40 bg-[#fffaf0]/50 p-3 pt-6 ${c === 'plat' ? 'mt-12' : ''}`}>
-                <span className={`absolute -top-2.5 left-3 rounded-md border-2 border-ink px-1.5 text-[10.5px] font-black ${chip}`}>{t(l)}</span>
-                {col(c)}
-              </div>
-            ))}
+          {/* Users sit above the platform so each request line drops onto its own side; the person's console stands
+              outside the platform boundary, directly above the workflow it approves. */}
+          <div className="relative grid grid-cols-3 items-start gap-x-[clamp(84px,11cqw,132px)] gap-y-7">
+            <div className="col-start-2 row-start-1 px-[8%]">{nodeEl(nodes.find((n) => n.id === 'users')!)}</div>
+            {([['src', 'AWS EKS · 출발지', 'bg-red text-cream left-3', 'col-start-1'], ['plat', '플랫폼 RKE2 (AWS)', 'bg-ink text-cream left-3', 'col-start-2'], ['dst', '온프렘 RKE2 · 목적지', 'bg-cold text-white right-3', 'col-start-3']] as const).map(([c, l, chip, place]) => {
+              const boundary = (
+                <div ref={(el) => { if (el) refs.current.set(`col-${c}`, el); else refs.current.delete(`col-${c}`); }}
+                  className="relative flex flex-col gap-7 rounded-2xl border-2 border-dashed border-ink/40 bg-[#fffaf0]/50 p-3 pt-6">
+                  <span className={`absolute -top-2.5 rounded-md border-2 border-ink px-1.5 text-[10.5px] font-black ${chip}`}>{t(l)}</span>
+                  {col(c).filter((el) => el.key !== 'console')}
+                </div>
+              );
+              return c === 'plat'
+                ? <div key={c} className={`${place} row-start-2 flex flex-col gap-7`}>{nodeEl(nodes.find((n) => n.id === 'console')!)}{boundary}</div>
+                : <div key={c} className={`${place} row-start-2`}>{boundary}</div>;
+            })}
           </div>
         </div>
         </div>
