@@ -204,24 +204,52 @@ def _satisfied(c, proof, spec, previous, run, now):
     )
 
 
-def demo_reader(state):
-    """T49 demo mode: REHEARSE/GATE evidence from the previous checkpoint's change, without T15, T31 or T19."""
-    if state not in ("REHEARSE", "GATE", "WATCH"):
+def demo_reader(state, *, change=None, plans=None):
+    """T49 demo mode: the state's evidence without T14/T16, AI, T15, T31 or T19. PROPOSE uses `change` (an image
+    already proven on the destination); later states carry the previous checkpoint's change. Only `plans`, if given."""
+    if state not in ("ANALYZE", "PROPOSE", "REHEARSE", "GATE", "WATCH") or (state == "PROPOSE" and not change):
         raise ValueError("demo_state_unsupported")
 
     def read(c, plan, previous, run):
+        if plans is not None and plan["plan_id"] not in plans:
+            raise EventError("demo_plan_not_selected")
         spec = json.loads(plan["spec_json"])
         tag = f"demo-{state.lower()}-{plan['version']}"
-        if state == "WATCH":  # previous = the cutover's Integrity proof; run = the observed cutover run
+        if state == "ANALYZE":
+            result = Analysis(spec["collection_scope_digest"], "0" * 64, "0" * 64)
+        elif state == "PROPOSE":
+            result = Proposal("0" * 64, "0" * 64, Change(**change), True, True)
+        elif state == "WATCH":  # previous = the cutover's Integrity proof; run = the observed cutover run
             result = Watch(run or Run(**previous["result"]["run"]), previous["receipt_id"], "PASS", "PASS")
         else:
-            change = Change(**previous["result"]["change"])
-            result = (Application(change, tag, tag, tag, True, change.image_digest) if state == "REHEARSE"
-                      else Gate(change, tag, "0" * 64, "PASS"))
+            carried = Change(**previous["result"]["change"])
+            result = (Application(carried, tag, tag, tag, True, carried.image_digest) if state == "REHEARSE"
+                      else Gate(carried, tag, "0" * 64, "PASS"))
         return Evidence(plan["plan_id"], spec["plan_digest"], spec["target_environment_id"], plan["version"],
                         tag, result)
 
     return read
+
+
+def demo_collector(store, plans):
+    """T49 demo mode: COLLECT -> ANALYZE for the selected plans without a T16 scan (background sweep)."""
+    from datetime import UTC, datetime
+
+    from .plans import CollectionProof
+
+    def sweep():
+        with store._transaction() as c:
+            rows = [dict(r) for r in c.execute("SELECT plan_id, spec_json FROM plans WHERE state='COLLECT'").fetchall()]
+        for row in rows:
+            if row["plan_id"] in plans:
+                spec = json.loads(row["spec_json"])
+                store.complete_collection(
+                    CollectionProof(row["plan_id"], spec["plan_digest"], spec["collection_scope_digest"],
+                                    "demo-collect-" + row["plan_id"][5:21], True),
+                    expected_version=1, command_key="demo-collect", run_id="demo-collect",
+                    occurred_at=datetime.now(UTC).isoformat())
+
+    return sweep
 
 
 class WorkflowRecovery:
