@@ -13,3 +13,10 @@ c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11
 # independently recomputed at b874dba. The adjacent API filename caused a false
 # credential match; no rule/path exemption. Review again if the evidence changes.
 d3c14b562750fb3f630eefd949cf46203cd65d7e:docs/evidence/t36-intake-hardening-2026-11-04/summary.json:generic-api-key:21
+# T21, mangowhoiscloud, 2026-11-08: a 20-character dummy STS key ID ("ASIA" + "EXAMPLE" twice
+# + "12") in the SOVA Console proof test, with secret "s" and token "tok+/=". Not an AWS
+# credential; replaced by the non-key-shaped "ASIATESTKEY" in 4b7b3f53. ee1f9d42 line 16 is
+# this comment's first version, which quoted the same dummy value. Exact historical findings only.
+87c0fb600abc96101b897121058c07565fff8cab:services/console/desktop/src/main/proof.test.ts:aws-access-token:9
+87c0fb600abc96101b897121058c07565fff8cab:services/console/desktop/src/main/proof.test.ts:aws-access-token:19
+ee1f9d4226b17ee93efef315d3563ee7398f9cb3:.gitleaksignore:aws-access-token:16
