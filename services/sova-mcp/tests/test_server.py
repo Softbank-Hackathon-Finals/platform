@@ -140,6 +140,18 @@ def test_environment_tool_offers_every_kind_and_role(server):
     assert refused["isError"]  # target-reader is provisioned as an on-prem target
 
 
+@pytest.mark.parametrize("code", ["adapter_missing:target.rehearsal", "same_cluster_identity",
+                                  "cluster_identity_unverified"])
+def test_kind_pair_refusals_keep_the_code_and_carry_a_hint(code):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from sova_mcp.server import _fail
+    with pytest.raises(ToolError) as raised:
+        _fail(code)
+    body = json.loads(str(raised.value))
+    assert body["detail"] == {"code": code} and body["hint"]
+
+
 def test_guided_registration_needs_matching_confirmation_then_plan_flows(server):
     base, _, store = server
     q = "?read_only=false"
