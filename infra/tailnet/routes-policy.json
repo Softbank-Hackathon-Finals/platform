@@ -15,6 +15,9 @@
     "tag:bravo-findings": [
       "tag:bravo-platform-operator"
     ],
+    "tag:bravo-peer-relay": [
+      "autogroup:admin"
+    ],
     "tag:bravo-source-api": [
       "tag:bravo-source-operator"
     ],
@@ -256,6 +259,17 @@
         "tag:bravo-cutover-control"
       ],
       "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control"
+      ],
+      "dst": [
         "tag:bravo-source-api"
       ],
       "ip": [
@@ -451,6 +465,28 @@
     },
     {
       "src": [
+        "tag:bravo-source-control-pooler"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-source-db"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
         "tag:bravo-source-gce-replication"
       ],
       "dst": [
@@ -459,6 +495,17 @@
       "ip": [
         "tcp:5432"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-source-replication"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [
@@ -481,6 +528,28 @@
       "ip": [
         "tcp:9090"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-target-control-pooler"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-target-db"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [
@@ -520,11 +589,33 @@
         "tag:bravo-target-pooler"
       ],
       "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-target-pooler"
+      ],
+      "dst": [
         "tag:bravo-source-db"
       ],
       "ip": [
         "tcp:5432"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-target-replication"
+      ],
+      "dst": [
+        "tag:bravo-peer-relay"
+      ],
+      "app": {
+        "tailscale.com/cap/relay": []
+      }
     },
     {
       "src": [

@@ -399,6 +399,53 @@ TAILNET_OPERATOR = Module(
 )
 
 
+# --- tailnet-peer-relay v1 --------------------------------------------------------------------
+# A Tailscale peer relay: a tailnet device with a public UDP port (host: infra/envs/tailnet-relay). Routes
+# whose two ends both sit behind hard NAT (the on-prem VM's QEMU user network, AWS private subnets behind a
+# NAT gateway) otherwise only meet through a DERP region. Admins own the relay tag (an admin approves the
+# host's login); each `users` tag gets the relay capability toward it. The grant carries no `ip`: relayed
+# traffic goes to the relay's public UDP port, never to its tailnet address. No Kubernetes resource.
+RELAY_CAP = "tailscale.com/cap/relay"
+
+
+def _relay_check(params: dict) -> dict:
+    _exact(params, ("tag", "users"), ("tailnet",))
+    tag, users = _tag(params["tag"]), params["users"]
+    if type(users) is not list or not 1 <= len(users) <= 32:
+        raise IacError("IAC_PARAMS_INVALID")
+    checked = sorted({_tag(user) for user in users})
+    if len(checked) != len(users) or tag in checked:
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"tag": tag, "users": checked}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    return out
+
+
+TAILNET_PEER_RELAY = Module(
+    id="tailnet-peer-relay",
+    version="1",
+    description="A Tailscale peer relay with a public UDP port for routes whose ends are both behind hard NAT. "
+                "Owns the relay tag (admins) and one relay capability grant per user tag; no tailnet IP reach "
+                "and no Kubernetes resource.",
+    params={"type": "object", "additionalProperties": False, "required": ["tag", "users"],
+            "properties": {"tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "users": {"type": "array", "minItems": 1, "maxItems": 32,
+                                     "items": {"type": "string", "pattern": TAG_RE.pattern}},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern}}},
+    check=_relay_check,
+    render=lambda params: [],
+    # A new user tag is a new relayed route: a widening.
+    exposure=lambda params: {"anonymous": [], "checks": [],
+                             "reach": [f'relay {u} via {params["tag"]}@{tailnet_of(params)}' for u in params["users"]]},
+    grants=lambda params: [{"tailnet": tailnet_of(params), "src": [u], "dst": [params["tag"]], "app": {RELAY_CAP: []}}
+                           for u in params["users"]],
+    tag_owners=lambda params: [{"tailnet": tailnet_of(params), "tag": params["tag"], "owner": OPERATOR_TAG_OWNER}],
+)
+
+
 # --- operator-access v1 -----------------------------------------------------------------------
 # People reach a cluster's API only through that cluster's Tailscale API server proxy (operator auth
 # mode: apiServerProxyConfig.mode "true"). The tailnet grant lets a tailnet group reach the proxy and

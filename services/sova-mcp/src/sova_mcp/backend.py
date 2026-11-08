@@ -7,6 +7,7 @@ token is never forwarded). Every read re-checks the caller's tenant.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -188,8 +189,9 @@ class SovaBackend:
             return self.registry.register(actor, kind, body, key)
         except EventError as e:
             raise SovaError(e.code) from None
-        except ValueError:
-            raise SovaError("invalid_request") from None
+        except ValueError as e:
+            # Registry ValueErrors carry a fixed code (invalid_release_path, …); anything else stays generic.
+            raise SovaError(str(e) if re.fullmatch(r"[a-z_]{3,64}", str(e)) else "invalid_request") from None
 
     # --- observability and security (fixed upstreams) ----------------------------------
     def _environment(self, actor, environment_id: str, service: str) -> str:
