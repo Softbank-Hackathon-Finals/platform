@@ -72,6 +72,8 @@ def test_review_service_and_network_are_private_and_explicit():
     assert egress[1]["ports"] == [{"port": 6443, "protocol": "TCP"}]
     assert egress[2]["to"][0]["ipBlock"]["cidr"] == "10.43.10.10/32"
     assert policy["spec"]["policyTypes"] == ["Egress"]
+
+
 def test_gitops_admission_and_rbac_allow_only_named_review_state_objects():
     documents = render_gitops()
     policy = next(item for item in documents if item["kind"] == "ValidatingAdmissionPolicy"
