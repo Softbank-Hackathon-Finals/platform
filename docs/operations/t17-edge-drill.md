@@ -14,7 +14,7 @@ T17 완료 기준 3개(가중치 반영 시간, 실제 분배, 기준 초과 시
 | 공개 LB | `bravo-edge` 주소 | 응답 헤더 `X-Bravo-Env`(`aws`/`onprem`) |
 
 - **실행 위치:** 실행은 승인 호스트 Pod 안에서 한다. Edge journal(`/records/edge/journal.db`)은 하나다. 같은 시간에 다른 SHIFT·위임 실행이 이 journal을 쓰지 않게 담당과 시간을 맞춘다. 잠금이 두 번째 실행을 거부하긴 한다.
-- **승인:** 사람이 한다. 요청자(`--requested-by`)는 승인자가 될 수 없다.
+- **승인:** 사람이 한다. 요청자(`--requested-by`, 명세를 준비한 에이전트나 다른 사람)는 승인자가 될 수 없다. 승인한 사람이 실행해도 된다([ADR-0039 개정](../adr/0039-approved-edge-drill.md#5-개정-2026-11-08-류지환-결정)).
 
 ## 1. 한 번 준비
 
@@ -55,13 +55,13 @@ T10 창 수신은 생산자 credential 하나를 계획 하나에 묶는다. 시
 cd services/platform-events
 uv run --extra sso-registration python ../../operations/edge-drill/drill.py \
   --kubeconfig <플랫폼> --cluster-uid <UID> approve \
-  --requested-by <다른 등록 운영자의 subject id> normal.json abort.json
+  --requested-by <명세를 준비한 에이전트나 다른 사람의 id> normal.json abort.json
 ```
 
 - digest는 승인 호스트에 배포된 코드가 계산한다. 그래서 로컬 코드와 배포본이 다르면 여기서 드러난다.
 - 권한(`read`·`approve_infra`·`apply_infra`)은 이 도구가 주지 않는다. 관리 경로(`set_permissions`, 관리 근거 필요)로 미리 받는다.
-- 요청자는 `operator_verifier`에 등록된 **다른** 사람이어야 한다. 승인자와 같거나 등록되지 않은 이름이면 거부한다.
-- 명세에 `approved_by`가 기록된다. `run`은 승인자가 아닌 다른 등록 운영자의 SSO로만 실행된다.
+- 요청자는 승인자와 달라야 한다(T10이 자기 승인을 거부한다). 에이전트 id(예: `agent-t17-drill`)도 된다.
+- 명세에 `approved_by`가 기록된다. `run`은 `apply_infra`가 있는 등록 운영자의 SSO로 실행된다. 승인자 본인도 된다.
 - 각 명세 파일에 `approval_id`가 기록된다. 승인은 2시간 유효하다.
 
 ## 3. 정상 전환 (10→50→100→0)

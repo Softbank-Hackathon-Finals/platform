@@ -6,6 +6,8 @@ changes only where the human decision comes from:
 
 - A human approves the exact drill spec (`spec_digest`: plan, run, T36 profile, LB) once, as a T10
   `approval_kind=infra` approval on a plan that has not reached SHIFT (requester != approver, <= 24 h).
+  The requester may be the agent that prepared the spec; the approving human may then run it (ADR-0039,
+  2026-11-08 amendment: a demo drill needs one present human, not two).
 - `register` claims that approval once for this run (`apply_infra`; the approver must still hold
   `approve_infra`). Every later step re-reads approval, claim, revocation, expiry, plan version and
   both grants under the plan lock, as ShiftAuthority does for a SHIFT approval.
@@ -78,19 +80,11 @@ class DrillAuthority:
                 or not isinstance(binding, Binding) or asdict(binding) != self.spec["lb_binding"]):
             raise EdgeError("drill_spec_mismatch")
         _profile_valid(profile, plan_id, self.clock)
-        with self.store._transaction(plan_id=plan_id) as c:
-            self.refuse_approver(c, principal, plan_id)
         # T10 compares the whole binding. The drill fixes the plan id (its run) and the spec digest;
         # the spec names no requester, so the requester is the one T10 recorded (approver != it).
         requested_by = self.approvals.read(principal, plan_id, self.approval_id)["binding"]["requested_by"]
         binding = dict(infra_plan_id=run_id, plan_digest=self.digest, requested_by=requested_by)
         return self.approvals.claim(principal, plan_id, self.approval_id, run_id=run_id, binding=binding)
-
-    def refuse_approver(self, c, principal, plan_id):
-        """Two people: the one who approved this drill never runs it (the host enforces it, not the client)."""
-        approval = _get(c, plan_id, infra_key("approval", self.approval_id))
-        if approval is not None and approval[1]["actor_id"] == principal.subject_id:
-            raise EdgeError("drill_executor_is_approver")
 
     def proof(self, c, plan):
         """The approval and its claim for this drill, valid now; otherwise refuse."""
@@ -124,12 +118,6 @@ class DrillHost(ShiftHost):
         if not isinstance(authority, DrillAuthority):
             raise ValueError("drill_authority_required")
         super().__init__(store, provider, journal, authority=authority, clock=clock)
-
-    def _prepare(self, principal, plan_id, operation_id, action):
-        if action != "restore":  # the approver may still take the weight back to 0, never move it
-            with self.store._transaction(plan_id=plan_id) as c:
-                self.authority.refuse_approver(c, principal, plan_id)
-        return super()._prepare(principal, plan_id, operation_id, action)
 
     def _current(self, c, principal, plan_id):
         row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
