@@ -24,6 +24,12 @@ spec:
             podSelector: {matchLabels: {app: bravo-observability-api}}}]
       ports: [{port: 8080, protocol: TCP}]
     {{- end }}
+    {{- if .Values.runtime.security.enabled }}
+    # Read-only findings API (HTTPS + read credential).
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: bravo-security}},
+            podSelector: {matchLabels: {app: bravo-findings}}}]
+      ports: [{port: 8443, protocol: TCP}]
+    {{- end }}
     {{- with .Values.runtime.trustedEgressCidrs }}
     - to: [{{- range $i, $c := . }}{{ if $i }}, {{ end }}{ipBlock: {cidr: {{ $c | quote }}}}{{- end }}]
       ports: [{port: 443, protocol: TCP}]

@@ -20,6 +20,11 @@ runtime:
     enabled: false
     tokenSecret: sova-mcp-observability-token   # key: token
     caConfigMap: sova-mcp-observability-ca      # key: ca.crt (public CA only, never the server key)
+  # T33 findings API (bravo-security:8443). Its ingress requires bravo.security/findings-client=true on this namespace.
+  security:
+    enabled: false
+    tokenSecret: sova-mcp-security-token        # key: token (a read-scope credential of the findings registry)
+    caConfigMap: sova-mcp-security-ca           # key: ca.crt
 tailnet:
   hostname: sova-mcp
   tags: tag:bravo-platform-operator       # existing grant: autogroup:admin/owner → tcp:443

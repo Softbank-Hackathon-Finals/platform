@@ -47,6 +47,10 @@ spec:
             - {name: observability-token, mountPath: /upstreams/observability/token, readOnly: true}
             - {name: observability-ca, mountPath: /upstreams/observability/ca, readOnly: true}
             {{- end }}
+            {{- if .Values.runtime.security.enabled }}
+            - {name: security-token, mountPath: /upstreams/security/token, readOnly: true}
+            - {name: security-ca, mountPath: /upstreams/security/ca, readOnly: true}
+            {{- end }}
       volumes:
         - {name: config, secret: {secretName: {{ .Values.runtime.config }}}}
         - {name: registration, configMap: {name: {{ .Values.runtime.registrationConfigMap }}}}
@@ -57,4 +61,8 @@ spec:
         {{- if .Values.runtime.observability.enabled }}
         - {name: observability-token, secret: {secretName: {{ .Values.runtime.observability.tokenSecret }}}}
         - {name: observability-ca, configMap: {name: {{ .Values.runtime.observability.caConfigMap }}}}
+        {{- end }}
+        {{- if .Values.runtime.security.enabled }}
+        - {name: security-token, secret: {secretName: {{ .Values.runtime.security.tokenSecret }}}}
+        - {name: security-ca, configMap: {name: {{ .Values.runtime.security.caConfigMap }}}}
         {{- end }}
