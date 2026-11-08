@@ -49,7 +49,7 @@ resource "aws_vpc_security_group_egress_rule" "https" {
 }
 resource "aws_vpc_security_group_egress_rule" "udp" {
   security_group_id = aws_security_group.relay.id
-  description       = "Relayed packets to peers' NAT ports, STUN, and WireGuard"
+  description       = "Relayed packets to the NAT ports of peers, STUN, and WireGuard"
   ip_protocol       = "udp"
   from_port         = 1
   to_port           = 65535
