@@ -94,7 +94,8 @@ spec:
   dataFrom:
     - extract: {key: edge/cloudflare-gitops}
 ---
-# platform-state는 기본 차단이다. 받는 연결은 없고, 나가는 연결은 DNS · Cloudflare(API 443, 엣지 7844) · 플랫폼 Argo 화면뿐이다.
+# platform-state는 기본 차단이다. 받는 연결은 없고, 나가는 연결은 DNS · Cloudflare(API 443, 엣지 7844) · 플랫폼 Argo 화면 ·
+# SOVA 웹 콘솔(Access 보호 항목)뿐이다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -116,6 +117,11 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: bravo-gitops}
           podSelector:
             matchLabels: {app.kubernetes.io/name: argocd-server}
+      ports:
+        - {port: 8080, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: sova-console-web}
       ports:
         - {port: 8080, protocol: TCP}
     - to:

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: sova-console-web
+description: SOVA Console on the web (sova.mangowhois.ai) — the desktop console's renderer and per-person server
+type: application
+version: 0.1.0

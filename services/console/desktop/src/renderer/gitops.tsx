@@ -21,14 +21,16 @@ function ArgoCard({ side }: { side: 'platform' | 'customer' }) {
         <GitBranch size={15} />
         <div className="min-w-0">
           <h3 className="truncate font-kdisplay text-[14px] leading-tight">{t(d?.label ?? (side === 'platform' ? '플랫폼 Argo CD' : '고객 Argo CD'))}</h3>
-          <div className="truncate font-mono text-[10px] text-ink-soft">{d?.ok ? `${d.ns} · UID ${String(d.uid).slice(0, 8)} ${t('확인')}` : d ? t(d.code) : t('조회 중')}</div>
+          <div className="truncate font-mono text-[10px] text-ink-soft">{d?.ok ? (d.uid === 'in-cluster' ? `${d.ns} · ${t('공개 읽기 전용 API')}` : `${d.ns} · UID ${String(d.uid).slice(0, 8)} ${t('확인')}`) : d ? t(d.code) : t('조회 중')}</div>
         </div>
         <span className={`ml-auto whitespace-nowrap rounded-full border-2 border-ink px-2 text-[11px] font-bold ${!d?.ok ? 'bg-[#f1ece4]' : bad ? 'bg-mustard' : 'bg-[#e9f5da]'}`}>
           {d?.ok ? `${apps.length}${t('개')} · ${bad ? `${t('주의')} ${bad}` : t('모두 정상')}` : '—'}</span>
         {d?.ui ? <button className="btn !px-1.5 !py-0 text-[10.5px]" onClick={() => window.open(d.ui, '_blank')}>UI <ExternalLink size={11} /></button>
           : <span className="whitespace-nowrap text-[10.5px] text-ink-soft" title={t('UI 노출(tailnet 중계)은 관측·Argo 노출 작업에서 진행 중')}>{t('UI 미노출')}</span>}
       </header>
-      {!d?.ok && d ? <p className="halftone m-3 rounded-lg border-2 border-dashed border-ink p-2 text-[12px]">{t('Argo 상태를 읽지 못했습니다')} ({d.code}). {t('Tailscale 연결과 운영자 권한을 확인하세요.')}</p> : (
+      {!d?.ok && d ? <p className="halftone m-3 rounded-lg border-2 border-dashed border-ink p-2 text-[12px]">{d.code === 'desktop_only'
+          ? t('고객 클러스터의 Argo는 본인 tailnet 신원으로 읽으므로 데스크톱 앱에서 봅니다.')
+          : <>{t('Argo 상태를 읽지 못했습니다')} ({d.code}). {t('Tailscale 연결과 운영자 권한을 확인하세요.')}</>}</p> : (
         <ul className="scroll-thin max-h-[260px] overflow-y-auto">
           {apps.map((a) => (
             <li key={a.name} className="border-b border-dashed border-ink/20 px-3 py-1.5 last:border-0" title={[a.repo, a.path, a.target, ...a.conditions].filter(Boolean).join('\n')}>

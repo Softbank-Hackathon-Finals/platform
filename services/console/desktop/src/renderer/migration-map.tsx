@@ -12,7 +12,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { MAIN_STAGES, stageLabel } from './brand';
 import { useT } from './i18n';
 import { useLiveStore } from './live';
-import { planAtom, sova, useTool } from './lib';
+import { IS_WEB, planAtom, sova, useTool } from './lib';
 
 type Tone = 'ok' | 'warn' | 'fail' | 'standby' | 'idle';
 interface Node { id: string; col: 'src' | 'plat' | 'dst' | 'top'; title: string; sub: string; value?: ReactNode; tone: Tone; badge?: string; src: string; ceiling: string }
@@ -67,7 +67,7 @@ export function MigrationMap() {
   const plan = useAtomValue(planAtom);
   const s = useLiveStore();
   const p = useTool('sova_get_plan', plan ? { plan_id: plan } : null, 10_000).data?.data;
-  const run = useQuery({ queryKey: ['run-state', plan, p?.version], queryFn: () => sova.approval('run-state', plan), enabled: !!plan, refetchInterval: 15_000 }).data;
+  const run = useQuery({ queryKey: ['run-state', plan, p?.version], queryFn: () => sova.approval('run-state', plan), enabled: !!plan && !IS_WEB, refetchInterval: 15_000 }).data;
   const [flow, setFlow] = useState<string>('all');
   const [pick, setPick] = useState<string | null>(null);
 
@@ -83,7 +83,7 @@ export function MigrationMap() {
 
   const nodes: Node[] = [
     { id: 'users', col: 'top', title: t('사용자 · 부하'), sub: 'demo-chat', tone: 'idle', src: '관측 API http 뷰(두 환경 합)', ceiling: '요청 출처를 구분하지 않는다(부하 발생기 포함)' },
-    { id: 'console', col: 'plat', title: t('SOVA 콘솔 (사람)'), sub: 'SSO bravo-operator', value: run ? (run.ok ? `${t('승인')} → ${run.body.state} · ${run.body.owner}` : `${t('승인')} HTTP ${run.status}`) : undefined, tone: !run ? 'idle' : run.ok ? 'ok' : 'fail', src: '이 앱 · T15 승인 호스트 run-state', ceiling: '사람 승인만 보낸다. 안내자는 승인 불가' },
+    { id: 'console', col: 'plat', title: t('SOVA 콘솔 (사람)'), sub: 'SSO bravo-operator', value: IS_WEB ? t('승인은 데스크톱 앱에서') : run ? (run.ok ? `${t('승인')} → ${run.body.state} · ${run.body.owner}` : `${t('승인')} HTTP ${run.status}`) : undefined, tone: IS_WEB ? 'standby' : !run ? 'idle' : run.ok ? 'ok' : 'fail', src: '이 앱 · T15 승인 호스트 run-state', ceiling: '사람 승인만 보낸다. 안내자는 승인 불가' },
     { id: 'src-app', col: 'src', title: 'demo-chat', sub: 'source-dev', value: rps(last(aws)?.rps), tone: !aws ? 'idle' : (last(aws)?.err ?? 0) > 0.01 ? 'fail' : 'ok', src: 'http · aws', ceiling: '1분 창 RPS·오류율·p95' },
     { id: 'src-pool', col: 'src', title: pool(aws)?.pooler ?? 'source-pgbouncer', sub: 'PgBouncer', value: pool(aws) ? `${last(aws)?.active ?? 0} active · ${last(aws)?.waiting ?? 0} wait` : undefined, tone: !aws ? 'idle' : pool(aws)?.up ? (pool(aws)?.databases ?? []).some((d: any) => d.paused) ? 'warn' : 'ok' : 'fail', badge: (pool(aws)?.databases ?? []).some((d: any) => d.paused) ? 'PAUSE' : undefined, src: 'pgbouncer · aws', ceiling: 'exporter 상태. 컷오버 판정 입력 아님' },
     { id: 'src-db', col: 'src', title: 'source-db', sub: 'CNPG · AWS EKS', value: aws?.db?.instances?.[0] ? `${aws.db.instances[0].role} · ${aws.db.instances[0].up ? 'up' : 'down'}` : undefined, tone: !aws ? 'idle' : aws.samples.at(-1)?.dbUp ? 'ok' : 'fail', badge: w === 'src' ? t('쓰기') : undefined, src: 'database · aws', ceiling: '쓰기 표시는 계획 단계 기준(DB 실측 아님)' },
@@ -102,7 +102,7 @@ export function MigrationMap() {
     { id: 'reverse', from: 'dst-db', to: 'src-db', kind: 'data', label: 't8_target_to_source', value: rev ? `${rev.active ? t('복제 중') : t('되돌리기 대기')} · WAL ${mib(rev.lag_bytes)}` : t('미관측'), tone: !rev ? 'idle' : rev.active ? 'ok' : w === 'dst' ? 'fail' : 'standby', rate: rev?.active ? 400 : 0, dashed: !rev?.active, src: 'database · onprem replication_slots · t8-replication-health.md', ceiling: '컷오버 전 대기는 설계대로. 컷오버 뒤 꺼져 있으면 장애' },
     { id: 'tel-src', from: 'src-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: aws ? `${Math.round(aws.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !aws ? 'idle' : stale(aws) ? 'fail' : 'ok', rate: aws ? 60 : 0, src: 'last_received_seconds_ago · aws', ceiling: '마지막 수신 시각', chip: aws ? `OTLP · ${Math.round(aws.lastSecondsAgo ?? 0)}s` : undefined },
     { id: 'tel-dst', from: 'dst-db', to: 'plat-obs', kind: 'observe', label: 'OTLP', value: onp ? `${Math.round(onp.lastSecondsAgo ?? 0)}${t('초 전')}` : t('미관측'), tone: !onp ? 'idle' : stale(onp) ? 'fail' : 'ok', rate: onp ? 60 : 0, src: 'last_received_seconds_ago · onprem', ceiling: '마지막 수신 시각', chip: onp ? `OTLP · ${Math.round(onp.lastSecondsAgo ?? 0)}s` : undefined },
-    { id: 'approve', from: 'console', to: 'plat-ctl', kind: 'control', label: t('사람 승인'), value: run ? (run.ok ? `${run.body.state} · ${run.body.owner}` : `HTTP ${run.status}`) : '—', tone: !run ? 'idle' : run.ok ? 'ok' : 'fail', rate: 0, src: 'T15 승인 호스트 run-state', ceiling: 'SSO 운영자 증명. 사전 위임이 있으면 호스트가 진행', chip: '' },
+    { id: 'approve', from: 'console', to: 'plat-ctl', kind: 'control', label: t('사람 승인'), value: IS_WEB ? t('데스크톱 앱') : run ? (run.ok ? `${run.body.state} · ${run.body.owner}` : `HTTP ${run.status}`) : '—', tone: IS_WEB ? 'standby' : !run ? 'idle' : run.ok ? 'ok' : 'fail', rate: 0, src: 'T15 승인 호스트 run-state', ceiling: 'SSO 운영자 증명. 사전 위임이 있으면 호스트가 진행', chip: '' },
     { id: 'collect', from: 'plat-ctl', to: 'src-app', kind: 'control', label: t('읽기 수집'), value: t('쓰기 거부 확인'), tone: 'ok', rate: 0, src: 'T10 등록 영수증 checks(read_access verified, create_pods denied)', ceiling: '등록 시점의 권한 확인', chip: t('읽기 수집') },
     { id: 'cut-src', from: 'plat-ctl', to: 'src-pool', kind: 'control', label: 'PAUSE', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님', chip: `PAUSE · ${cutting ? t('진행') : t('대기')}` },
     { id: 'cut-dst', from: 'plat-ctl', to: 'dst-pool', kind: 'control', label: 'RESUME', value: cutting ? t('컷오버 중') : t('대기'), tone: cutting ? 'warn' : 'standby', rate: cutting ? 200 : 0, dashed: !cutting, src: 'T10 단계(CUTOVER)', ceiling: '단계 표시. Executor 실행 실측 아님', chip: `RESUME · ${cutting ? t('진행') : t('대기')}` },

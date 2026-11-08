@@ -2,11 +2,12 @@ import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electr
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { AgentEvent, EventPush, Settings, TurnOptions } from '../shared/types';
-import { Agents, codexAuth } from './agent';
+import { Agents } from './agent';
+import { codexAuth, codexRuntime } from './codex-runtime';
 import { followPlan } from './events';
-import { codexDefaultModel, codexModels } from './models';
+import { codexDefaultModel, codexModels, personalMcpServers } from './models';
 import { awsProfile } from './accounts';
-import { clearKey, keyStatus, saveKey } from './openai-key';
+import { clearKey, keyStatus, readKey, saveKey } from './openai-key';
 import { approval } from './approval';
 import { argoApps, type ArgoSide } from './argo';
 import { loadSettings, saveSettings } from './settings';
@@ -19,7 +20,9 @@ const PROTOCOL = 'sova-console';
 let win: BrowserWindow | null = null;
 let settings: Settings;
 const link = new SovaLink(() => settings);
-const agents = new Agents(link, (e: AgentEvent) => win?.webContents.send('agent:event', e), () => settings.agentAuth);
+const agents = new Agents(link, (e: AgentEvent) => win?.webContents.send('agent:event', e), () => settings.agentAuth, {
+  workspace: () => path.join(app.getPath('userData'), 'agent-workspace'), runtime: codexRuntime, apiKey: readKey, personalServers: personalMcpServers,
+});
 link.confirm = (name, input) => agents.ask(name, input);
 
 app.setAsDefaultProtocolClient(PROTOCOL);

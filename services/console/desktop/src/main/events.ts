@@ -30,8 +30,8 @@ export function parseSse(buffer: string): { events: SseEvent[]; rest: string } {
 type Open = (planId: string, lastEventId: string | undefined, signal: AbortSignal) => Promise<Response>;
 
 /** One plan's stream until stopped. Reports 'live', 'retrying' (with the code), or 'unsupported' (old host: poll instead). */
-export async function followPlan(planId: string, open: Open, push: (p: EventPush) => void, signal: AbortSignal) {
-  let last: string | undefined;
+export async function followPlan(planId: string, open: Open, push: (p: EventPush) => void, signal: AbortSignal, from?: string) {
+  let last: string | undefined = from;
   let failures = 0;
   while (!signal.aborted) {
     let code = 'stream_closed';

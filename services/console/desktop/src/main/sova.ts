@@ -8,7 +8,8 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { CallOutcome, LinkStatus, PromptInfo, Settings } from '../shared/types';
 import { proofSource } from './proof';
-import { isLoopback } from './settings';
+
+export const isLoopback = (url: string) => /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url);
 
 const MAX_BODY = 1 << 20;
 const WRITES = new Set(['sova_register_environment', 'sova_register_workload', 'sova_create_plan']);
@@ -37,12 +38,12 @@ export class SovaLink {
   /** Set by the host: asks the person; false or no host means the write is refused. */
   confirm?: (name: string, args: Record<string, unknown>) => Promise<boolean>;
 
-  constructor(private settings: () => Settings) {}
+  /** `identity` replaces the person's AWS SSO proof (the web console passes the person's own Access token). */
+  constructor(private settings: () => Settings, private identity?: () => Promise<string>) {}
 
   reset() {
     const s = this.settings();
-    const source = proofSource(s.awsProfile, s.awsRegion);
-    this.proof = s.devToken && isLoopback(s.mcpUrl) ? async () => s.devToken : source;
+    this.proof = this.identity ?? (s.devToken && isLoopback(s.mcpUrl) ? async () => s.devToken : proofSource(s.awsProfile, s.awsRegion));
     this.drop();
   }
 
