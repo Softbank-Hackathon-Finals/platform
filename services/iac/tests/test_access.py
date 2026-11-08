@@ -50,7 +50,10 @@ PLATFORM_SOURCES = SOURCES + ("group:bravo-operators",)
 # The destination also binds the private-policy group (2026-11-07 decision: every team member is an operator).
 PER_PROXY = {"tag:bravo-platform-operator": PLATFORM_SOURCES, "tag:bravo-target-operator": PLATFORM_SOURCES}
 # Every operator-access grant (the platform's and the destination operator proxy's) carries the capability.
-MISSING = sorted(f"GRANT:{s}->{tag}:tcp:443+app" for tag, sources in PER_PROXY.items() for s in sources)
+# The source workload proxy (workload-api-access): one tag per group, each its own capability grant.
+WORKLOADS = {"tag:bravo-source-api": ("tag:bravo-cutover-control", "tag:bravo-cutover-control-gce")}
+MISSING = sorted(f"GRANT:{s}->{tag}:tcp:443+app" for proxies in (PER_PROXY, WORKLOADS)
+                 for tag, sources in proxies.items() for s in sources)
 
 
 def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_group():
@@ -67,8 +70,10 @@ def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_
     for g in masters["grants"]:
         if "app" in g:
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
-    undeclared = sorted(f"UNDECLARED_GRANT:{s}->{tag}+app" for tag, sources in PER_PROXY.items() for s in sources)
-    system = [f"SYSTEM_IMPERSONATION:{s}" for sources in PER_PROXY.values() for s in sources]
+    undeclared = sorted(f"UNDECLARED_GRANT:{s}->{tag}+app" for proxies in (PER_PROXY, WORKLOADS)
+                        for tag, sources in proxies.items() for s in sources)
+    system = [f"SYSTEM_IMPERSONATION:{s}" for proxies in (PER_PROXY, WORKLOADS) for sources in proxies.values()
+              for s in sources]
     assert sorted(check_policy(masters, STATES)) == sorted(MISSING + undeclared + system)
 
 
@@ -170,7 +175,7 @@ def test_the_destination_people_use_its_operator_proxy_as_the_same_group():
     assert "@" not in json.dumps(target)
 
 
-PROXIES = ("tag:bravo-platform-operator", "tag:bravo-source-operator", "tag:bravo-target-operator")
+PROXIES = ("tag:bravo-platform-operator", "tag:bravo-source-api", "tag:bravo-source-operator", "tag:bravo-target-operator")
 BRAVO = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["bravo:operators"]}}]}
 
 

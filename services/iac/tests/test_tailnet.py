@@ -225,3 +225,40 @@ def test_each_executor_route_group_is_refused_the_other_pairs_routes():
         shared = set(mine["accept"]) & set(other["accept"])  # the one EKS API proxy both pairs use
         assert set(other["accept"]) - shared <= set(mine["deny"])
         assert not set(mine["accept"]) & set(mine["deny"])
+
+
+def test_workload_api_access_declares_its_grants_owner_and_service_approver():
+    # T48: each source tag impersonates its own group at the separate auth proxy; the ProxyGroup advertises a
+    # Tailscale Service, so the policy must let its tag do that.
+    want = fragment(STATES)
+    cap = "tailscale.com/cap/kubernetes"
+    for src, group in (("tag:bravo-cutover-control", "bravo:cutover-executor"),
+                       ("tag:bravo-cutover-control-gce", "bravo:cutover-executor-gce")):
+        assert {"src": [src], "dst": ["tag:bravo-source-api"], "ip": ["tcp:443"],
+                "app": {cap: [{"impersonate": {"groups": [group]}}]}} in want["grants"]
+    assert want["tagOwners"]["tag:bravo-source-api"] == ["tag:bravo-source-operator"]
+    assert want["autoApprovers"] == {"services": {"svc:bravo-source-api": ["tag:bravo-source-api"]}}
+    assert check_policy(want, STATES) == []
+    without = {k: v for k, v in want.items() if k != "autoApprovers"}
+    assert "AUTO_APPROVER:svc:bravo-source-api:tag:bravo-source-api" in check_policy(without, STATES)
+    # A capability toward this proxy that the desired state does not declare is refused.
+    widened = {**want, "grants": [*want["grants"], {"src": ["tag:bravo-loadgen"], "dst": ["tag:bravo-source-api"],
+                                                    "ip": ["tcp:443"], "app": {cap: [{"impersonate": {"groups": ["bravo:cutover-executor"]}}]}}]}
+    assert "UNDECLARED_GRANT:tag:bravo-loadgen->tag:bravo-source-api+app" in check_policy(widened, STATES)
+
+
+@pytest.mark.parametrize("change", ["shared-group", "system-group", "system-namespace", "proxy-is-source"])
+def test_workload_api_access_refuses_shared_or_privileged_bindings(change):
+    import copy
+    state = copy.deepcopy(next(s for s in STATES if s["environment"] == "source-dev"))
+    params = next(m for m in state["modules"] if m["id"] == "workload-api-access")["params"]
+    if change == "shared-group":
+        params["bindings"][1]["group"] = params["bindings"][0]["group"]
+    elif change == "system-group":
+        params["bindings"][0]["group"] = "system:masters"
+    elif change == "system-namespace":
+        params["bindings"][0]["namespace"] = "kube-system"
+    else:
+        params["bindings"][0]["source"] = params["proxy_tag"]
+    with pytest.raises(IacError):
+        check_state(state)

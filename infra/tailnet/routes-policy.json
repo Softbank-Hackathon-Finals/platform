@@ -15,6 +15,9 @@
     "tag:bravo-findings": [
       "tag:bravo-platform-operator"
     ],
+    "tag:bravo-source-api": [
+      "tag:bravo-source-operator"
+    ],
     "tag:bravo-source-collector": [
       "tag:bravo-source-operator"
     ],
@@ -253,6 +256,28 @@
         "tag:bravo-cutover-control"
       ],
       "dst": [
+        "tag:bravo-source-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:cutover-executor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control"
+      ],
+      "dst": [
         "tag:bravo-source-control-pooler"
       ],
       "ip": [
@@ -313,6 +338,28 @@
       "ip": [
         "tcp:443"
       ]
+    },
+    {
+      "src": [
+        "tag:bravo-cutover-control-gce"
+      ],
+      "dst": [
+        "tag:bravo-source-api"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:cutover-executor-gce"
+              ]
+            }
+          }
+        ]
+      }
     },
     {
       "src": [
@@ -1036,5 +1083,12 @@
         "tag:bravo-target-operator:443"
       ]
     }
-  ]
+  ],
+  "autoApprovers": {
+    "services": {
+      "svc:bravo-source-api": [
+        "tag:bravo-source-api"
+      ]
+    }
+  }
 }

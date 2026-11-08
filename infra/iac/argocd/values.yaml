@@ -25,6 +25,8 @@ application:
 operator:
   enabled: false
   autoSync: false
+  # Namespaces this Application may write: tailscale-system and those of workload-api-access RoleBindings.
+  namespaces: [tailscale-system]
 
 argo-cd:
   fullnameOverride: bravo-iac-gitops
