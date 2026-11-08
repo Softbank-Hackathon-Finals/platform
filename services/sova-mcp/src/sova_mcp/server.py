@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import anyio
+from bravo_platform_events.api import event_stream
+from bravo_platform_events.store import EventError
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
@@ -24,7 +26,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from . import guide
 from .backend import POLL_MS, TERMINAL, SovaBackend, SovaError, next_actions, now
@@ -383,6 +385,38 @@ class TokenCache:
         return actor
 
 
+EVENTS_PATH = re.compile(r"/v1/plans/([^/]+)/events")
+
+
+async def plan_events(backend: SovaBackend, request: Request, session: Session, plan_id: str, *,
+                      poll_seconds: float = 1.0, clock=time.time):
+    """T10's SSE event contract for one plan, read-only. Access is re-checked on every read and the
+    stream ends when the caller's proof expires (≤60 s): the console reconnects with a new proof and
+    Last-Event-ID, so a revoked session stops receiving within a minute."""
+    def refuse(code, status):
+        return JSONResponse({"detail": {"code": code}}, status)
+
+    if session.options.plan not in (None, plan_id):
+        return refuse("plan_scoped_connection", 403)
+    cursor = request.headers.get("last-event-id") or None
+    try:
+        await anyio.to_thread.run_sync(backend.plan, session.actor, plan_id)
+        await anyio.to_thread.run_sync(backend.store.read_after, plan_id, cursor)
+    except SovaError as e:
+        return refuse(e.code, 400 if e.code == "invalid_plan_id" else 403)
+    except EventError as e:
+        return refuse(e.code, {"invalid_cursor": 400, "resync_required": 409}.get(e.code, 403))
+
+    actor = session.actor
+
+    def authorize(_request, pid):
+        return actor.expires_at > clock() and backend.store.tenant_for(pid) == actor.tenant_id
+
+    return StreamingResponse(
+        event_stream(backend.store, request, plan_id, cursor, authorize, follow=True, poll_seconds=poll_seconds),
+        media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
 def create_app(backend: SovaBackend, verify, *, resource_url: str, allowed_hosts: list[str],
                confirmations: Confirmations | None = None):
     """ASGI app: PRM + bearer check + options, then the MCP Streamable HTTP transport (stateless)."""
@@ -405,7 +439,8 @@ def create_app(backend: SovaBackend, verify, *, resource_url: str, allowed_hosts
             return await JSONResponse(prm)(scope, receive, send)
         if path == "/healthz":
             return await JSONResponse({"ok": True})(scope, receive, send)
-        if path != "/mcp":
+        events = EVENTS_PATH.fullmatch(path)
+        if path != "/mcp" and not (events and scope["method"] == "GET"):
             return await JSONResponse({"detail": {"code": "not_found"}}, 404)(scope, receive, send)
         request = Request(scope)
         try:
@@ -419,6 +454,9 @@ def create_app(backend: SovaBackend, verify, *, resource_url: str, allowed_hosts
             challenge = f'Bearer resource_metadata="{metadata_url}", scope="sova:read"'
             return await JSONResponse({"detail": {"code": "unauthenticated"}}, 401,
                                       headers={"WWW-Authenticate": challenge})(scope, receive, send)
+        if events:
+            response = await plan_events(backend, Request(scope, receive), Session(actor, options), events[1])
+            return await response(scope, receive, send)
         return await inner(scope | {"sova": Session(actor, options)}, receive, send)
 
     app.mcp = mcp

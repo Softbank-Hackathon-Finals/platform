@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import uvicorn
-from bravo_platform_events.plans import PlanStore
+from bravo_platform_events.plans import PlanSpec, PlanStore
 from bravo_platform_events.registration import Registry
 from bravo_platform_events.registration_probe import EnvironmentRef, SourceRelease
 from bravo_platform_events.registration_sso import SsoRegistrationPrincipal
@@ -59,7 +59,9 @@ def server(tmp_path):
     obs = Upstream("https://obs.invalid", tmp_path / "obs-token", httpx.MockTransport(upstream))
     backend = SovaBackend(store, registry, "https://console.invalid/console/",
                           {TENANT: {"env-src": {"observability": "source", "security": "src-sec"}}}, obs, obs)
-    actors = {"Bearer alice": principal("alice"), "Bearer mallory": principal("mallory", "other")}
+    t = int(time.time())
+    actors = {"Bearer alice": principal("alice"), "Bearer mallory": principal("mallory", "other"),
+              "Bearer brief": SsoRegistrationPrincipal("brief", TENANT, t - 1, t + 2, "s-brief")}
     app = create_app(backend, lambda r: actors.get(r.headers.get("authorization")),
                      resource_url="http://127.0.0.1/mcp", allowed_hosts=["127.0.0.1:*"])
     with socket.socket() as s:
@@ -199,3 +201,32 @@ def test_confirmation_expires():
     with pytest.raises(Exception, match="confirmation_invalid"):
         c.check(token, "alice", "t", {"a": 1})
     assert datetime.now(UTC)
+
+
+def test_plan_events_stream_t10_sse_with_the_same_access_rules(server):
+    base, _, store = server
+    store.register_plan(PlanSpec("plan-sse", TENANT, "workload-x", "env-src", "env-dst", "a" * 64, "b" * 64),
+                        run_id="fixture", occurred_at=datetime.now(UTC).isoformat())
+    url = base + "/v1/plans/plan-sse/events"
+    alice = {"Authorization": "Bearer alice"}
+    assert httpx.get(url).status_code == 401
+    assert httpx.get(url, headers={"Authorization": "Bearer mallory"}).json()["detail"]["code"] == "forbidden"
+    assert httpx.get(base + "/v1/plans/plan-none/events", headers=alice).json()["detail"]["code"] == "forbidden"
+    assert httpx.get(url + "?plan=plan-other", headers=alice).status_code == 403
+    assert httpx.post(url, headers=alice).status_code == 404
+    assert httpx.get(url, headers=alice | {"Last-Event-ID": "bogus"}).status_code == 400
+
+    # The stream ends by itself when the proof expires; the console reconnects with a new one.
+    with httpx.stream("GET", url, headers={"Authorization": "Bearer brief"}, timeout=10) as r:
+        assert r.headers["content-type"].startswith("text/event-stream")
+        body = "".join(r.iter_text())
+    assert "id: plan-sse:1\n" in body and '"plan_id":"plan-sse"' in body
+
+    # Resume after the cursor, then follow a new event live.
+    with httpx.stream("GET", url, headers=alice | {"Last-Event-ID": "plan-sse:1"}, timeout=10) as r:
+        lines = r.iter_lines()
+        assert next(line for line in lines if line.startswith(":")) == ": keep-alive"
+        store.append(plan_id="plan-sse", run_id="gate-run", event_type="gate.completed", producer_key="gate-1",
+                     occurred_at=datetime.now(UTC).isoformat(),
+                     data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "PASS", "context_digest": "c" * 64})
+        assert next(line for line in lines if line.startswith("id:")) == "id: plan-sse:2"

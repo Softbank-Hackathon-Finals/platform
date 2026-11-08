@@ -27,6 +27,10 @@ SOVA Console 데스크톱 앱(`services/console/desktop`)은 요청마다 증명
 모든 도구는 `{status, summary, data, next_actions, poll_after_ms, cursor, console_url, confirmation, observed_at, source}`를 돌려준다.
 승인·실행·복귀·reconcile·SAFE_HOLD·정리·리허설 시작은 도구가 없다(사람이 콘솔에서).
 
+콘솔용 진행 스트림 `GET /v1/plans/{id}/events`는 T10 SSE 계약(`id`·`event`·`data`, `Last-Event-ID` 재개, 409 `resync_required`)을
+같은 증명·테넌트·`?plan=` 범위로 연다. 읽기마다 권한을 다시 확인하고 증명 만료(≤60초) 시 스트림을 닫는다. 콘솔은 새 증명과
+마지막 `id`로 다시 연결한다.
+
 ## 실행·검증
 
 ```sh
