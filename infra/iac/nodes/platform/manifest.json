@@ -1,0 +1,17 @@
+{
+  "kind": "iac-node-files.v1",
+  "environment": "platform",
+  "state_digest": "0b3c4b1286ff5a34bac1dfea81b6a1c98f0ae1d786249de489415b37c61bdb70",
+  "files": [
+    {
+      "path": "/etc/rancher/rke2/audit-policy.yaml",
+      "mode": "0600",
+      "sha256": "44db1bde11f732c22216bd219b91a1138ad1a119e889716f898a065ac8d1a7fe",
+      "restart": [
+        "StaticPod/kube-system/kube-apiserver"
+      ],
+      "module": "cluster-audit",
+      "href": "/v1/iac/environments/platform/node-files/etc/rancher/rke2/audit-policy.yaml"
+    }
+  ]
+}

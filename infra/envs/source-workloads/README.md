@@ -6,6 +6,8 @@
 
 기반 담당의 `source-eks` state가 EKS, 기존 IAM OIDC provider, VPC·NAT·노드와 vpc-cni를 소유한다. 이 디렉터리는 **그 객체를 data로 읽기만 한다**. 별도 backend key `runtime/source-workloads/terraform.tfstate`에 EBS CSI add-on/IRSA, 앱·ESO IRSA, Secrets Manager 항목, 첨부/감사 S3, KMS와 CloudTrail을 관리한다. 모든 태그 가능한 AWS 자원에 `component=source`가 붙는다. 기존 팀 예산 설정은 변경하지 않는다.
 
+`t14_operator_role_arn`은 T14 `operations/controls/run.py`를 실행하는 `BravoDevelopmentAdministrator` SSO 역할의 정확한 ARN이다. 이 역할은 세션 이름 `bravo-t14-*`로만 앱 역할과 권한 없는 `t14-other` 역할을 넘겨받는다. 시험 전용 Secret `t14`(자격 아님, 앱 역할만 읽기)와 첨부 버킷의 `attachments/t14-canary.txt`도 이 state가 소유하며, 등록에 쓸 식별자는 비공개 출력 `t14_registration`에 있다.
+
 `account_id`는 기존 foundation의 비공개 출력과 현재 STS 계정을 대조한 값이다. provider의 `allowed_account_ids`로 다른 계정 적용을 거부한다. backend 설정·tfvars·plan·output은 저장소 밖의 개인 디렉터리에만 둔다. 기존 클러스터에 EBS add-on·동일 IAM 이름·operator·namespace가 이미 있으면 소유자를 확인하고 새로 덮어쓰거나 import하지 않는다.
 
 | 구성 | 고정 버전 |

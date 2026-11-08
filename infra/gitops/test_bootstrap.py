@@ -1,6 +1,8 @@
 """Bootstrap Helm calls: settled-release guard and server-side apply ownership."""
 import json
+import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +13,7 @@ import bootstrap
 REVISION = "a" * 40
 
 
-def fake(status):
+def fake(status, catalog=None):
     calls = []
 
     def run(args, *, check=True):
@@ -21,6 +23,8 @@ def fake(status):
             out = REVISION
         elif "version" in args:
             out = "v4.0.0"
+        elif "get" in args and "configmap" in args:
+            out = json.dumps({"data": {"catalog.json": json.dumps(catalog)}})
         elif "get" in args:
             out = json.dumps({"metadata": {"uid": "cluster" if "namespace" in args else "deploy"}})
         elif "list" in args:
@@ -31,14 +35,49 @@ def fake(status):
     return run, calls
 
 
-def main(status):
-    run, calls = fake(status)
+def main(status, catalog=None):
+    run, calls = fake(status, catalog)
     argv = ["bootstrap.py", "--cluster-uid", "cluster", "--deployment-uid", "deploy",
             "--revision", REVISION, "--kubeconfig", "/k", "--apply"]
-    with mock.patch.object(bootstrap, "run", run), mock.patch.object(sys, "argv", argv), \
-            mock.patch("builtins.print"):
-        bootstrap.main()
+    with tempfile.TemporaryDirectory() as d:
+        if catalog is not None:
+            values = Path(d) / "runtime.json"
+            values.write_text(json.dumps({"registration": {"enabled": True, "runtime": {
+                "configuration": {"existingConfigMap": "cfg", "sha256": "0" * 64},
+                "secrets": {"database": "db"}}}}))
+            argv += ["--runtime-values", str(values)]
+        with mock.patch.object(bootstrap, "run", run), mock.patch.object(sys, "argv", argv), \
+                mock.patch("builtins.print"):
+            bootstrap.main()
     return calls
+
+
+def profiles(*ids):
+    return {"evaluation_profiles": [{"tenant_id": "bravo", "profile_id": i, "profile_version": "1"} for i in ids]}
+
+
+class WorkflowHostKeys(unittest.TestCase):
+    def test_bootstrap_accepts_exactly_the_runtime_keys_the_chart_accepts(self):
+        template = (Path(bootstrap.__file__).parent / "argocd/templates/workflow-host-application.yaml").read_text()
+        chart = set(re.findall(r'"(\w+)"', re.search(r"has \$key \(list ([^)]*)\)", template)[1]))
+        self.assertEqual(bootstrap.WORKFLOW_KEYS, chart)
+
+
+class InitialProposal(unittest.TestCase):
+    PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+    def test_host_creates_jobs_is_an_optional_bool(self):
+        seen = []
+        get = lambda *a: seen.append(a)
+        for value in ({"enabled": True, "brokerCaPem": self.PEM},
+                      {"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": True}):
+            bootstrap.verify_initial_proposal(get, value)
+        self.assertEqual(seen[-1], ("secret", "platform-ghcr-reader", "bravo-initial"))
+        for value in ({"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": "yes"},
+                      {"enabled": True, "brokerCaPem": self.PEM, "other": 1},
+                      {"enabled": True, "brokerCaPem": self.PEM + "PRIVATE KEY"}, {"brokerCaPem": self.PEM}):
+            with self.assertRaises(ValueError):
+                bootstrap.verify_initial_proposal(get, value)
 
 
 class BootstrapHelm(unittest.TestCase):
@@ -54,6 +93,12 @@ class BootstrapHelm(unittest.TestCase):
         for status in ("pending-upgrade", "pending-install", "pending-rollback", "uninstalling"):
             with self.assertRaises(ValueError):
                 main(status)
+
+    def test_catalog_profiles_match_the_declared_allowlist(self):
+        self.assertTrue(any("upgrade" in c for c in main("deployed", profiles("apply-recheck", "demo-gate"))))
+        for drift in (profiles("full", "demo-gate", "apply-recheck"), profiles("demo-gate"), {}):
+            with self.assertRaisesRegex(ValueError, "registration_profiles_drift"):
+                main("deployed", drift)
 
 
 if __name__ == "__main__":

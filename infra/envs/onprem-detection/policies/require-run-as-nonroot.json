@@ -1,0 +1,97 @@
+{
+  "apiVersion": "kyverno.io/v1",
+  "kind": "ClusterPolicy",
+  "metadata": {
+    "name": "require-run-as-nonroot",
+    "annotations": {
+      "policies.kyverno.io/title": "Require runAsNonRoot",
+      "policies.kyverno.io/category": "Pod Security",
+      "policies.kyverno.io/severity": "medium",
+      "policies.kyverno.io/description": "Pod와 모든 컨테이너가 runAsNonRoot=true여야 한다. 위반은 감사 기록(PolicyReport fail)으로만 남긴다. admission 웹훅 없이 백그라운드 검사만 한다(컷오버 중 Pod 생성을 기다리게 하지 않는다). 컨트롤러 규칙을 만들지 않아(autogen none) 같은 위반을 Pod와 컨트롤러에서 두 번 세지 않는다.",
+      "pod-policies.kyverno.io/autogen-controllers": "none"
+    }
+  },
+  "spec": {
+    "admission": false,
+    "background": true,
+    "rules": [
+      {
+        "name": "run-as-non-root",
+        "match": {
+          "any": [
+            {
+              "resources": {
+                "kinds": [
+                  "Pod"
+                ]
+              }
+            }
+          ]
+        },
+        "validate": {
+          "failureAction": "Audit",
+          "message": "runAsNonRoot must be true for the Pod or every container.",
+          "anyPattern": [
+            {
+              "spec": {
+                "securityContext": {
+                  "runAsNonRoot": true
+                },
+                "=(initContainers)": [
+                  {
+                    "=(securityContext)": {
+                      "=(runAsNonRoot)": true
+                    }
+                  }
+                ],
+                "containers": [
+                  {
+                    "=(securityContext)": {
+                      "=(runAsNonRoot)": true
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "spec": {
+                "=(initContainers)": [
+                  {
+                    "securityContext": {
+                      "runAsNonRoot": true
+                    }
+                  }
+                ],
+                "containers": [
+                  {
+                    "securityContext": {
+                      "runAsNonRoot": true
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "exclude": {
+          "any": [
+            {
+              "resources": {
+                "namespaces": [
+                  "kube-system",
+                  "tailscale-system",
+                  "cnpg-system",
+                  "bravo-secrets",
+                  "bravo-iac-gitops",
+                  "falco",
+                  "kyverno",
+                  "bravo-security"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

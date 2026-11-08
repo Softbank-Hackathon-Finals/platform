@@ -12,6 +12,16 @@ files only (`/rehearsal/operator.json`):
      "edge": {"journal": "/records/edge/journal.db", "token_file": "/edge/token",
               "lb_binding": {...}},          # optional T17: the one LB journal; the SHIFT CLI runs in
                                             # this Pod (kubectl exec ... bravo_edge_control.run) on it
+     "iac": {"app_id": 1, "key_file": "/iac/app.pem",
+             "repository": "Softbank-Hackathon-Finals/platform"},  # optional T44: desired-state PRs
+                                            # after a T10 infra approval (iac_plans); contents+PR only
+     "security_review": {"url": "https://security-review.platform-state.svc:8443",
+                         "ca_file": "/security-review/ca.crt",
+                         "token_file": "/var/run/secrets/security-review/token",
+                         "subject_id": "platform-approval-host",
+                         "source_revision": "<40 lowercase hex>",
+                         "registrar": {"tenant_id": "<tenant>", "subject_id": "<operator grant>"}},
+                                            # or false: review off, as before #924 (T49 demo, switched on later)
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -43,6 +53,35 @@ def _shift_approval(c, plan):
     return json.loads(row["receipt_json"]) if row is not None else None
 
 
+def _ts(value):
+    from datetime import datetime
+
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def edge_at_full(c, plan):
+    """T10-cutover-submit: this SHIFT really reached 100% and passed the SLI judgement at 100%.
+
+    From the T17 ShiftHost records only: the newest CONFIRMED stage since the plan entered SHIFT targets
+    100, and the newest judgement of that stage is PASS. An older SHIFT attempt never counts.
+    """
+    rows = c.execute("SELECT command_key,receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                     (plan["plan_id"], "edge-host-%")).fetchall()
+    entered = _ts(plan["updated_at"])
+    stages = [json.loads(r["receipt_json"]) for r in rows if r["command_key"].startswith("edge-host-receipt-")]
+    stages = [s for s in stages if s.get("status") == "CONFIRMED" and s.get("confirmed_at")
+              and _ts(s["confirmed_at"]) >= entered]
+    if not stages:
+        return False
+    last = max(stages, key=lambda s: _ts(s["confirmed_at"]))
+    prefix = f"edge-host-judgement-{last['revision']:013}-"
+    judged = sorted(r["command_key"] for r in rows if r["command_key"].startswith(prefix))
+    if last["weight_target"] != 100 or not judged:
+        return False
+    newest = next(r for r in rows if r["command_key"] == judged[-1])
+    return json.loads(newest["receipt_json"])["judgement"]["verdict"] == "PASS"
+
+
 def current_cutover(bindings, *, write_pause_budget_ms=30000):
     """Upstream CurrentCutover from stored records only (no client input, no network)."""
     from bravo_gate.models import GateContext
@@ -64,6 +103,8 @@ def current_cutover(bindings, *, write_pause_budget_ms=30000):
         shift = _shift_approval(c, plan)
         if gate is None or shift is None:
             raise EventError("authority_unavailable")
+        if not edge_at_full(c, plan):
+            raise EventError("shift_not_at_full")
         context = GateContext(**gate["context"])
         expires = shift["expires_at"]
         binding = dict(plan_id=plan["plan_id"], plan_digest=spec["plan_digest"],
@@ -158,7 +199,8 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge"}
+    if (type(config) is not dict or not {"executor", "gate", "security_review"} <= set(config) <= {"executor", "gate", "security_review", "write_pause_budget_ms", "failback", "edge", "iac", "delegation",
+                                                                  "demo"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -171,13 +213,91 @@ def create(store, config_file=CONFIG):
     module, name = config["gate"].split(":")
     records, load_gate = getattr(importlib.import_module(module), name)(store)
     rehearsal = rehearsal_ports(store)
-    authority = records.cutover_authority(
-        upstream=current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
-        load_gate=load_gate)
+    demo = config.get("demo", False) is True  # T49 demo: the workflow host skipped GATE, so no T19 session here
+    upstream = current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000))
+    authority = upstream if demo else records.cutover_authority(upstream=upstream, load_gate=load_gate)
+    change_wrapper = None
+    if config["security_review"] is not False:  # T49: false = review off (the db16f140 behaviour) until it is switched on
+        from . import gate_services
+        from .operator_access import OperatorAccess
+        from .security_governance import (
+            SecurityProgramRecords,
+            SecurityReviewAuthority,
+            review_ports,
+        )
+
+        clock = gate_services.server_clock
+        transport, credential, subject_id, source_revision = review_ports(config["security_review"], clock=clock)
+        access = OperatorAccess(store, clock=clock)
+
+        def authorize(connection, principal, plan, permission):
+            access.require(connection, principal, plan, permission)
+            return True
+
+        programs = SecurityProgramRecords(store, authorize=authorize, load_session=authority.load_session,
+                                          baseline_sha=source_revision, clock=clock)
+        authority = SecurityReviewAuthority(upstream=authority, records=programs,
+            requirements=(("patch", "postflight"), ("migration", "preflight")),
+            transport=transport, credential_for=credential, subject_id=subject_id, clock=clock)
+
+        def secure_change(upstream):
+            return SecurityReviewAuthority(upstream=upstream, records=programs,
+                requirements=(("patch", "preflight"),), transport=transport,
+                credential_for=credential, subject_id=subject_id, clock=clock)
+        change_wrapper = secure_change
     failback = {}
     if config.get("failback") is True:
         failback = {"failback_authority": current_failback(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
                     "read_integrity": failback_integrity}
         if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
             failback["edge"] = _edge(config["edge"])
-    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback)
+    iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
+    delegation = config.get("delegation", False)
+    # T49: {"shift_profile": ...} runs SHIFT weights; {"auto_approver": "<subject>"} records each plan's delegation.
+    if not (type(delegation) is bool or (type(delegation) is dict and delegation
+                                         and set(delegation) <= {"shift_profile", "auto_approver"}
+                                         and ("shift_profile" not in delegation or "edge" in config)
+                                         and type(delegation.get("auto_approver", "")) is str)):
+        raise ValueError("operator_ports_configuration_invalid")
+    shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate,
+                                                 demo=demo)
+             } if type(delegation) is dict and "shift_profile" in delegation else {}
+    if type(delegation) is dict and delegation.get("auto_approver"):
+        shift["auto_approver"] = delegation["auto_approver"]
+    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
+                            change_authority_wrapper=change_wrapper, **failback, **iac,
+                            delegation=delegation is not False, first_run=rehearsal.first_run, **shift)
+
+
+def _delegated_shift(edge, profile_file, records, load_gate, *, demo=False):
+    """T49 `delegation: {"shift_profile": ...}`: the SHIFT weights run as the delegated approver over this
+    process's one LB journal (the `edge` mounts FAILBACK already uses) and the reviewed T36 profile."""
+    from bravo_edge_control.provider import Binding, Cloudflare
+
+    from .approval_delegation import DelegatedShift
+
+    journal, token = Path(edge["journal"]), Path(edge["token_file"])
+    # A path, or the T36 profile object itself (the approval host mounts only listed ConfigMap keys).
+    profile = profile_file if type(profile_file) is dict else json.loads(Path(profile_file).read_text())
+    provider = Cloudflare(Binding(**edge["lb_binding"]), token=lambda: token.read_text().strip())
+
+    def load_session(c, actor, plan):  # as bravo_edge_control.deployment_ports
+        view = records.view(c, actor, plan)
+        service, readiness = load_gate(view)
+        return view.session(service, readiness)
+
+    return lambda store, delegations: DelegatedShift(store, delegations, provider=provider, journal=journal,
+                                                     profile=profile, load_session=load_session, demo=demo)
+
+
+def _iac(value):
+    """T44: the platform repository through its own GitHub App installation (contents + pull requests)."""
+    from .github_app import GitHubApp
+    from .iac_plans import WRITER_PERMISSIONS, GitHubIacRepository
+
+    if (type(value) is not dict or set(value) != {"app_id", "key_file", "repository"}
+            or type(value["app_id"]) is not int or value["repository"] != "Softbank-Hackathon-Finals/platform"):
+        raise ValueError("operator_ports_configuration_invalid")
+    key = Path(value["key_file"]).read_bytes()
+    return GitHubIacRepository(GitHubApp(value["app_id"], key, value["repository"], WRITER_PERMISSIONS),
+                               value["repository"])

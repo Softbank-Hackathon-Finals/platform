@@ -68,3 +68,22 @@ def test_both_database_clients_mount_dedicated_state_ca(migration):
     assert volume["secret"]["secretName"] == "cutover-executor-state-ca"
     mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "state-ca")
     assert mount == {"name": "state-ca", "mountPath": "/run/state-ca", "readOnly": True}
+
+
+def test_a_second_pair_gets_its_own_names_and_the_default_render_is_unchanged():
+    """ADR-0011: one Executor per DB pair. A second pair shares no Service, Secret, label or route with the first."""
+    import json
+
+    default = json.dumps(manifests(IMAGE)) + json.dumps(manifests(IMAGE, migration=True))
+    gce = json.dumps(manifests(IMAGE, pair="gce")) + json.dumps(manifests(IMAGE, migration=True, pair="gce"))
+    assert '"cutover-executor-gce' not in default
+    names = {"cutover-executor", "cutover-executor-state", "cutover-executor-runtime", "cutover-executor-command",
+             "cutover-executor-state-ca", "cutover-executor-migration"}
+    for old in names:
+        assert f'"{old}"' in default and f'"{old}"' not in gce
+        assert f'"{old.replace("cutover-executor", "cutover-executor-gce")}"' in gce
+    service = manifests(IMAGE, pair="gce")["items"][2]
+    assert service["spec"]["selector"] == {"app.kubernetes.io/name": "cutover-executor-gce"}
+    for bad in ("GCE", "gce-1", "a" * 17):
+        with pytest.raises(ValueError):
+            manifests(IMAGE, pair=bad)

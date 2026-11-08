@@ -48,7 +48,10 @@ def values():
         },
         "proxyConfig": {"image": {"repository": "tailscale/tailscale", "digest": PROXY_DIGEST},
                         "defaultTags": "tag:" + GROUP},
-        "apiServerProxyConfig": {"mode": "false", "allowImpersonation": "false"},
+        # People reach the platform API only through this proxy, in auth mode: it impersonates the
+        # Kubernetes group the tailnet grant names (infra/iac operator-access, T44). "true" also renders
+        # the chart's tailscale-auth-proxy impersonation ClusterRole. Never "noauth".
+        "apiServerProxyConfig": {"mode": "true", "allowImpersonation": "false"},
         "ingressClass": {"enabled": False, "name": "bravo-cutover-unused"},
     }
 

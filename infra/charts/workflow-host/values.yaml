@@ -1,4 +1,4 @@
-# Image: the registration image (Product Reader packages + pinned git, needed by the candidate writer).
+# Image: the registration image (Product Reader packages, the platform candidate builder).
 image:
   repository: ghcr.io/softbank-hackathon-finals/platform-registration
   digest: ""
@@ -11,7 +11,7 @@ configuration:
 reader:
   existingConfigMap: ""
   catalogClaim: ""
-# Writer dispatch times and the demo-chat object clone; must survive restarts.
+# Platform candidate build receipts and the AI Job ledger; must survive restarts.
 stateClaim: ""
 secrets:
   database: platform-runtime-db
@@ -19,17 +19,34 @@ secrets:
   catalogKey: ""
   # ca.crt and read-token for the Cutover Executor read API (no command token).
   executor: ""
-  # private-key.pem of the bravo-platform-host GitHub App (optional: empty = operator pins only).
-  githubApp: ""
+  # .dockerconfigjson that pushes platform-built candidates to the private ECR repository (T49, no GitHub;
+  # refreshed by the platform's ECR credential Job). Mounted at /ecr-push; PROPOSE holds without it.
+  candidatePush: ""
   # kubeconfig of the target apply-deployer (T31 REHEARSE; short-lived token; optional: empty = no apply).
   applyKubeconfig: ""
+  # kubeconfig of the platform's bravo-t14-collector on the target (ADR-0041 watch.target_controls; optional).
+  targetControlsKubeconfig: ""
   registry: platform-ghcr-reader
 # T31 apply identity without a stored token: an existing ConfigMap with `kubeconfig` (exec plugin
 # /usr/local/bin/bravo-credential) and `registration.json` (registration + anchor_uid, no secret).
 # Use this or secrets.applyKubeconfig, not both.
 applyCredential:
   existingConfigMap: ""
+# T49 (11/8 user decision): mount secrets.registry so REHEARSE refreshes the target's pull Secret
+# (application.json "pull_secret": {"name", "source": "/ghcr/.dockerconfigjson"}).
+candidatePull:
+  enabled: false
 interval: 15
 resources:
   requests: {cpu: 50m, memory: 192Mi}
   limits: {cpu: 500m, memory: 512Mi}
+# T49: the host admits the plan's one registered task and creates the initial-proposal Job itself
+# (workflow_ports `propose.auto`). Needs the bravo-initial Role from infra/gitops (initialProposal.hostCreatesJobs)
+# and an API token: projected, 1 hour, mounted only when this is on.
+initialProposalAuto:
+  enabled: false
+# T19 platform signer (ADR-0038): the signer role from infra/envs/platform-gate-signer. Empty = no AWS
+# identity at all; the gate then needs the operator's signatures (operations/gate/run.py) as before.
+gateSigner:
+  roleArn: ""
+  region: ap-northeast-2

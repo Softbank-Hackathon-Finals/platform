@@ -47,6 +47,21 @@ def test_forwards_bounded_task_to_coordinator():
     assert c.calls == 1
 
 
+@pytest.mark.parametrize("extra, ok", [
+    ("\nInventory finding: openbao+eso needs injected credentials", True),  # T10 initial_model_input
+    ("\nInventory finding: one\ntwo", False), ("\nSomething else", False), (" trailing", False)])
+def test_initial_summary_allows_only_the_inventory_line(extra, ok):
+    t = task()
+    c = Coordinator(t)
+    c.bundle.summary += extra
+    if ok:
+        assert T11CredentialProposer(c, object()).propose(t).proposal_digest == "b" * 64
+    else:
+        with pytest.raises(ValueError, match="invalid initial proposal context"):
+            T11CredentialProposer(c, object()).propose(t)
+        assert c.calls == 0
+
+
 def test_blocked_t11_path_never_calls_model():
     t = task()
     c = Coordinator(t, blocked=True)

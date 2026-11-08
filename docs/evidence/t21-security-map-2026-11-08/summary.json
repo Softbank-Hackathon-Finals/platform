@@ -1,0 +1,86 @@
+{
+  "kind": "t21-security-configuration-qualification.v1",
+  "source_revision": "174a039209ce125077e01bab7e4f0c6ca4020d1e",
+  "observed_at": "2026-11-07T18:32:19.766623+00:00",
+  "runtime_scope": "local_authenticated_read_only_console",
+  "plan_connected": false,
+  "authorizes_execution": false,
+  "shared_resource_mutations": 0,
+  "environments": [
+    {
+      "lane": "source",
+      "status": "CURRENT"
+    },
+    {
+      "lane": "target",
+      "status": "CURRENT"
+    }
+  ],
+  "topology_resources": 29,
+  "security_configuration_resources": 20,
+  "configuration_attention_resources": 9,
+  "current_attack_detection_verified": false,
+  "isolation_execution_verified": false,
+  "retained_runs": [
+    {
+      "lane": "source",
+      "status": "HISTORY",
+      "tests": 20,
+      "current_resource_verified": false,
+      "recordedPass": 1,
+      "expired": 1
+    },
+    {
+      "lane": "target",
+      "status": "HISTORY",
+      "tests": 20,
+      "current_resource_verified": false,
+      "recordedPass": 1,
+      "expired": 1
+    }
+  ],
+  "retained_results_are_current_gate_authority": false,
+  "browser": {
+    "selected_resource_inspector": true,
+    "history_rows": 40,
+    "desktop_horizontal_overflow": false,
+    "mobile_horizontal_overflow": false,
+    "session_revocation_withdraws_data": true,
+    "page_errors": 0,
+    "operational_write_requests": 0
+  },
+  "tests": {
+    "python_passed": 511,
+    "javascript_passed": 316,
+    "postgres_environment": "temporary_local",
+    "live_browser": "actual_GET_and_local_retained_T14"
+  },
+  "private_originals": [
+    {
+      "name": "browser-document.private.json",
+      "sha256": "e92fdcc2256d54c28cb38c436960dc4adb5475f6bf10702e96527e7d53c7c611"
+    },
+    {
+      "name": "browser-result.private.json",
+      "sha256": "15ec745a9d92153ac9ea4baee5655642d5d49770a8b96e3b10d23ed9221e2558"
+    },
+    {
+      "name": "source-live.private.json",
+      "sha256": "181cd5ff0b9310881ac8835f0ec683a2eb6e1e2b6825e933a27fd53a3b960b1d"
+    },
+    {
+      "name": "target-live.private.json",
+      "sha256": "f08a734ddc95418f42a366b07de02027bccfeb398506958e0da3d4703c5a19bf"
+    },
+    {
+      "name": "retained-source-control-run.private.json",
+      "sha256": "d7d1e5c4d67feab33cdfd73026738720c66db4de0b7e7fea52b4ec8b4d15ba14"
+    },
+    {
+      "name": "retained-target-control-run.private.json",
+      "sha256": "09876b38c7a5bbedab759517fc3837b3a725c169fb9488fed51c0268eac91973"
+    }
+  ],
+  "public_is_raw": false,
+  "private_original_access_required_for_independent_validation": true
+}

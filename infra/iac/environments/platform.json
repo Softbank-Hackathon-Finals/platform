@@ -158,8 +158,8 @@
               {
                 "service": "source-api-for-cutover",
                 "namespace": "bravo-platform",
-                "destination": "bravo-source-operator",
-                "destination_tag": "tag:bravo-source-operator",
+                "destination": "bravo-source-api",
+                "destination_tag": "tag:bravo-source-api",
                 "port": 443,
                 "port_name": "https"
               },
@@ -171,6 +171,182 @@
                 "port": 443,
                 "port_name": "https"
               }
+            ]
+          },
+          {
+            "name": "bravo-apply-objects",
+            "tag": "tag:bravo-apply-objects",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-workflow-host"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-objects",
+                "namespace": "platform-state",
+                "destination": "bravo-target-objects",
+                "destination_tag": "tag:bravo-target-objects",
+                "port": 8333,
+                "port_name": "s3"
+              }
+            ]
+          },
+          {
+            "name": "bravo-entry-egress",
+            "tag": "tag:bravo-entry",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app": "public-entry"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-target-argocd",
+                "namespace": "platform-state",
+                "destination": "bravo-target-argocd",
+                "destination_tag": "tag:bravo-target-argocd",
+                "port": 80,
+                "port_name": "http"
+              }
+            ]
+          },
+          {
+            "name": "bravo-cutover-control-gce",
+            "tag": "tag:bravo-cutover-control-gce",
+            "clients": [
+              {
+                "namespace": "bravo-platform",
+                "labels": {
+                  "app.kubernetes.io/name": "cutover-executor-gce"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-gce-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-gce-db",
+                "destination_tag": "tag:bravo-source-gce-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "target-gce-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-db",
+                "destination_tag": "tag:bravo-target-gce-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "source-gce-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-gce-control-pooler",
+                "destination_tag": "tag:bravo-source-gce-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "target-gce-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-control-pooler",
+                "destination_tag": "tag:bravo-target-gce-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "source-gce-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-api",
+                "destination_tag": "tag:bravo-source-api",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-gce-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-operator",
+                "destination_tag": "tag:bravo-target-gce-operator",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-platform-operator",
+        "devices": [
+          {
+            "service": "bravo-findings-tailnet",
+            "namespace": "bravo-security",
+            "hostname": "bravo-findings",
+            "tag": "tag:bravo-findings",
+            "selector": {
+              "app": "bravo-findings"
+            },
+            "ports": [
+              {
+                "name": "https",
+                "port": 8443,
+                "target_port": 8443
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cluster-audit",
+      "version": "1",
+      "params": {
+        "runtime": "rke2",
+        "policy": "metadata-v1"
+      }
+    },
+    {
+      "id": "tailnet-peer-relay",
+      "version": "1",
+      "params": {
+        "tag": "tag:bravo-peer-relay",
+        "users": [
+          "tag:bravo-cutover-control",
+          "tag:bravo-source-control-pooler",
+          "tag:bravo-source-db",
+          "tag:bravo-source-replication",
+          "tag:bravo-target-control-pooler",
+          "tag:bravo-target-db",
+          "tag:bravo-target-pooler",
+          "tag:bravo-target-replication"
+        ]
+      }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-platform-operator",
+        "proxy_tag": "tag:bravo-platform-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_groups": [
+              "autogroup:admin",
+              "autogroup:owner",
+              "group:bravo-operators"
             ]
           }
         ]

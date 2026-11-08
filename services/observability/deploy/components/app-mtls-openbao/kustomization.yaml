@@ -1,0 +1,99 @@
+# app-mtls 다음에 붙인다. 수신 서버 인증서를 Secret 대신 사이드카가 목적지 OpenBao PKI(app-pki/setup.sh)에서 받는다.
+# 키는 Pod 메모리 볼륨에만 있고 etcd에 남지 않는다. 72시간 인증서를 하루마다 새로 받고, Collector는 1분마다 다시 읽는다.
+# 배포 전에 만들 것: ConfigMap target-openbao-ca(OpenBao 서버 CA, 공개 인증서)
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  # app-mtls가 만든 Secret 볼륨을 지우고 아래에서 같은 이름의 메모리 볼륨으로 다시 만든다
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-collector
+      spec:
+        template:
+          spec:
+            volumes:
+              - name: app-tls
+                $patch: delete
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-collector
+      spec:
+        template:
+          spec:
+            initContainers:
+              # 네이티브 사이드카: 첫 발급(startupProbe)이 끝나야 Collector가 시작한다
+              - name: app-tls-issuer
+                # 목적지 OpenBao와 같은 검사된 이미지(노드에 반입됨, pull하지 않는다)
+                image: localhost/bravo-openbao@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d
+                imagePullPolicy: Never
+                restartPolicy: Always
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    umask 077; d=/etc/bravo-app-tls
+                    issue() {
+                      BAO_TOKEN=$(bao write -field=token auth/kubernetes/login role=telemetry-collector-receiver jwt=@/var/run/secrets/openbao/token) || return 1
+                      export BAO_TOKEN
+                      bao write -field=certificate pki-telemetry/issue/collector-receiver \
+                        common_name=bravo-collector.bravo-observability.svc format=pem_bundle > $d/.bundle || return 1
+                      bao read -field=certificate pki-telemetry/cert/ca > $d/.ca || return 1
+                      bao token revoke -self >/dev/null 2>&1 || true; unset BAO_TOKEN
+                      awk -v d=$d '/BEGIN .*PRIVATE KEY/{k=1} k{print > d"/.key"} /END .*PRIVATE KEY/{k=0} /BEGIN CERTIFICATE/{c=1} c{print > d"/.crt"} /END CERTIFICATE/{c=0}' $d/.bundle
+                      rm -f $d/.bundle; [ -s $d/.key ] && [ -s $d/.crt ] && [ -s $d/.ca ] || return 1
+                      mv $d/.ca $d/client-ca.crt; mv $d/.key $d/tls.key; mv $d/.crt $d/tls.crt
+                      echo "app-tls-issuer: issued $(date -u +%FT%TZ)"
+                    }
+                    until issue; do echo 'app-tls-issuer: issue failed, retry in 10s' >&2; sleep 10; done
+                    while :; do sleep 86400; until issue; do echo 'app-tls-issuer: renew failed, retry in 300s' >&2; sleep 300; done; done
+                env:
+                  - {name: BAO_ADDR, value: "https://target-openbao.bravo-secrets.svc:8200"}
+                  - {name: BAO_CACERT, value: /etc/openbao-ca/ca.crt}
+                  - {name: HOME, value: /etc/bravo-app-tls}
+                startupProbe:
+                  exec:
+                    command: ["/bin/sh", "-c", "test -s /etc/bravo-app-tls/tls.crt && test -s /etc/bravo-app-tls/client-ca.crt"]
+                  periodSeconds: 2
+                  failureThreshold: 90
+                resources:
+                  requests: {cpu: 5m, memory: 16Mi}
+                  limits: {cpu: 100m, memory: 64Mi}
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop: [ALL]
+                volumeMounts:
+                  - {name: app-tls, mountPath: /etc/bravo-app-tls}
+                  - {name: openbao-ca, mountPath: /etc/openbao-ca, readOnly: true}
+                  - {name: openbao-token, mountPath: /var/run/secrets/openbao, readOnly: true}
+            volumes:
+              - name: app-tls
+                emptyDir: {medium: Memory, sizeLimit: 1Mi}
+              - name: openbao-ca
+                configMap: {name: target-openbao-ca}
+              - name: openbao-token
+                projected:
+                  sources:
+                    - serviceAccountToken: {audience: openbao, expirationSeconds: 600, path: token}
+  # 사이드카 → OpenBao 8200(bravo-secrets). OpenBao 쪽 허용은 app-pki/openbao-ingress.yaml
+  - target: {kind: NetworkPolicy, name: bravo-collector}
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: bravo-secrets
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: openbao
+          ports:
+            - {port: 8200, protocol: TCP}

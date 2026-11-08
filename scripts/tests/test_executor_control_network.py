@@ -56,11 +56,13 @@ def ingress_permits(policy, namespace, labels, protocol, port):
 
 
 class RouteBoundaryTests(unittest.TestCase):
-    def test_platform_operator_uses_precreated_credentials_without_api_proxy(self):
+    def test_platform_operator_uses_precreated_credentials_and_an_auth_mode_api_proxy(self):
         values = render.values()
         self.assertEqual(values["oauth"], {"clientId": "", "clientSecret": ""})
         self.assertEqual(values["oauthSecretVolume"], {"secret": {"secretName": "operator-oauth"}})
-        self.assertEqual(values["apiServerProxyConfig"], {"mode": "false", "allowImpersonation": "false"})
+        # Auth mode only: the proxy impersonates the group a tailnet grant names; noauth would pass the
+        # operator's own rights through to every tailnet caller.
+        self.assertEqual(values["apiServerProxyConfig"], {"mode": "true", "allowImpersonation": "false"})
         self.assertEqual(values["operatorConfig"]["defaultTags"], ["tag:bravo-platform-operator"])
         self.assertEqual(values["proxyConfig"]["defaultTags"], "tag:bravo-cutover-control")
         for image in (values["operatorConfig"]["image"], values["proxyConfig"]["image"]):

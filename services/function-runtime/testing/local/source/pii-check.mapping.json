@@ -1,0 +1,9 @@
+{
+  "UUID": "00000000-0000-0000-0000-000000000000",
+  "BatchSize": 10,
+  "MaximumBatchingWindowInSeconds": 0,
+  "EventSourceArn": "arn:aws:sqs:ap-northeast-1:000000000000:message-created",
+  "FunctionArn": "arn:aws:lambda:ap-northeast-1:000000000000:function:pii-check",
+  "State": "Enabled",
+  "ScalingConfig": {"MaximumConcurrency": 2}
+}
