@@ -34,7 +34,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred", "load"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred", "load", "demo"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -191,5 +191,14 @@ def create_ports(store, config_file="/workflow/ports.json"):
         background.append(PlatformLoad(store, InClusterKubectl(), delegations, image=image, base_url=spec["base_url"],
                                        source_env=spec["source_env"], target_env=spec["target_env"],
                                        **{k: spec[k] for k in ("write_rps", "read_rps", "duration") if k in spec}).sweep)
+    demo = config.get("demo", {})  # T49 demo: {"skip": ["REHEARSE", "GATE"]} pass those states at once
+    skip = demo.get("skip", []) if type(demo) is dict else None
+    if skip is None or set(demo) - {"skip"} or type(skip) is not list or set(skip) - {"REHEARSE", "GATE", "WATCH"}:
+        raise ValueError("workflow_demo_configuration_invalid")
+    from .workflow import demo_reader
+
+    for state in skip:
+        preparers.pop(state, None)  # WATCH: also no watch-fail record, so no delegated failback
+        readers[state] = demo_reader(state)
     return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
-            "background": background}
+            "background": background, "demo_skip": skip}

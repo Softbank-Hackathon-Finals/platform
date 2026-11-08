@@ -129,7 +129,7 @@ spec:
         {{- if .Values.securityReview.enabled }}
         || (object.metadata.name == 'security-review' && v.name == 'api' &&
         size(v.projected.sources) == 2 && has(v.projected.sources[0].serviceAccountToken) &&
-        'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
+        {{ dig "tokenReview" "reviewerAudience" "" .Values.securityReview.runtime | quote }} == v.projected.sources[0].serviceAccountToken.audience &&
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600 &&
         has(v.projected.sources[1].configMap))
