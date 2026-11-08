@@ -76,7 +76,7 @@ def server(tmp_path):
     actors = {"Bearer alice": principal("alice"), "Bearer mallory": principal("mallory", "other"),
               "Bearer bob": principal("bob"),  # same tenant, no plan grant
               # a short proof: a stream that is not closed by a revoked grant still ends by itself
-              "Bearer carol": SsoRegistrationPrincipal("carol", TENANT, t - 1, t + 8, "s-carol"),
+              "Bearer carol": SsoRegistrationPrincipal("carol", TENANT, t - 1, t + 30, "s-carol"),
               "Bearer brief": SsoRegistrationPrincipal("brief", TENANT, t - 1, t + 2, "s-brief")}
     app = create_app(backend, lambda r: actors.get(r.headers.get("authorization")),
                      resource_url="http://127.0.0.1/mcp", allowed_hosts=["127.0.0.1:*"])
@@ -303,11 +303,6 @@ def test_same_tenant_without_a_plan_grant_reads_nothing_and_a_revoked_grant_ends
     assert "plan-grant" not in [p["plan_id"] for p in ctx["data"]["plans"]]
     _, ctx = call(base, "sova_get_context")
     assert "plan-grant" in [p["plan_id"] for p in ctx["data"]["plans"]]
-    # A grant that starts after bob's proof was issued does not cover that proof (as OperatorAccess.require).
-    time.sleep(1.1)
-    grant(store, "plan-grant", "bob", valid_from=0)
-    denied, _ = call(base, "sova_get_plan", {"plan_id": "plan-grant"}, token="bob")
-    assert denied["isError"] is True
 
     grant(store, "plan-grant", "carol")
     with httpx.stream("GET", url, headers={"Authorization": "Bearer carol"}, timeout=15) as r:
@@ -319,3 +314,9 @@ def test_same_tenant_without_a_plan_grant_reads_nothing_and_a_revoked_grant_ends
                      data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "PASS", "context_digest": "c" * 64})
         rest = list(lines)  # ends at the next read (or, without the grant check, only when the proof expires)
     assert "id: plan-grant:2" not in rest
+
+    # A grant that starts after bob's proof was issued does not cover that proof (as OperatorAccess.require).
+    time.sleep(1.1)
+    grant(store, "plan-grant", "bob", valid_from=0)
+    denied, _ = call(base, "sova_get_plan", {"plan_id": "plan-grant"}, token="bob")
+    assert denied["isError"] is True
