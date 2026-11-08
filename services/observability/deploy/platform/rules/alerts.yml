@@ -58,8 +58,13 @@ groups:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} {{ $labels.pod }} DB에 접속할 수 없거나 지표를 긁을 수 없다"
           runbook: docs/observability/runbooks.md#bravodatabasedown
       # 64MiB: 설계 5.3 데이터 크기(200MB 이하)의 약 3분의 1. 이만큼 밀리면 따라잡는 데 쓰기 정지 예산을 넘긴다(제안값)
+      # 구독이 켜진 DB(지금 받는 쪽)의 논리 슬롯은 컷오버 뒤에 켜질 되돌리기(역방향) 대기 슬롯이다(docs/operations/t8-replication-health.md).
+      # 대기 중의 지연 · 비활성은 정상이라 아래 두 알림에서 빼고, 쌓이는 WAL은 BravoStandbySlotWalHigh가 본다.
+      # 컷오버로 그 DB의 구독이 꺼지면 다시 이 알림의 대상이 된다.
       - alert: BravoReplicationSlotLagHigh
-        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 64 * 1024 * 1024
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 64 * 1024 * 1024
+          unless on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
         for: 2m
         labels:
           severity: ticket
@@ -67,13 +72,26 @@ groups:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 64MiB 넘게 밀렸다"
           runbook: docs/observability/runbooks.md#bravoreplicationslotlaghigh
       - alert: BravoReplicationSlotInactive
-        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", slot_type="logical"}) == 0
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", slot_type="logical"}) == 0
+          unless on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
         for: 10m
         labels:
           severity: ticket
         annotations:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 10분 넘게 비활성이다. WAL이 쌓인다"
           runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      # 1GiB: 목적지 DB 볼륨(8Gi)의 8분의 1. 대기 슬롯은 지우지 않고(되돌리기 경로) 담당(T8)이 판단한다
+      - alert: BravoStandbySlotWalHigh
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 1024 * 1024 * 1024
+          and on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 되돌리기 대기 슬롯 {{ $labels.slot_name }}이 WAL을 1GiB 넘게 붙잡고 있다"
+          runbook: docs/observability/runbooks.md#bravostandbyslotwalhigh
       - alert: BravoWalArchivingFailing
         expr: sum by (bravo_env, cnpg_cluster) (increase(cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape"}[10m])) > 0
         labels:

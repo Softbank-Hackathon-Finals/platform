@@ -509,3 +509,38 @@ tests:
       alertname: BravoForwardSlotUnobservable
       exp_alerts:
       - *id001
+  # 컷오버 전: 목적지(onprem)는 정방향 구독을 받고 있고, 그 DB의 역방향 슬롯은 대기 중이다. 지연 · 비활성 알림이 없고
+  # 대기 WAL이 1GiB를 넘으면 BravoStandbySlotWalHigh만 낸다. 컷오버로 구독이 꺼지면(aws 쪽 예) 비활성이 다시 알림이다.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '201326264x10 2000000000x20'
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", subname="t8_target_to_source"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BravoReplicationSlotLagHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BravoReplicationSlotInactive
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: aws, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "aws/source-db 논리 복제 슬롯 t8_source_to_target이 10분 넘게 비활성이다. WAL이 쌓인다"
+              runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      - eval_time: 9m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem, cnpg_cluster: target-db, slot_name: t8_target_to_source}
+            exp_annotations:
+              summary: "onprem/target-db 되돌리기 대기 슬롯 t8_target_to_source이 WAL을 1GiB 넘게 붙잡고 있다"
+              runbook: docs/observability/runbooks.md#bravostandbyslotwalhigh
