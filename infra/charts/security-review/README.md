@@ -19,8 +19,10 @@ Create these outside Git before enabling `securityReview` in the Argo CD bootstr
 Apply `infra/envs/rehearsal-access/security-review-tokenreview-rbac.yaml` once. The binding grants only
 `tokenreviews.create` to `platform-state/security-review`.
 
-Set the Kubernetes API and database endpoint IPs explicitly. The chart renders only DNS, the registered API `/32`,
-and the registered database `/32` as egress. The caller ingress and T15 egress remain in
+Set the Kubernetes API backend address/port and database endpoint explicitly. NetworkPolicy is evaluated after
+Service DNAT on the platform Calico path, so `tokenReview.apiAddress` and `apiPort` must identify the current API
+endpoint rather than the `kubernetes` ClusterIP. The chart renders only DNS, that API `/32`, and the registered
+database `/32` as egress. The caller ingress and T15 egress remain in
 `infra/envs/rehearsal-access/rehearsal-host-network.yaml`.
 
 ## Enable and accept

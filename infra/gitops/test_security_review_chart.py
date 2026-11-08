@@ -15,7 +15,8 @@ def render():
     result = subprocess.run([
         "helm", "template", "security-review", str(CHART), "--namespace", "platform-state",
         "--set", f"image.digest={DIGEST}", "--set", f"sourceRevision={REVISION}",
-        "--set", "tenantId=bravo", "--set", "tokenReview.apiAddress=10.43.0.1",
+        "--set", "tenantId=bravo", "--set", "tokenReview.apiAddress=10.81.0.191",
+        "--set", "tokenReview.apiPort=6443",
         "--set", "database.address=10.43.10.10", "--set", "secrets.tls=security-review-tls",
         "--set", "secrets.database=security-review-database",
         "--set", "configMaps.grants=security-review-grants",
@@ -59,7 +60,8 @@ def test_review_service_and_network_are_private_and_explicit():
     assert service["spec"].get("type", "ClusterIP") == "ClusterIP"
     policy = next(item for item in documents if item["kind"] == "NetworkPolicy")
     egress = policy["spec"]["egress"]
-    assert egress[1]["to"][0]["ipBlock"]["cidr"] == "10.43.0.1/32"
+    assert egress[1]["to"][0]["ipBlock"]["cidr"] == "10.81.0.191/32"
+    assert egress[1]["ports"] == [{"port": 6443, "protocol": "TCP"}]
     assert egress[2]["to"][0]["ipBlock"]["cidr"] == "10.43.10.10/32"
     assert policy["spec"]["policyTypes"] == ["Egress"]
 
