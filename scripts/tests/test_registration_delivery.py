@@ -36,6 +36,13 @@ RECEIPT = {"source_revision": SOURCE, "image_digest": DIGEST, "image": delivery.
 
 
 class SourceCoverage(unittest.TestCase):
+    def test_first_pin_placeholder_is_not_a_deployed_git_revision(self):
+        shown = subprocess.CompletedProcess(
+            [], 0, json.dumps({"sourceRevision": "0" * 40}), ""
+        )
+        with patch.object(delivery, "run", return_value=shown):
+            self.assertIsNone(delivery.recorded_source("origin/develop", delivery.SECURITY_REVIEW))
+
     def test_every_current_package_is_detected_by_publication_and_supersession(self):
         builder = ast.parse((ROOT / "services/platform-events/deploy/product-read/build.py").read_text())
         assignments = {

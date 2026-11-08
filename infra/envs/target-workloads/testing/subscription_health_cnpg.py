@@ -182,14 +182,17 @@ def prepare(k3s):
     k3s.apply(*render.migration())
     k3s.kubectl("-n", "target-dev", "wait", "--for=condition=complete", "job/target-chat-schema-v1", "--timeout=180s")
 
+    # target-db exists before these Secrets; without the label CNPG never loads them.
+    reload = {"cnpg.io/reload": "true"}
     ca = k3s.kubectl("-n", "source-dev", "get", "secret", "source-db-ca", "-o", "jsonpath={.data.ca\\.crt}")
-    k3s.apply({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "t8-source-replication", "namespace": "target-dev"},
+    k3s.apply({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "t8-source-replication", "namespace": "target-dev", "labels": reload},
                "stringData": {"password": passwords["source_replicator"]}},
-              {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "t8-source-ca", "namespace": "target-dev"}, "data": {"ca.crt": ca}})
-    address = k3s.kubectl("-n", "source-dev", "get", "svc", "source-db-rw", "-o", "jsonpath={.spec.clusterIP}")
-    patch = replication.external_patch("target", address, json.loads(k3s.kubectl("-n", "target-dev", "get", "cluster", "target-db", "-o", "json")))
-    k3s.kubectl("-n", "target-dev", "patch", "cluster", "target-db", "--type", "json", "-p", json.dumps(patch))
-    k3s.wait_cluster("target-dev", "target-db")
+              {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "t8-source-ca", "namespace": "target-dev", "labels": reload}, "data": {"ca.crt": ca}})
+    # target-db already declares t8-source (render.py). In place of T44's tailnet egress, its Service name
+    # points at the source in this same cluster.
+    k3s.apply({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "source-db-for-replication", "namespace": "target-dev"},
+               "spec": {"type": "ExternalName", "externalName": "source-db-rw.source-dev.svc.cluster.local",
+                        "ports": [{"name": "postgres", "port": 5432}]}})
     k3s.apply(replication.subscription("target"))
     target = Db(k3s, "target-dev", "target-db-1")
     # The operator creates it a moment later, so an empty catalog means not yet.

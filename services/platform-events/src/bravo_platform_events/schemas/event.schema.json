@@ -94,6 +94,11 @@
         "image_digest": {
           "$ref": "#/$defs/digest"
         },
+        "iac_plan_digest": {
+          "description": "ADR-0044: the accepted T44 plan (bravo_iac plan_digest) that closes the attachment bucket; absent when the change closes nothing",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "target_environment_id": {
           "$ref": "#/$defs/identifier"
         },

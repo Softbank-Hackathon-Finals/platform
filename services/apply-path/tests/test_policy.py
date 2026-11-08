@@ -16,6 +16,7 @@ from bravo_apply.deploy import FakeKube, KubectlKube
 from bravo_apply.path import apply, get_result, validate_outcome
 from bravo_apply.policy import (
     ANNOTATION_APPLICATION,
+    ANNOTATION_OWNER,
     ANNOTATION_S3_JSON,
     PolicyRefused,
     PolicyTarget,
@@ -259,6 +260,8 @@ def test_policy_apply_replaces_one_secret_rolls_one_workload_and_never_changes_a
     assert len(kube.secret_writes) == 1
     written = kube.secret_writes[0]
     assert "managedFields" not in written["metadata"] and written["metadata"]["resourceVersion"] == "41"
+    # single writer: the same checked replace claims the exposure for T31 (the worker then never opens it)
+    assert written["metadata"]["annotations"][ANNOTATION_OWNER] == "t31/pol-0001"
     assert base64.b64decode(written["data"]["s3.json"]) == s3_json("closed")
     applied = hashlib.sha256(s3_json("closed")).hexdigest()
     assert kube.restarts == [{ANNOTATION_S3_JSON: applied, ANNOTATION_APPLICATION: "pol-0001"}]

@@ -34,6 +34,7 @@ ORDER = ("COLLECT", "ANALYZE", "PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", 
 STOP = {"SAFE_HOLD", "NEEDS_HUMAN"}
 WORKLOADS = "infra/envs/target-workloads"
 INITIAL = ("uv", "run", "--directory", "services/platform-events", "python", "../../operations/initial-proposal/run.py")
+SECURITY = ("python3", "operations/security-program/run.py")
 PLAN_STATE = ("kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
               "-c", "host", "--", "python", "-m", "bravo_platform_events.plan_state")
 
@@ -60,18 +61,24 @@ STEPS = (
     Step("s2-candidate-import", "S2", "human", "T22/T31",
          "후보 이미지를 목적지 containerd에 같은 digest로 넣기(export_target_image.py → import → digest 대조)"),
     Step("s2-proposed", "S2", "observe", "T10/T38", "후보 발행 확인, 리허설 진입", reach="REHEARSE"),
+    Step("s2-security-prepare", "S2", "operator", "T15/T31",
+         "현재 patch/preflight 등록과 원격 Security Review PASS",
+         SECURITY + ("prepare-change", "--context", "{platform_context}", "--plan-id", "{plan_id}",
+                     "--patch-preflight", "{patch_preflight}", "--budget-seconds", "45")),
     Step("s2-change-approval", "S2", "human", "승인자", "콘솔에서 diff·digest 결속 변경 승인"),
     Step("s2-open-writes", "S2", "operator", "T30", "T31 APPLIED 뒤 목적지 쓰기 열기",
          ("python3", f"{WORKLOADS}/open_after_apply.py", "--application-id", "{application_id}",
           "--receipts", "{receipts}", "--kubeconfig", "{kubeconfig}")),
     Step("s2-gate-pass", "S2", "observe", "T19", "게이트 재대조 PASS", reach="AWAIT_APPROVAL"),
-    Step("s3-shift-approval", "S3", "human", "승인자",
-         "SHIFT 승인: POST /v1/plans/{plan}/approvals {approval_kind: shift, expected_version, expires_at}"),
-    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 컷오버 승인(SHIFT 상태에서)"),
-    # Owner-run live tools with per-run inputs (docs/operations/t28-demo-runbook.md); confirmed here.
+    # Measurements and attachment copying must exist before either approval can
+    # release a real transition. The driver still delegates the owner tools.
     Step("s3-load", "S3", "human", "T18", "부하 예열 50 rps · 30초 → 본 측정 시작 (services/loadgen)"),
     Step("s3-attachment-copy", "S3", "human", "T8",
          "업로드 중지 → 첨부 복사 Job(attachment_job.py job) → 판정 SUCCEEDED"),
+    Step("s3-shift-approval", "S3", "human", "승인자",
+         "현재 T13 캡처·서명 확인 후 SHIFT 승인(approval_kind: shift)"),
+    Step("s3-cutover-approval", "S3", "human", "승인자",
+         "최신 GATE·T13 확인 후 콘솔에서 컷오버 승인·실행 요청(SHIFT 상태)"),
     Step("s3-shifted", "S3", "observe", "T17", "가중치 10 → 50 → 100%", reach="CUTOVER"),
     Step("s3-cutover-done", "S3", "observe", "T13", "컷오버 영수증, 무결성 일치", reach="WATCH"),
     Step("s3-reverse-replication", "S3", "human", "T8", "역방향 복제 도착 확인(resume_replication.py --direction reverse)"),
@@ -86,6 +93,15 @@ STEPS = (
     Step("s4-rolled-back", "S4", "observe", "T20", "출발지 복귀, 데이터째 되돌리기", reach="DONE_ROLLED_BACK"),
     Step("wrap-map", "S5", "human", "T27", "잔존 의존성 지도(bravo_exit_drill render/verdict)"),
 )
+
+
+def selected_steps(scenario):
+    if scenario == "recovery":
+        return STEPS
+    if scenario != "migration":
+        raise ValueError("unknown rehearsal scenario")
+    end = next(i for i, step in enumerate(STEPS) if step.id == "s3-reverse-replication")
+    return STEPS[:end + 1]
 
 
 def now():
@@ -110,16 +126,27 @@ def append(path, value):
 
 def pins():
     out = {}
-    for name in ("registration", "product-reader"):
+    for name in ("registration", "product-reader", "rehearsal-host"):
         image = json.loads((ROOT / f"infra/gitops/environments/development/{name}-image.json").read_text())
         out[name] = image["image"]["digest"]
     return out
 
 
-def header(args, git=subprocess.run):
+def header(args, git=subprocess.run, wall_clock=time.time):
     sha = git(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    return {"kind": "header", "plan_id": args.plan_id, "profile": args.profile, "develop_sha": sha,
-            "gitops_pins": pins(), "started_at": now()}
+    return {"kind": "header", "plan_id": args.plan_id, "profile": args.profile,
+            "scenario": getattr(args, "scenario", "recovery"), "develop_sha": sha,
+            "gitops_pins": pins(), "started_at": now(),
+            "demo_budget_seconds": getattr(args, "demo_budget", 270),
+            "budget_started_epoch": wall_clock()}
+
+
+def budget_remaining(head, wall_clock=time.time):
+    seconds = head.get("demo_budget_seconds")
+    started = head.get("budget_started_epoch")
+    if type(seconds) is not int or not 0 < seconds <= 270 or not isinstance(started, (int, float)):
+        raise ValueError("invalid demo budget record")
+    return started + seconds - wall_clock()
 
 
 def plan_state_from(command):
@@ -127,28 +154,50 @@ def plan_state_from(command):
     if not command:
         return None
 
-    def read(plan_id):
-        result = subprocess.run([*command, plan_id], capture_output=True, text=True, timeout=60, check=False)
+    def read(plan_id, timeout_seconds=60):
+        result = subprocess.run([*command, plan_id], capture_output=True, text=True,
+                                timeout=timeout_seconds, check=False)
         if result.returncode:
             raise RuntimeError("plan read failed")
         return json.loads(result.stdout.splitlines()[-1])["state"]
+    read.budget_aware = True
     return read
 
 
+def read_plan_state(read_state, plan_id, timeout_seconds=None):
+    if timeout_seconds is not None and getattr(read_state, "budget_aware", False):
+        if timeout_seconds <= 0:
+            raise subprocess.TimeoutExpired("plan-state", timeout_seconds)
+        return read_state(plan_id, timeout_seconds=timeout_seconds)
+    return read_state(plan_id)
+
+
 def reached(state, goal):
+    if state == "DONE":
+        return goal in ORDER[:ORDER.index("WATCH") + 1]
     return state in ORDER and ORDER.index(state) >= ORDER.index(goal)
 
 
-def run_step(step, args, read_state, run, sleep, clock):
+def run_step(step, args, read_state, run, sleep, clock, remaining_seconds=None):
     if step.kind == "human":
         return WAITING, {"reason": "awaiting_human", "what": step.what}
     if step.kind == "observe":
         if read_state is None:
             return UNKNOWN, {"reason": "plan_reader_unwired"}
-        deadline = clock() + args.wait
+        budget_limited = remaining_seconds is not None and remaining_seconds < args.wait
+        wait = args.wait if remaining_seconds is None else min(args.wait, max(0, remaining_seconds))
+        deadline = clock() + wait
+        state = None
         while True:
+            if state is not None and clock() >= deadline:
+                if budget_limited:
+                    return UNKNOWN, {"reason": "demo_budget_exhausted_during_step", "state": state}
+                return WAITING, {"reason": "plan_not_yet", "state": state, "reach": step.reach}
             try:
-                state = read_state(args.plan_id)
+                read_timeout = 60 if remaining_seconds is None else remaining_seconds
+                if wait:
+                    read_timeout = min(read_timeout, deadline - clock())
+                state = read_plan_state(read_state, args.plan_id, read_timeout)
             except Exception:  # noqa: BLE001 - the read itself is not confirmed
                 return UNKNOWN, {"reason": "plan_read_unconfirmed"}
             if state in STOP:
@@ -156,19 +205,34 @@ def run_step(step, args, read_state, run, sleep, clock):
             if reached(state, step.reach):
                 return DONE, {"state": state}
             if clock() >= deadline:
+                if budget_limited:
+                    return UNKNOWN, {"reason": "demo_budget_exhausted_during_step", "state": state}
                 return WAITING, {"reason": "plan_not_yet", "state": state, "reach": step.reach}
-            sleep(args.interval)
+            sleep(min(args.interval, max(0, deadline - clock())))
     if step.command is None:
         return UNKNOWN, {"reason": "unwired", "owner": step.owner}
+    if step.command[:len(SECURITY)] == SECURITY and (not getattr(args, "platform_context", None)
+                                                     or not getattr(args, "patch_preflight", None)):
+        return UNKNOWN, {"reason": "security_program_unwired", "owner": step.owner}
     values = {"kubeconfig": args.kubeconfig or "", "fault_record": args.fault_record,
-              "application_id": args.application_id or "", "receipts": args.receipts or ""}
+              "application_id": args.application_id or "", "receipts": args.receipts or "",
+              "platform_context": args.platform_context or "", "plan_id": args.plan_id,
+              "patch_preflight": args.patch_preflight or ""}
     argv = [part.format(**values) for part in step.command]
     if step.command[:len(INITIAL)] == INITIAL:
         if not getattr(args, "initial_args", None):
             return UNKNOWN, {"reason": "initial_args_unwired", "owner": step.owner}
         argv += list(args.initial_args)
     try:
-        result = run(argv, cwd=ROOT, capture_output=True, text=True, timeout=args.step_timeout, check=False)
+        timeout = args.step_timeout
+        budget_limited = False
+        if remaining_seconds is not None:
+            budget_limited = remaining_seconds < timeout
+            timeout = min(timeout, remaining_seconds)
+        result = run(argv, cwd=ROOT, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        reason = "demo_budget_exhausted_during_step" if budget_limited else "step_timeout"
+        return UNKNOWN, {"reason": reason}
     except Exception:  # noqa: BLE001 - a lost result is unknown, never retried
         return UNKNOWN, {"reason": "command_unconfirmed"}
     last = result.stdout.strip().splitlines()[-1:] or [""]
@@ -181,20 +245,27 @@ def run_step(step, args, read_state, run, sleep, clock):
     return code, {"exit_code": result.returncode, "output": output}
 
 
-def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic, read_state=None, git=subprocess.run):
+def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic, wall_clock=time.time,
+            read_state=None, git=subprocess.run):
     path = Path(args.record)
     head, outcomes = read_record(path)
     if head is None:
-        head = header(args, git)
+        head = header(args, git, wall_clock)
         append(path, head)
     elif head["plan_id"] != args.plan_id:
         print(json.dumps({"result": "input_error", "reason": "record belongs to another plan"}))
+        return 2
+    if (head.get("profile") != args.profile
+            or head.get("scenario", "recovery") != getattr(args, "scenario", "recovery")
+            or head.get("demo_budget_seconds") != getattr(args, "demo_budget", 270)):
+        print(json.dumps({"result": "input_error", "reason": "record profile, scenario, or budget differs"}))
         return 2
     command = args.plan_state_command or (
         [part.format(context=args.platform_context) for part in PLAN_STATE] if getattr(args, "platform_context", None)
         else None)
     read_state = read_state or plan_state_from(command)
-    for step in STEPS:
+    selected = selected_steps(getattr(args, "scenario", "recovery"))
+    for step in selected:
         seen = outcomes.get(step.id, {})
         if seen.get("status") in ("done", "human_confirmed"):
             continue
@@ -202,7 +273,19 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
             # Neither is repeated automatically: read the real state, then `resolve`.
             print(json.dumps({"result": seen["status"], "step": step.id, "reason": "resolve the real state first"}))
             return UNKNOWN if seen["status"] == "unknown" else FAILED
-        code, detail = run_step(step, args, read_state, run, sleep, clock)
+        try:
+            remaining = budget_remaining(head, wall_clock)
+        except ValueError:
+            print(json.dumps({"result": "input_error", "reason": "invalid_demo_budget_record"}))
+            return 2
+        if remaining is not None and remaining <= 0:
+            detail = {"reason": "demo_budget_exceeded", "budget_seconds": head["demo_budget_seconds"]}
+            append(path, {"step": step.id, "scene": step.scene, "status": "failed", "at": now(), **detail})
+            print(json.dumps({"result": "failed", "step": step.id, **detail}))
+            return FAILED
+        code, detail = run_step(step, args, read_state, run, sleep, clock, remaining)
+        if remaining is not None:
+            detail["budget_remaining_seconds"] = max(0, round(budget_remaining(head, wall_clock), 3))
         status = {DONE: "done", WAITING: "waiting", FAILED: "failed", UNKNOWN: "unknown"}[code]
         if status != "waiting":
             append(path, {"step": step.id, "scene": step.scene, "status": status, "at": now(), **detail})
@@ -210,14 +293,33 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
                          ensure_ascii=False))
         if code != DONE:
             return code
-    print(json.dumps({"result": "complete", "record": str(path)}))
+    if (remaining := budget_remaining(head, wall_clock)) is not None and remaining <= 0:
+        print(json.dumps({"result": "failed", "reason": "demo_budget_exceeded"}))
+        return FAILED
+    try:
+        final_timeout = None if remaining is None else max(0, remaining)
+        state = read_plan_state(read_state, args.plan_id, final_timeout)
+    except Exception:  # noqa: BLE001 - the final read is unconfirmed, never assumed
+        print(json.dumps({"result": "unknown", "reason": "final_plan_read_unconfirmed"}))
+        return UNKNOWN
+    if getattr(args, "scenario", "recovery") == "migration":
+        if state not in {"WATCH", "DONE"}:
+            print(json.dumps({"result": "failed", "reason": "forward_migration_not_current", "state": state}))
+            return FAILED
+    elif state != "DONE_ROLLED_BACK":
+        print(json.dumps({"result": "failed", "reason": "failback_not_current", "state": state}))
+        return FAILED
+    elapsed = round(head["demo_budget_seconds"] - budget_remaining(head, wall_clock), 3)
+    print(json.dumps({"result": "complete", "record": str(path),
+                      "scenario": getattr(args, "scenario", "recovery"), "final_state": state,
+                      "elapsed_seconds": elapsed, "budget_seconds": head["demo_budget_seconds"]}))
     return DONE
 
 
 def cmd_mark(args, status):
     path = Path(args.record)
     head, outcomes = read_record(path)
-    ids = [step.id for step in STEPS]
+    ids = [step.id for step in selected_steps(head.get("scenario", "recovery"))] if head else []
     if head is None or args.step not in ids:
         print(json.dumps({"result": "input_error"}))
         return 2
@@ -241,6 +343,8 @@ def main(argv=None):
     r.add_argument("--plan-id", required=True)
     r.add_argument("--record", required=True, help="append-only JSONL run record")
     r.add_argument("--profile", choices=["real", "local", "mock"], required=True)
+    r.add_argument("--scenario", choices=["migration", "recovery"], default="recovery",
+                   help="migration stops after verified forward movement; recovery also exercises faults/failback")
     r.add_argument("--plan-state-command", nargs="+", help="read-only command printing {\"state\": ...}")
     r.add_argument("--kubeconfig")
     r.add_argument("--platform-context", help="kubectl context of the platform cluster (default plan reader)")
@@ -248,10 +352,13 @@ def main(argv=None):
                    "operations/initial-proposal/run.py as is (--initial-args --from initial.json)")
     r.add_argument("--application-id")
     r.add_argument("--receipts")
+    r.add_argument("--patch-preflight", help="current patch/preflight Security Program document")
     r.add_argument("--fault-record", default="demo-fault.json")
     r.add_argument("--wait", type=int, default=0, help="seconds to wait for a plan state")
     r.add_argument("--interval", type=int, default=10)
     r.add_argument("--step-timeout", type=int, default=900)
+    r.add_argument("--demo-budget", type=int, default=270,
+                   help="whole visible demo budget in seconds (maximum 270)")
     for name, help_text in (("confirm", "record a human decision made in the console"),
                             ("resolve", "record the read-back state of an unknown step")):
         m = sub.add_parser(name, help=help_text)
@@ -271,6 +378,8 @@ def main(argv=None):
         if not initial:
             p.error("--initial-args needs run.py arguments")
     args = p.parse_args(argv)
+    if args.command == "run" and not 0 < args.demo_budget <= 270:
+        p.error("--demo-budget must be between 1 and 270 seconds")
     if initial is not None:
         args.initial_args = initial
     if args.command == "steps":

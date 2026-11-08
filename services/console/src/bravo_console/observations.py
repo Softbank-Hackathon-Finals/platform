@@ -72,9 +72,7 @@ class FixedJsonClient:
         try:
             async with (
                 asyncio.timeout(5),
-                self.client.stream(
-                    "GET", path, params=params
-                ) as r,
+                self.client.stream("GET", path, params=params) as r,
             ):
                 r.raise_for_status()
                 if (
@@ -101,6 +99,11 @@ class T37Client(FixedJsonClient):
         if not ENV.fullmatch(environment):
             raise ObservationError("invalid_observation_environment")
         return await self.read_json(f"/v1/observability/environments/{environment}/http")
+
+    async def pgbouncer(self, environment):
+        if not ENV.fullmatch(environment):
+            raise ObservationError("invalid_observation_environment")
+        return await self.read_json(f"/v1/observability/environments/{environment}/pgbouncer")
 
 
 async def _plan(api, scope, plan_id):
@@ -145,6 +148,52 @@ async def _plan(api, scope, plan_id):
         raise ObservationError("plan_unavailable") from None
 
 
+def http_observation_row(body, environment, *, now):
+    empty = dict(
+        environment=environment,
+        state="UNOBSERVABLE",
+        queried_at=None,
+        last_received_seconds_ago=None,
+        requests_per_second=None,
+        error_ratio=None,
+        p95_seconds=None,
+    )
+    try:
+        if (
+            type(body) is not dict
+            or body.get("environment") != environment
+            or body.get("window") != "1m"
+        ):
+            return empty
+        at = datetime.fromisoformat(body["queried_at"].replace("Z", "+00:00"))
+        age = body.get("last_received_seconds_ago")
+        if (
+            at.utcoffset() is None
+            or not 0 <= (now - at).total_seconds() <= 10
+            or body.get("state") != "OK"
+            or type(age) not in (int, float)
+            or not math.isfinite(age)
+            or not 0 <= age <= 30
+        ):
+            return empty
+        values = {k: body.get(k) for k in ("requests_per_second", "error_ratio", "p95_seconds")}
+        for key, value in values.items():
+            if value is not None and (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or value < 0
+                or (key == "error_ratio" and value > 1)
+            ):
+                return empty
+        if values["requests_per_second"] is None:
+            return empty
+        if values["requests_per_second"] == 0:
+            values["error_ratio"] = values["p95_seconds"] = None
+        return empty | values | {"state": "OK", "queried_at": at.isoformat(), "last_received_seconds_ago": age}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return empty
+
+
 class PlanObservations:
     def __init__(
         self,
@@ -153,6 +202,7 @@ class PlanObservations:
         *,
         environments: dict[str, str],
         authorize: Callable[[dict, dict], bool],
+        pooled_environments=frozenset(),
         clock=None,
     ):
         if (
@@ -161,7 +211,13 @@ class PlanObservations:
             or len(set(environments.values())) != len(environments)
         ):
             raise ValueError("registered_observation_mapping_required")
+        # Only hosts that actually run PgBouncer are queried; elsewhere the pooler row
+        # is "not configured", never "unobservable" and never "OK".
+        pooled = frozenset(pooled_environments)
+        if not pooled <= set(environments.values()):
+            raise ValueError("registered_pooler_environment_required")
         self.api, self.client, self.environments = api, client, dict(environments)
+        self.pooled = pooled
         self.authorize = authorize
         self.clock = clock or (lambda: datetime.now(UTC))
 
@@ -172,48 +228,68 @@ class PlanObservations:
             raise ObservationError("forbidden", 403)
 
     def _row(self, body, environment, *, now):
-        empty = dict(
-            environment=environment,
-            state="UNOBSERVABLE",
-            queried_at=None,
-            requests_per_second=None,
-            error_ratio=None,
-            p95_seconds=None,
-        )
+        return http_observation_row(body, environment, now=now)
+
+    def _pooler(self, body, environment, *, now):
+        """T37 PgBouncer view for display only. PAUSED is a normal cutover state and
+        never an execution condition; the Executor reads PgBouncer itself."""
+        unknown = {"state": "UNOBSERVABLE", "last_received_seconds_ago": None, "databases": []}
         try:
-            if (
-                type(body) is not dict
-                or body.get("environment") != environment
-                or body.get("window") != "1m"
-            ):
-                return empty
+            if type(body) is not dict or body.get("environment") != environment:
+                return unknown
             at = datetime.fromisoformat(body["queried_at"].replace("Z", "+00:00"))
             age = body.get("last_received_seconds_ago")
             if (
                 at.utcoffset() is None
                 or not 0 <= (now - at).total_seconds() <= 10
-                or body.get("state") != "OK"
+                or body.get("state") not in ("OK", "PAUSED", "DOWN")
                 or type(age) not in (int, float)
                 or not math.isfinite(age)
                 or not 0 <= age <= 30
             ):
-                return empty
-            values = {k: body.get(k) for k in ("requests_per_second", "error_ratio", "p95_seconds")}
-            for key, value in values.items():
-                if value is not None and (
-                    type(value) not in (int, float)
-                    or not math.isfinite(value)
-                    or value < 0
-                    or (key == "error_ratio" and value > 1)
-                ):
-                    return empty
-            if values["requests_per_second"] is None:
-                return empty
-            if values["requests_per_second"] == 0:
-                values["error_ratio"] = values["p95_seconds"] = None
-            return empty | values | {"state": "OK", "queried_at": at.isoformat()}
+                return unknown
+            poolers = body.get("poolers")
+            if type(poolers) is not list or not 1 <= len(poolers) <= 8:
+                return unknown
+            databases, ups = [], []
+            for pooler in poolers:
+                if type(pooler) is not dict or not ID.fullmatch(str(pooler.get("pooler"))):
+                    return unknown
+                if type(pooler.get("up")) is not bool or type(pooler.get("databases")) is not list:
+                    return unknown
+                ups.append(pooler["up"])
+                for db in pooler["databases"]:
+                    waiting = db.get("clients_waiting") if type(db) is dict else None
+                    if (
+                        type(db) is not dict
+                        or type(db.get("name")) is not str
+                        or not 1 <= len(db["name"]) <= 63
+                        or type(db.get("paused")) is not bool
+                        or not (
+                            waiting is None
+                            or (type(waiting) in (int, float) and math.isfinite(waiting) and waiting >= 0)
+                        )
+                    ):
+                        return unknown
+                    databases.append(
+                        {
+                            "pooler": pooler["pooler"],
+                            "name": db["name"],
+                            "paused": db["paused"],
+                            "clients_waiting": waiting,
+                        }
+                    )
+            if not databases or len(databases) > 32:
+                return unknown
+            # Recompute instead of trusting the label; a mismatch is not displayable.
+            state = (
+                "DOWN" if not all(ups) else "PAUSED" if any(d["paused"] for d in databases) else "OK"
+            )
+            if state != body["state"]:
+                return unknown
+            return {"state": state, "last_received_seconds_ago": age, "databases": databases}
         except (KeyError, TypeError, ValueError, OverflowError):
-            return empty
+            return unknown
 
     async def read(self, scope, plan_id):
         plan = await _plan(self.api, scope, plan_id)
@@ -223,13 +299,19 @@ class PlanObservations:
             raise ObservationError("observations_unconfigured")
         names = [self.environments[ref] for ref in refs]
 
-        async def fetch(env):
+        async def fetch(read, env):
             try:
-                return await asyncio.wait_for(self.client.http(env), timeout=5)
+                return await asyncio.wait_for(read(env), timeout=5)
             except Exception:
                 return None
 
-        bodies = await asyncio.gather(*(fetch(env) for env in names))
+        bodies, pools = await asyncio.gather(
+            asyncio.gather(*(fetch(self.client.http, env) for env in names)),
+            asyncio.gather(
+                *(fetch(self.client.pgbouncer, env) for env in names if env in self.pooled)
+            ),
+        )
+        pooled = iter(pools)
         current = await _plan(self.api, scope, plan_id)
         self._permit(scope, current)
         if any(
@@ -250,7 +332,12 @@ class PlanObservations:
             "queried_at": now.isoformat(),
             "for_gate_decisions": False,
             "environments": [
-                dict(self._row(body, env, now=now), environment_id=ref, side=side)
+                dict(
+                    self._row(body, env, now=now),
+                    environment_id=ref,
+                    side=side,
+                    pooler=self._pooler(next(pooled), env, now=now) if env in self.pooled else None,
+                )
                 for body, env, ref, side in zip(
                     bodies, names, refs, ("source", "target"), strict=True
                 )

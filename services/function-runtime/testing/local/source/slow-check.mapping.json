@@ -1,0 +1,7 @@
+{
+  "BatchSize": 1,
+  "MaximumBatchingWindowInSeconds": 0,
+  "EventSourceArn": "arn:aws:sqs:ap-northeast-1:000000000000:slow-check",
+  "State": "Enabled",
+  "ScalingConfig": {"MaximumConcurrency": 1}
+}

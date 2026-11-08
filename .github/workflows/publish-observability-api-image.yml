@@ -1,0 +1,121 @@
+name: publish-observability-api-image
+
+# T37 콘솔용 관측 조회 API 이미지. 한 번 빌드한 OCI 바이트를 검사한 뒤 그 바이트를 그대로 올린다.
+# 출처 증명(provenance) · SBOM은 buildx가 같은 OCI 인덱스에 넣는다(다른 발행 워크플로와 같다).
+# 배포는 결과 digest를 services/observability/deploy/platform-gitops에 고정하는 PR로 한다(propose, 태그를 배포하지 않는다).
+on:
+  push:
+    branches: [develop]
+    paths:
+      - services/observability/src/**
+      - services/observability/pyproject.toml
+      - services/observability/uv.lock
+      - services/observability/Dockerfile
+      - services/observability/Dockerfile.dockerignore
+      - docs/observability/sli.schema.json
+      - .github/workflows/publish-observability-api-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observability-api-image-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    env:
+      SOURCE_SHA: ${{ github.workflow_sha }}
+      IMAGE: ghcr.io/softbank-hackathon-finals/platform-observability-api
+    steps:
+      - name: Choose the OCI layout path
+        run: echo "LAYOUT=$RUNNER_TEMP/observability-api/image-layout" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the OCI artifact once
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/observability/Dockerfile
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ env.LAYOUT }},tar=false
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/Softbank-Hackathon-Finals/platform
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          tags: platform-observability-api:sha-${{ env.SOURCE_SHA }}
+      - name: Scan before registry login
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          input: ${{ env.LAYOUT }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          timeout: 10m
+      - name: Install registry copy tool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the scanned bytes and check the digest
+        id: publish
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          skopeo copy --all --preserve-digests "oci:$LAYOUT" "docker://$IMAGE:sha-$SOURCE_SHA"
+          remote=$(skopeo inspect --raw "docker://$IMAGE:sha-$SOURCE_SHA" | sha256sum | cut -d' ' -f1)
+          test "sha256:$remote" = "$BUILD_DIGEST"
+          echo "digest=$BUILD_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "### $IMAGE@$BUILD_DIGEST (source $SOURCE_SHA)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Pin the published digest through the normal PR path; Argo deploys it after merge. No tag is ever deployed.
+  propose:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: develop
+          token: ${{ secrets.PROJECT_TOKEN }}
+      - name: Propose the immutable digest
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          SOURCE_SHA: ${{ github.workflow_sha }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          file=services/observability/deploy/platform-gitops/kustomization.yaml
+          sed -i -E "s/^(    digest: )sha256:[0-9a-f]{64}$/\1$DIGEST/" "$file"
+          if git diff --quiet; then echo "already pinned"; exit 0; fi
+          branch="feature/T37-observability-api-image-${SOURCE_SHA:0:12}"
+          git config user.name 'bravo-board'
+          git config user.email 'bravo-board@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -qam "[T37] 검증된 관측 조회 API 이미지 배포 (${DIGEST:7:12})"
+          git push -q origin "$branch"
+          gh pr create --base develop --head "$branch" --title "[T37] 검증된 관측 조회 API 이미지 배포" \
+            --body "publish-observability-api-image가 소스 \`$SOURCE_SHA\`에서 검사 · 발행한 \`$DIGEST\`를 고정합니다. 병합하면 플랫폼 Argo가 배포합니다."
+

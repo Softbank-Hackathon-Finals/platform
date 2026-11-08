@@ -1,0 +1,9 @@
+# 목적지(온프렘) 앱 지표 mTLS의 인증서 공급. OpenBao 설정은 setup.sh(운영자 한 번), 나머지는 이 묶음.
+#   target-dev: ESO 생성기가 앱 클라이언트 인증서 bravo-app-metrics-client(ca.crt · tls.crt · tls.key)를 발급 · 하루마다 교체
+#   bravo-secrets: Collector 사이드카(components/app-mtls-openbao) → OpenBao 8200 허용
+# namespace를 resource마다 적는다(namespace 변환을 쓰지 않는다).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - app-client.yaml
+  - openbao-ingress.yaml

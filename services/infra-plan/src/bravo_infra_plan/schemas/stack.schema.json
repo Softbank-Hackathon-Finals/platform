@@ -1,0 +1,887 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Softbank-Hackathon-Finals/platform/services/infra-plan/stack.schema.json",
+  "title": "T45 infra stack v1 (ADR-0033)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stack",
+    "params",
+    "charts",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "stack": {
+      "$ref": "#/$defs/id"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "params": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "pattern": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "enum": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "default": {
+            "description": "Value used when a request omits the parameter. Must be one of `enum` when that is set.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "required_when": {
+            "description": "Required only when another (enum) parameter has one of these values; otherwise optional. Only steps planned under the same condition may use it.",
+            "type": "object",
+            "required": [
+              "param",
+              "in"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "param": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "in": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "charts": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "sha256"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+\\.tgz$"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repo_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+$"
+    },
+    "arg": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "args"
+      ],
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/repo_path"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arg"
+          }
+        }
+      }
+    },
+    "select": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "exclude_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "render": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "run",
+            "args"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "run": {
+              "$ref": "#/$defs/repo_path"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/arg"
+              }
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "chart",
+            "release",
+            "namespace"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "chart": {
+              "$ref": "#/$defs/id"
+            },
+            "release": {
+              "$ref": "#/$defs/id"
+            },
+            "namespace": {
+              "$ref": "#/$defs/id"
+            },
+            "values": {
+              "$ref": "#/$defs/run"
+            },
+            "values_file": {
+              "$ref": "#/$defs/repo_path"
+            },
+            "include_crds": {
+              "type": "boolean"
+            },
+            "create_namespace": {
+              "type": "boolean"
+            },
+            "post": {
+              "$ref": "#/$defs/run"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "namespace"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "namespace": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "labels"
+              ],
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/id"
+                },
+                "labels": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[a-z0-9./-]{1,253}$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{0,63}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "owner",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "probe",
+            "operator_action",
+            "gitops_publish",
+            "gitops_sync",
+            "render_apply",
+            "secret_generate",
+            "wait",
+            "terraform"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^T[0-9]{1,3}$"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "when": {
+          "description": "Plan the step only when a request parameter has one of these values; otherwise the plan records it as omitted.",
+          "type": "object",
+          "required": [
+            "param",
+            "in"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "param": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "probe"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "check"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "check": {
+                "$ref": "#/$defs/id"
+              },
+              "when": true,
+              "timeout_seconds": {
+                "description": "Keep checking until it holds, at most this long (a state that appears after a sync, e.g. a login). Without it the check is read once.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1800
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "operator_action"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "instruction",
+              "confirm"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "instruction": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "confirm": {
+                "$ref": "#/$defs/id"
+              },
+              "desired": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "module",
+                  "params"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]*(\\{environment_id\\})?[A-Za-z0-9._/-]*\\.json$"
+                  },
+                  "module": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "params": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                    }
+                  }
+                }
+              },
+              "when": true,
+              "expect": {
+                "description": "What the confirm check observes. Present: the step is observable and a human confirmation alone does not pass it.",
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": false,
+                "properties": {
+                  "host_paths": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "uid",
+                        "gid",
+                        "mode"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "pattern": "^/var/lib/[a-z0-9][a-z0-9/._-]{0,200}$"
+                        },
+                        "uid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "gid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "mode": {
+                          "type": "string",
+                          "pattern": "^0[0-7]{3}$"
+                        }
+                      }
+                    }
+                  },
+                  "images": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    }
+                  },
+                  "images_by_arch": {
+                    "description": "Like images, per node architecture (the request's arch parameter picks one).",
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": false,
+                    "properties": {
+                      "arm64": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      },
+                      "amd64": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "gitops_publish"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "path",
+              "renders"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "path": {
+                "$ref": "#/$defs/id"
+              },
+              "renders": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/render"
+                }
+              },
+              "when": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "gitops_sync"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "publish",
+              "timeout_seconds"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "publish": {
+                "$ref": "#/$defs/id"
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1800
+              },
+              "when": true,
+              "health": {
+                "description": "Argo CD health states that pass this sync (default Healthy only). A workload that cannot be Ready before a later step (OpenBao before init and unseal) lists Progressing, and that later step confirms readiness.",
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "Healthy",
+                    "Progressing"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "render_apply"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "renders"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "renders": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/render"
+                }
+              },
+              "create_only": {
+                "type": "boolean"
+              },
+              "when": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "secret_generate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "secrets"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "secrets": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "namespace",
+                    "name",
+                    "type",
+                    "keys"
+                  ],
+                  "properties": {
+                    "namespace": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "name": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "type": {
+                      "enum": [
+                        "Opaque",
+                        "kubernetes.io/basic-auth"
+                      ]
+                    },
+                    "keys": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "propertyNames": {
+                        "pattern": "^[A-Za-z0-9._-]{1,63}$"
+                      },
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "literal"
+                            ],
+                            "properties": {
+                              "literal": {
+                                "type": "string",
+                                "maxLength": 63
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "random"
+                            ],
+                            "properties": {
+                              "random": {
+                                "type": "integer",
+                                "minimum": 24,
+                                "maximum": 64
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "builtin"
+                            ],
+                            "properties": {
+                              "builtin": {
+                                "$ref": "#/$defs/id"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "when": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "wait"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "target",
+              "condition",
+              "timeout_seconds"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "target": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "namespace",
+                  "name"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "name": {
+                    "$ref": "#/$defs/id"
+                  }
+                }
+              },
+              "condition": {
+                "enum": [
+                  "Ready",
+                  "Complete"
+                ]
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1800
+              },
+              "stable_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 300
+              },
+              "when": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "terraform"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "dir",
+              "backend"
+            ],
+            "properties": {
+              "id": true,
+              "kind": true,
+              "owner": true,
+              "description": true,
+              "needs": true,
+              "dir": {
+                "$ref": "#/$defs/repo_path"
+              },
+              "backend": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "$ref": "#/$defs/arg"
+                  },
+                  "config": {
+                    "type": "object",
+                    "propertyNames": {
+                      "pattern": "^[a-z_]{1,32}$"
+                    },
+                    "additionalProperties": {
+                      "$ref": "#/$defs/arg"
+                    }
+                  }
+                }
+              },
+              "var_file": {
+                "$ref": "#/$defs/arg"
+              },
+              "vars": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/arg"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "from",
+                        "output"
+                      ],
+                      "properties": {
+                        "from": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "output": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                        },
+                        "path": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$"
+                        },
+                        "paths": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 16,
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$"
+                          }
+                        }
+                      },
+                      "not": {
+                        "required": [
+                          "path",
+                          "paths"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "when": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  }
+}

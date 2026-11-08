@@ -172,9 +172,54 @@ The resulting snapshot still requires the existing T19 snapshot authority.
         if (reg.environment_id != getattr(ctx, side + "_environment_id")
                 or reg.environment_ref != getattr(ctx, side + "_environment_ref")):
             raise GateError("READINESS_RESOURCE_MISMATCH")
+    return _package(ctx, policy, source.document, target.document, snapshot_ref=snapshot_ref,
+                    replication=replication, sequences=sequences)
+
+
+def _package(ctx, policy, source, target, *, snapshot_ref, replication, sequences):
     doc = dict(kind="data-readiness.v1", context_digest=ctx.fingerprint, policy_digest=policy.fingerprint,
-               source=source.document, target=target.document, replication=replication, sequences=sequences)
+               source=source, target=target, replication=replication, sequences=sequences)
     snapshot = RunSnapshot(snapshot_ref, canonical(doc))
-    binding = ReadinessBinding(ctx.fingerprint, policy, source.registration.database_ref,
-                               target.registration.database_ref, snapshot_ref, fingerprint(doc))
+    binding = ReadinessBinding(ctx.fingerprint, policy, source["database_ref"], target["database_ref"],
+                               snapshot_ref, fingerprint(doc))
     return binding, snapshot
+
+
+OBSERVATION_KIND = "t13-readiness-observation.v1"
+_OBSERVED_SIDE = ("environment_id", "database_ref", "observed_at", "expires_at", "tables", "errors")
+
+
+def snapshot_from_observation(
+    ctx: GateContext, policy: ReadinessPolicy, observation: dict, *, snapshot_ref: str,
+) -> tuple[ReadinessBinding, RunSnapshot, dict]:
+    """Package the Executor's pre-cutover observation (POST /v1/readiness) for this context.
+
+The Executor reads both registered DBs with the T13 functions over its own control connections and
+raises the target sequence only (the contract's rehearsal readback). This checks shape and scope against
+the context and the server policy, adds the context's environment refs and drops diagnostics; unknown
+values stay unknown and assess_readiness judges them. It does not authenticate the observation: only the
+operator's readiness-binding and readiness-snapshot signatures make the record trusted.
+Returns (binding, snapshot, diagnostics), diagnostics being the fixed failure codes the Executor reported.
+"""
+    o = observation
+    if (type(o) is not dict or o.get("kind") != OBSERVATION_KIND or o.get("schema_rule") != policy.schema_rule
+            or type(o.get("sequences")) is not list or type(o.get("replication")) is not dict):
+        raise GateError("READINESS_OBSERVATION_INVALID")
+    sides, diagnostics = {}, {}
+    for side in ("source", "target"):
+        part = o.get(side)
+        if type(part) is not dict or set(part) != set(_OBSERVED_SIDE) or type(part["tables"]) is not list:
+            raise GateError("READINESS_OBSERVATION_INVALID")
+        if part["environment_id"] != getattr(ctx, side + "_environment_id"):
+            raise GateError("READINESS_RESOURCE_MISMATCH")
+        if [type(t) is dict and t.get("name") for t in part["tables"]] != list(policy.tables):
+            raise GateError("READINESS_OBSERVATION_SCOPE")
+        sides[side] = dict(environment_id=part["environment_id"],
+                           environment_ref=getattr(ctx, side + "_environment_ref"),
+                           database_ref=part["database_ref"], schema_rule=policy.schema_rule,
+                           observed_at=part["observed_at"], expires_at=part["expires_at"], tables=part["tables"])
+        diagnostics[side] = part["errors"]
+    diagnostics.update(replication=o.get("replication_error"), sequences=o.get("sequence_errors"))
+    binding, snapshot = _package(ctx, policy, sides["source"], sides["target"], snapshot_ref=snapshot_ref,
+                                 replication=o["replication"], sequences=o["sequences"])
+    return binding, snapshot, diagnostics

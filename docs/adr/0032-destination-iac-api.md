@@ -68,6 +68,7 @@
 * 권한은 1단계로 넉넉하게 시작한다(AppProject: 이 저장소·이 클러스터·모든 namespace·종류). 해피패스가 안정되면 README의 순서로 좁힌다. 팀 의견(먼저 넉넉하게, 이후 세분화)을 따른다.
 * 단, **적용 커밋은 처음부터 고정한다.** develop은 승인 0이라 "사람이 검토·병합한 상태만 적용"이 병합만으로는 성립하지 않는다. 고객 클러스터는 설치 값 `targetRevision`(검토한 전체 커밋 SHA)만 적용하고, 승격은 그 값을 바꾸는 것이다(#592 리뷰 P1).
 * 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform`을 Application으로 붙인다. 고객용 설치 차트는 고객 클러스터 전용이다.
+* **사람의 클러스터 접근(`operator-access`, #627): 개발 기간에는 tailnet 관리자 전원이 cluster-admin이다**(2026-11-07 사용자 결정). tailnet API 프록시가 쿠버네티스 그룹 `bravo:operators`로 impersonate하고, 그 그룹의 ClusterRoleBinding은 Argo가 아니라 클러스터 관리자가 적용한다(Argo에 `bind` 권한을 주지 않는다).
 * 같은 자원의 주인은 하나다. 이 모듈을 적용하는 클러스터에서는 같은 경로를 만드는 기존 렌더러(rehearsal-access·executor-network·collector-network)를 쓰지 않고, 렌더러 경로는 담당 합의로 이 모듈로 옮긴다.
 
 ## 4. 결과
@@ -76,4 +77,5 @@
 * `infra/iac/environments/target-dev.json`: 지금은 데모 1번의 심은 결함(`open-demo`, `demo_run_id`)이다.
 * T11 `infra.plan`: 포트가 붙었을 때만 제공한다. 감사 기록에는 plan_digest·accepted·첫 거부 코드만 남긴다.
 * 남은 일(T44 할 일): 실제 Job에 포트 연결(T38·T11), 플랫폼 API·PR 생성 연결(T10), 병합된 원하는 상태의 적용기와 적용 뒤 IAM-01.1 재대조(T31 또는 Argo CD).
+* **노드 파일은 Argo가 아니라 노드 적용기가 적용한다**(`cluster-audit`, #645). API 서버가 시작할 때 노드에서만 읽는 파일이라 클러스터 안 Argo가 가질 수 없다. 첫 부팅은 온프렘 user-data, 실행 중인 노드는 `infra/iac/nodes/apply.py`가 검토한 sha256으로만 쓴다. 차트에는 넣지 않고 `bravo.dev/unmanaged`에 적는다.
 * 설계 문서(FR-3·NFR-7·8.3)의 반영은 버전을 올려 따로 한다.

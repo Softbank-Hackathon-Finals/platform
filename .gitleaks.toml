@@ -3,9 +3,9 @@
 [extend]
 useDefault = true
 
-[allowlist]
-description = "예외 목록 (항목마다 사유 주석 필수)"
-# 예시:
+# 예외가 생기면 아래 표를 주석 해제해 추가한다. 항목마다 사유 주석이 필수다.
+# 빈 [allowlist]는 gitleaks 8.25 이후 설정 오류("must contain at least one check")라 두지 않는다.
+# [allowlist]
+# description = "예외 목록 (항목마다 사유 주석 필수)"
 # # 사유: 테스트용 더미 키. 실제 자격 증명 아님 (담당자, 날짜)
 # regexes = ['''EXAMPLE_DUMMY_KEY''']
-paths = []

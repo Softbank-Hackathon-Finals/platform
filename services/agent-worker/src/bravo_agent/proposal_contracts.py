@@ -31,7 +31,10 @@ def validate_bound_product_response(result: dict, input_digest: str, runtime_sou
     No verification verdict or model audit is reconstructed here. The runtime
     SHA is the exact reviewed installation selected by trusted deployment code.
     """
-    if type(result) is not dict or set(result) != _RESPONSE_FIELDS:
+    if type(result) is not dict or set(result) - {"infra_plans"} != _RESPONSE_FIELDS:
+        raise ValueError("invalid product response")
+    if "infra_plans" in result and (type(result["infra_plans"]) is not list or not 1 <= len(result["infra_plans"]) <= 8
+                                    or not all(type(p) is dict for p in result["infra_plans"])):
         raise ValueError("invalid product response")
     bundle, _ = validate_result(result)
     task = FailureBundle.model_validate(result["task"])

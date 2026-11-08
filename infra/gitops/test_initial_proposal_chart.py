@@ -49,6 +49,20 @@ class InitialProposalChart(unittest.TestCase):
         self.assertEqual(docs["ValidatingAdmissionPolicyBinding"]["spec"]["validationActions"], ["Deny"])
         self.assertNotIn("RoleBinding", docs)
 
+    def test_the_workflow_host_may_create_only_jobs_here_when_asked(self):
+        off = render({"initialProposal": {"enabled": True, "brokerCaPem": CA}})
+        self.assertNotIn("workflow-host-initial-proposal", off.stdout)
+        on = render({"initialProposal": {"enabled": True, "brokerCaPem": CA, "hostCreatesJobs": True}})
+        self.assertEqual(on.returncode, 0, on.stderr)
+        docs = [d for d in yaml.safe_load_all(on.stdout) if d and d["metadata"]["name"] == "workflow-host-initial-proposal"]
+        role = next(d for d in docs if d["kind"] == "Role")
+        binding = next(d for d in docs if d["kind"] == "RoleBinding")
+        self.assertEqual(role["metadata"]["namespace"], "bravo-initial")
+        self.assertEqual({(r["resources"][0], tuple(r["verbs"])) for r in role["rules"]},
+                         {("jobs", ("create", "get", "list")), ("pods", ("get", "list")), ("pods/log", ("get",))})
+        self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "t10-workflow-host",
+                                                "namespace": "platform-state"}])
+
     def test_private_key_or_missing_ca_is_refused(self):
         for value in ("", "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"):
             self.assertNotEqual(render({"initialProposal": {"enabled": True, "brokerCaPem": value}}).returncode, 0)

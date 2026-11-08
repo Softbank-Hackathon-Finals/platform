@@ -16,6 +16,21 @@
       "max_clock_skew_seconds": 2,
       "unknown_limit": 3,
       "basis": "설계 5.3 부하 쓰기 50 + 읽기 150 req/s → 10초 창 약 2,000건(min_requests는 절반), 10% 단계 목적지 약 200건(min_pool_requests는 절반). 10장 데모의 가중치 전환 장면 40초(1:30~2:10)에 3단계라 창 10초. p95_ms_max는 8.6 '클라우드를 넘는 쓰기라 p95가 늘어나므로 실측 지연(T8)으로 정한다'에 따라 T8 · T17 실측 뒤 확정하는 자리값. stale_after_seconds는 창 2개."
+    },
+    {
+      "id": "demo-shift-floor",
+      "version": "1",
+      "status": "proposed",
+      "window_seconds": 10,
+      "min_requests": 100,
+      "min_pool_requests": 10,
+      "share_tolerance": 0.15,
+      "error_rate_max": 0.05,
+      "p95_ms_max": 3000,
+      "stale_after_seconds": 20,
+      "max_clock_skew_seconds": 2,
+      "unknown_limit": 3,
+      "basis": "T49 데모 하한(2026-11-08): 플랫폼 부하 Job 20 req/s(쓰기 5 + 읽기 15) → 10초 창 약 200건(min_requests는 절반), 10% 단계 목적지 약 20건(min_pool_requests는 절반). 운영 수준 트래픽이 없는 데모에서 SHIFT 경계(PASS 창에서만 10→50→100, 아니면 멈춤)를 보이기 위한 값. 실측 트래픽 기준은 demo-shift v1이다."
     }
   ]
 }

@@ -1,51 +1,6 @@
 {{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}
 ---
 {
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "bravo-observability"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "source-dev"
-  }
-}
----
-{
-  "apiVersion": "v1",
-  "kind": "Namespace",
-  "metadata": {
-    "annotations": {
-      "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
-      "argocd.argoproj.io/sync-wave": "-1"
-    },
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac"
-    },
-    "name": "tailscale-system"
-  }
-}
----
-{
   "apiVersion": "tailscale.com/v1alpha1",
   "kind": "ProxyGroup",
   "metadata": {
@@ -214,6 +169,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
@@ -327,11 +289,138 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
       "matchLabels": {
         "tailscale.com/parent-resource": "bravo-source-replication",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-source-gce-replication"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-source-gce-replication"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-source-gce-replication",
+      "tailscale.com/tailnet-fqdn": "bravo-target-gce-db.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "target-db-for-replication",
+    "namespace": "source-gce"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "postgres",
+        "port": 5432,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-source-gce-replication-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "source-gce"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app": "source-db"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-source-gce-replication",
         "tailscale.com/parent-resource-type": "proxygroup"
       }
     },
@@ -388,6 +477,68 @@
     },
     "name": "source-control-pooler-tailnet",
     "namespace": "source-dev"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "pooler",
+        "port": 6432,
+        "protocol": "TCP",
+        "targetPort": 5432
+      }
+    ],
+    "selector": {
+      "app": "source-pgbouncer"
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-source-gce-db",
+      "tailscale.com/tags": "tag:bravo-source-gce-db"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "source-db-tailnet",
+    "namespace": "source-gce"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "postgres",
+        "port": 5432,
+        "protocol": "TCP",
+        "targetPort": 5432
+      }
+    ],
+    "selector": {
+      "app": "source-db"
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-source-gce-control-pooler",
+      "tailscale.com/tags": "tag:bravo-source-gce-control-pooler"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "source-control-pooler-tailnet",
+    "namespace": "source-gce"
   },
   "spec": {
     "ports": [

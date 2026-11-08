@@ -43,6 +43,16 @@ compare 단계의 비교기는 `db_fingerprint.py`의 `DbFingerprintComparer`(�
 
 규칙 · 지원 타입 · 판정 · 연결 방법은 [계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)에, 시간과 전송량은 [로컬 측정 증거](../../docs/evidence/t13-db-fingerprint-2026-11-04/README.md)에 있다. `uv run python testing/measure_fingerprint.py --out results.json`으로 다시 잴 수 있다.
 
+## 컷오버 전 데이터 준비 관찰 (T19 게이트 입력)
+
+`POST /v1/readiness`(명령 자격)는 GATE의 데이터 준비 판정에 쓸 T13 관찰을 돌려준다. 판정은 하지 않는다(`readiness.py`).
+
+- 요청: 등록된 출발지 · 목적지 환경, 표, 시퀀스 열, `max_age_seconds`. 설정(`settings.tables` · `sequences`)에 없는 표 · 열, 등록되지 않은 환경 · 방향은 DB에 닿기 전에 거부한다.
+- 스키마 · 기본 키는 표마다 두 번 읽어 그 사이 변경을 잡는다. 복제 지연은 사전 확인과 같은 계산이고, 정방향 구독이 돌지 않으면 값을 비운다.
+- 시퀀스는 계약대로 `correct_sequence`로 목적지를 올리기만 하고 다시 읽은 값(`readback_next`)을 낸다. 목적지 앱 역할이 로그인할 수 없고 붙은 세션이 없을 때만 올린다. 아니면 행을 빼고 `sequence_errors`에 코드를 남긴다.
+- 끝나지 않은 실행이 있으면 409(`execution_in_progress`), 관찰이 유효 시간(최대 30초) 안에 끝나지 않으면 503(`readiness_capture_expired`)이다. 실패는 고정 코드만 내보낸다.
+- 운영자는 `operations/gate/run.py capture`로 부른다. 승인 호스트(명령 자격 보유)가 이 경로를 부르고, GATE 릴레이가 현재 context에 묶어 기록한다.
+
 ## 모의 환경 (k3d)
 
 T8(복제) · T30(목적지) 전에 Executor를 시험하는 곳. 클러스터 하나에 출발지 `src` · 목적지 `dst` 네임스페이스를 두고 각각 Postgres 16 · PgBouncer 1.26.1 · demo-chat 2개를 띄운다. 가짜 AWS(moto)는 `aws` 네임스페이스. 복제는 직접 만든 구독으로 흉내 낸다: `dst`의 `bravo_fwd`(src → dst, 켜짐), `src`의 `bravo_rev`(dst → src, 꺼짐).
