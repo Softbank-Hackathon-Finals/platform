@@ -11,6 +11,7 @@ Each use is recorded once per gate and plan version.
 
 import hashlib
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -322,13 +323,25 @@ class DelegatedShift:
         log = logging.getLogger(__name__)
         run_id = f"t49-{plan_id}-v{version}"
 
+        cached = {}
+
         def principal():
-            return self.delegations.principal_for(plan_id, "shift", binding={"edge_run": run_id}, version=version)
+            # ShiftRuntime reads this inside its own plan transaction; principal_for opens another one, which
+            # PostgreSQL refuses (storage_unavailable). Make it outside and reuse it until shortly before expiry.
+            held = cached.get("principal")
+            if held is None or held.expires_at - time.time() < 20:
+                held = cached["principal"] = self.delegations.principal_for(
+                    plan_id, "shift", binding={"edge_run": run_id}, version=version)
+            return held
 
         authority = (_demo_shift_authority() if self.demo else ShiftAuthority)(
             self.store, run_id=run_id, load_session=self.load_session, clock=_now)
-        host = ShiftHost(self.store, self.provider, self.journal, authority=authority, clock=_now)
+        host = (_demo_shift_host() if self.demo else ShiftHost)(self.store, self.provider, self.journal,
+                                                                authority=authority, clock=_now)
         try:
+            principal()  # before any plan transaction (above)
+            if self.demo:
+                _demo_origin(self.provider, self.journal)
             try:
                 authority.register(principal(), plan_id, run_id=run_id, profile=self.profile,
                                    binding=self.provider.binding)
@@ -342,6 +355,32 @@ class DelegatedShift:
         except Exception as error:  # noqa: BLE001  (the plan stays in SHIFT; a person decides)
             log.info("delegated shift %s stopped: %s", plan_id, getattr(error, "code", type(error).__name__))
             return None
+
+
+def _demo_shift_host():
+    """T49 demo: every SLI judgement of the run is recorded as PASS, so the Edge goes 10 -> 50 -> 100 at once."""
+    from bravo_edge_control.host import ShiftHost
+
+    class DemoShiftHost(ShiftHost):
+        def _judge(self, c, plan_id, current, stage):
+            decision, observation, previous = super()._judge(c, plan_id, current, stage)
+            return dict(decision, verdict="PASS", reasons=[], action="ADVANCE_ALLOWED"), observation, previous
+
+    return DemoShiftHost
+
+
+def _demo_origin(provider, journal):
+    """T49 demo: a new run starts from the origin (weight 0). A previous demo run left at 100% is restored first."""
+    import time as _time
+
+    from bravo_edge_control.control import Command, Controller
+
+    controller = Controller(provider, journal, authorize=lambda _command: True)
+    last = controller.latest_receipt()
+    if last and last["status"] == "CONFIRMED" and last["weight_target"] != 0:
+        controller.execute(Command(plan_id=last["plan_id"], run_id=last["run_id"],
+                                   operation_id=f"demo-origin-{int(_time.time())}", expected_revision=last["revision"],
+                                   expected_weight=last["weight_target"], weight_target=0, reason="SHIFT"))
 
 
 def _demo_shift_authority():

@@ -232,7 +232,7 @@ def demo_reader(state, *, change=None, plans=None):
 
 
 def demo_collector(store, plans):
-    """T49 demo mode: COLLECT -> ANALYZE for the selected plans without a T16 scan (background sweep)."""
+    """T49 demo mode: COLLECT -> ANALYZE for the selected plans (None: every plan) without a T16 scan (background sweep)."""
     from datetime import UTC, datetime
 
     from .plans import CollectionProof
@@ -241,7 +241,7 @@ def demo_collector(store, plans):
         with store._transaction() as c:
             rows = [dict(r) for r in c.execute("SELECT plan_id, spec_json FROM plans WHERE state='COLLECT'").fetchall()]
         for row in rows:
-            if row["plan_id"] in plans:
+            if plans is None or row["plan_id"] in plans:
                 spec = json.loads(row["spec_json"])
                 store.complete_collection(
                     CollectionProof(row["plan_id"], spec["plan_digest"], spec["collection_scope_digest"],

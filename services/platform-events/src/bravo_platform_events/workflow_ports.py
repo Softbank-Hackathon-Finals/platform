@@ -198,8 +198,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
     if (skip is None or set(demo) - {"skip", "plans", "change", "collect", "interval"} or type(skip) is not list
             or set(skip) - {"ANALYZE", "PROPOSE", "REHEARSE", "GATE", "WATCH"}
             or (plans is not None and (type(plans) is not list or not all(type(p) is str for p in plans)))
-            or ("change" in demo and set(demo["change"]) != {"diff_hash", "image_digest"})
-            or (demo.get("collect") and plans is None)):
+            or ("change" in demo and set(demo["change"]) != {"diff_hash", "image_digest"})):
         raise ValueError("workflow_demo_configuration_invalid")
     from .workflow import demo_collector, demo_reader
 
@@ -207,6 +206,6 @@ def create_ports(store, config_file="/workflow/ports.json"):
         preparers.pop(state, None)  # WATCH: also no watch-fail record, so no delegated failback
         readers[state] = demo_reader(state, change=demo.get("change"), plans=set(plans) if plans else None)
     if demo.get("collect"):
-        background.append(demo_collector(store, set(plans)))
+        background.append(demo_collector(store, set(plans) if plans else None))  # no list: every new plan
     return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
             "background": background, "demo_skip": skip, "demo_interval": demo.get("interval")}
