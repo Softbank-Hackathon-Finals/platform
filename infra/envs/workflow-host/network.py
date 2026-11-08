@@ -27,6 +27,15 @@ from the existing runtime-database policy (bravo.dev/db-client=runtime). This ad
       grep -E '^[0-9.]+$' | sort -u | sed 's/^/--artifact-storage=/' |
       xargs python3 infra/envs/workflow-host/network.py | kubectl apply -f -
 
+- with --candidate-registry (T49 2026-11-08: the platform builds candidates itself, no GitHub in the happy path):
+  a separate policy `t10-workflow-host-candidate-registry`, TCP 443 to the resolved public /32s of the private
+  ECR registry endpoint only. The host reads manifests and pushes blobs/manifests there; it never downloads
+  blobs (the base image configs are pinned), so the S3 layer storage is not opened.
+  ponytail: resolved addresses again (no FQDN policy); re-render if the registry endpoint moves.
+
+    dig +short A <account>.dkr.ecr.ap-northeast-2.amazonaws.com | grep -E '^[0-9.]+$' |
+      sed 's/^/--candidate-registry=/' | xargs python3 infra/envs/workflow-host/network.py | kubectl apply -f -
+
 The T31 apply route (host -> bravo-apply-egress proxies -> target API) and the proxies' ingress from
 this host are declared in infra/iac/environments/platform.json (tailnet-egress, T44), not here.
 
@@ -102,15 +111,16 @@ def kube_api(endpoints):
              for ip, port in peers]}}]}
 
 
-def artifact_storage(ips):
-    """Egress to the artifact storage accounts' public addresses (TCP 443), as its own NetworkPolicy."""
+def artifact_storage(ips, name="t10-workflow-host-artifact-storage"):
+    """Egress to public addresses (TCP 443) as its own NetworkPolicy: GitHub's artifact storage, or the
+    private ECR registry endpoint (name t10-workflow-host-candidate-registry)."""
     out = sorted({str(ipaddress.ip_address(ip)) for ip in ips})
     if not out or len(out) > 32 or any(ipaddress.ip_address(ip).is_private for ip in out):
         raise ValueError("artifact_storage_ips_unexpected")
     labels = {"app.kubernetes.io/name": "t10-workflow-host", "component": "platform"}
     return {"apiVersion": "v1", "kind": "List", "items": [
         {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
-         "metadata": {"name": "t10-workflow-host-artifact-storage", "namespace": "platform-state", "labels": labels},
+         "metadata": {"name": name, "namespace": "platform-state", "labels": labels},
          "spec": {"podSelector": {"matchLabels": HOST}, "policyTypes": ["Egress"], "egress": [
              {"to": [{"ipBlock": {"cidr": ip + "/32"}} for ip in out], "ports": [{"port": 443, "protocol": "TCP"}]}]}}]}
 
@@ -120,6 +130,9 @@ def _check():
     assert blob == [{"to": [{"ipBlock": {"cidr": "20.150.82.228/32"}}, {"ipBlock": {"cidr": "52.239.172.36/32"}}],
                      "ports": [{"port": 443, "protocol": "TCP"}]}]
     assert len(artifact_storage([f"20.209.226.{i}" for i in range(15)])["items"][0]["spec"]["egress"][0]["to"]) == 15
+    registry = artifact_storage(["13.124.118.182"], "t10-workflow-host-candidate-registry")["items"][0]
+    assert registry["metadata"]["name"] == "t10-workflow-host-candidate-registry" and registry["spec"]["egress"] == [
+        {"to": [{"ipBlock": {"cidr": "13.124.118.182/32"}}], "ports": [{"port": 443, "protocol": "TCP"}]}]
     try:
         artifact_storage(["10.0.0.1"])
         raise AssertionError("private artifact address accepted")
@@ -167,7 +180,13 @@ if __name__ == "__main__":
         parser.add_argument("--kube-api", action="append", help="API server endpoint ip:port (alone: only that policy)")
         parser.add_argument("--artifact-storage", action="append", help="artifact storage public IPv4 (alone: only that policy)")
         parser.add_argument("--aws-endpoints", help="JSON list: platform-gate-signer output endpoint_ips")
+        parser.add_argument("--candidate-registry", action="append",
+                            help="private ECR registry endpoint public IPv4 (alone: only that policy)")
         args = parser.parse_args()
+        if args.candidate_registry:
+            json.dump(artifact_storage(args.candidate_registry, "t10-workflow-host-candidate-registry"), sys.stdout,
+                      indent=1)
+            sys.exit(0)
         if args.artifact_storage:
             json.dump(artifact_storage(args.artifact_storage), sys.stdout, indent=1)
             sys.exit(0)

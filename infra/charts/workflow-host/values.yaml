@@ -1,4 +1,4 @@
-# Image: the registration image (Product Reader packages + pinned git, needed by the candidate writer).
+# Image: the registration image (Product Reader packages, the platform candidate builder).
 image:
   repository: ghcr.io/softbank-hackathon-finals/platform-registration
   digest: ""
@@ -11,7 +11,7 @@ configuration:
 reader:
   existingConfigMap: ""
   catalogClaim: ""
-# Writer dispatch times and the demo-chat object clone; must survive restarts.
+# Platform candidate build receipts and the AI Job ledger; must survive restarts.
 stateClaim: ""
 secrets:
   database: platform-runtime-db
@@ -19,8 +19,9 @@ secrets:
   catalogKey: ""
   # ca.crt and read-token for the Cutover Executor read API (no command token).
   executor: ""
-  # private-key.pem of the bravo-platform-host GitHub App (optional: empty = operator pins only).
-  githubApp: ""
+  # .dockerconfigjson that pushes platform-built candidates to the private ECR repository (T49, no GitHub;
+  # refreshed by the platform's ECR credential Job). Mounted at /ecr-push; PROPOSE holds without it.
+  candidatePush: ""
   # kubeconfig of the target apply-deployer (T31 REHEARSE; short-lived token; optional: empty = no apply).
   applyKubeconfig: ""
   # kubeconfig of the platform's bravo-t14-collector on the target (ADR-0041 watch.target_controls; optional).
