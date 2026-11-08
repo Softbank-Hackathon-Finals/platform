@@ -32,6 +32,23 @@ def test_complete_sequence_and_restart_do_not_repeat_effects(tmp_path):
     assert len(f.upstream.patches) == 4
 
 
+def test_the_happy_path_sequence_holds_at_100_for_the_cutover_and_restart_sends_nothing(tmp_path):
+    f = Fixture(tmp_path)
+    seen = []
+
+    def receive(value):
+        if "receipt" in value:
+            seen.append(value["receipt"]["weight_target"])
+            f.window(value["receipt"]["weight_target"])
+
+    result = runtime(f).sequence(stop=Event(), emit=receive, hold_at_full=True)
+    assert result["status"] == "AT_FULL" and result["receipt"]["weight_target"] == 100
+    assert seen == [10, 50, 100] and len(f.upstream.patches) == 3
+    f.host = f.reopen()
+    assert runtime(f).sequence(stop=Event(), hold_at_full=True)["status"] == "AT_FULL"
+    assert len(f.upstream.patches) == 3
+
+
 def test_failure_window_automatically_restores_and_stays_aborted_on_restart(tmp_path):
     f = Fixture(tmp_path)
 

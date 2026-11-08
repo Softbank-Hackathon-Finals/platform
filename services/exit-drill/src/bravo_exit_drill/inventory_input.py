@@ -1,6 +1,6 @@
 """T16 인벤토리 읽기. T16 출력 형식을 아는 곳은 이 파일뿐이다.
 
-T16 계약(docs/contracts/T16-inventory-v1-proposal.md)은 아직 제안 상태다. 형식이 바뀌면
+T16 계약(docs/contracts/T16-inventory-v1.md)은 v1로 고정됐다. 형식이 바뀌면
 이 파일과 그 시험만 고친다. 필드 이름뿐 아니라 등급 · 역할 · 환경 종류 값의 뜻도 여기서 풀어,
 나머지 모듈은 아래 Dependency · InventoryView만 본다.
 """

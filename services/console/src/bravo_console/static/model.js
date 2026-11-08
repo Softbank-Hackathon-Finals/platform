@@ -534,9 +534,59 @@ export function observation(value, current, now) {
         values[key] = v;
       }
     }
-    rows.push({ side, state: row.state, ...values });
+    // Heartbeat age is optional for older hosts; when present it must be plausible.
+    let received = null;
+    if (row.state === "OK" && row.last_received_seconds_ago != null) {
+      const age = row.last_received_seconds_ago;
+      if (typeof age !== "number" || !Number.isFinite(age) || age < 0 || age > 30)
+        fail("invalid_observation_value");
+      received = age;
+    }
+    rows.push({ side, state: row.state, ...values, received, pooler: pooler(row.pooler) });
   }
   return rows;
+}
+
+// T37 PgBouncer view for display. PAUSED is a normal cutover state, shown as
+// "쓰기 일시 정지"; it is never an execution or gate condition.
+function pooler(value) {
+  if (value === undefined || value === null) return { state: "NOT_CONFIGURED" };
+  if (
+    !object(value) ||
+    !["OK", "PAUSED", "DOWN", "UNOBSERVABLE"].includes(value.state) ||
+    !Array.isArray(value.databases) ||
+    value.databases.length > 32
+  )
+    fail("invalid_observation_pooler");
+  if (value.state === "UNOBSERVABLE") {
+    if (value.databases.length || value.last_received_seconds_ago !== null)
+      fail("invalid_observation_pooler");
+    return { state: "UNOBSERVABLE" };
+  }
+  const age = value.last_received_seconds_ago;
+  if (typeof age !== "number" || !Number.isFinite(age) || age < 0 || age > 30)
+    fail("invalid_observation_pooler");
+  if (!value.databases.length) fail("invalid_observation_pooler");
+  let waiting = 0;
+  const paused = [];
+  for (const db of value.databases) {
+    const w = db?.clients_waiting;
+    if (
+      !object(db) ||
+      typeof db.name !== "string" ||
+      !db.name.length ||
+      db.name.length > 63 ||
+      typeof db.paused !== "boolean" ||
+      (w !== null && (typeof w !== "number" || !Number.isFinite(w) || w < 0))
+    )
+      fail("invalid_observation_pooler");
+    if (db.paused) paused.push(db.name);
+    waiting = waiting === null || w === null ? null : waiting + w;
+  }
+  // The label must agree with the rows it summarises.
+  if ((value.state === "PAUSED") !== paused.length > 0 && value.state !== "DOWN")
+    fail("invalid_observation_pooler");
+  return { state: value.state, received: age, paused, waiting };
 }
 
 export const CONTROL_TESTS = Object.freeze({

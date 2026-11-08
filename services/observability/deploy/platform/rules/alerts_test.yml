@@ -11,6 +11,8 @@ tests:
         values: '1x12'
       - series: 'up{bravo_env="onprem", job="bravo-collector", instance="forged"}'
         values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x40'
     alert_rule_test:
       - eval_time: 140s
         alertname: BravoEnvUnobservable
@@ -36,6 +38,8 @@ tests:
     input_series:
       - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
         values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x10'
     alert_rule_test:
       - eval_time: 60s
         alertname: BravoEnvUnobservable
@@ -43,6 +47,22 @@ tests:
           - exp_labels: {severity: page, bravo_env: aws}
             exp_annotations:
               summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # 플랫폼 클러스터 자신의 Collector가 한 번도 보고하지 않았다. 고객 환경이 살아 있어도 platform은 확인 불가다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: platform}
+            exp_annotations:
+              summary: "platform 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
 
   # 전송 실패 · 대기열 · 거부. 사칭 시계열은 무시한다.
@@ -164,6 +184,8 @@ tests:
       - series: 'up{bravo_signal="collector-self", bravo_env="aws"}'
         values: '0x10'
       - series: 'up{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 30s
@@ -487,3 +509,38 @@ tests:
       alertname: BravoForwardSlotUnobservable
       exp_alerts:
       - *id001
+  # 컷오버 전: 목적지(onprem)는 정방향 구독을 받고 있고, 그 DB의 역방향 슬롯은 대기 중이다. 지연 · 비활성 알림이 없고
+  # 대기 WAL이 1GiB를 넘으면 BravoStandbySlotWalHigh만 낸다. 컷오버로 구독이 꺼지면(aws 쪽 예) 비활성이 다시 알림이다.
+  - interval: 1m
+    input_series:
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", slot_name="t8_target_to_source", slot_type="logical"}'
+        values: '201326264x10 2000000000x20'
+      - series: 'cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", subname="t8_target_to_source"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BravoReplicationSlotLagHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BravoReplicationSlotInactive
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: aws, cnpg_cluster: source-db, slot_name: t8_source_to_target}
+            exp_annotations:
+              summary: "aws/source-db 논리 복제 슬롯 t8_source_to_target이 10분 넘게 비활성이다. WAL이 쌓인다"
+              runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      - eval_time: 9m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: BravoStandbySlotWalHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem, cnpg_cluster: target-db, slot_name: t8_target_to_source}
+            exp_annotations:
+              summary: "onprem/target-db 되돌리기 대기 슬롯 t8_target_to_source이 WAL을 1GiB 넘게 붙잡고 있다"
+              runbook: docs/observability/runbooks.md#bravostandbyslotwalhigh

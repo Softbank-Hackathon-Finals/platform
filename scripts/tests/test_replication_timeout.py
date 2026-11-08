@@ -61,9 +61,11 @@ class TimeoutRenderTests(unittest.TestCase):
         self.assertEqual(source_render.REPLICATION_TIMEOUTS, target_render.REPLICATION_TIMEOUTS)
 
     def test_only_the_two_timeouts_are_added(self):
+        # The target also caps WAL kept for its disabled reverse slot, next to the external cluster it declares.
+        added = {"source": {}, "target": {"max_slot_wal_keep_size": "1GB"}}
         for side, parameters in self.parameters.items():
             with self.subTest(side=side):
-                self.assertEqual(parameters, {**SHARED_BEFORE, **TIMEOUTS})
+                self.assertEqual(parameters, {**SHARED_BEFORE, **TIMEOUTS, **added[side]})
 
     def test_a_shared_constant_is_not_handed_out_for_editing(self):
         parameters = self.parameters["target"]

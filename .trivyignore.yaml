@@ -27,3 +27,29 @@ misconfigurations:
       - infra/envs/sandbox-session/main.tf
     expired_at: 2026-11-30
     statement: Agent sandbox Docker host needs TCP 443 to dnf mirrors, the registry for digest-pinned images and SSM, whose addresses change. Sandbox containers run with network_mode none and cannot use it; inbound is the platform node /32 on Docker mTLS only; no public IP. Restrict to VPC endpoints or remove with the stack after the demo.
+  - id: AVD-AWS-0087
+    paths:
+      - infra/envs/oidc-issuer/main.tf
+    statement: T48 public OIDC issuer. Tailscale must read each cluster's discovery document and public keys anonymously; the bucket policy opens exactly those two objects per environment (pinned by terraform test), object ACLs stay blocked, and the keys come from Git with a precondition that refuses private members.
+  - id: AVD-AWS-0093
+    paths:
+      - infra/envs/oidc-issuer/main.tf
+    statement: T48 public OIDC issuer. Same two anonymous-read objects per environment as AVD-AWS-0087; nothing else in the bucket is public and non-TLS access is denied.
+  - id: AVD-AWS-0132
+    paths:
+      - infra/envs/oidc-issuer/main.tf
+    statement: T48 public OIDC issuer. Anonymous readers cannot use a KMS key, so the public discovery and JWKS objects use SSE-S3; the bucket holds no secret (public keys only).
+  - id: AVD-KSV-0056
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    statement: T48 Tailscale operator (upstream chart 1.104.4, sha256-pinned render). It must create and update Services, Endpoints, EndpointSlices and NetworkPolicies for the proxies it runs; this is the RBAC already running on the source cluster, taken over by GitOps unchanged.
+  - id: AVD-KSV-0014
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    expired_at: 2026-11-30
+    statement: T48 upstream chart default container securityContext, taken over as it runs on the source cluster (only the API proxy mode changes). Hardening through operatorConfig.securityContext restarts the operator and is its own reviewed change.
+  - id: AVD-KSV-0118
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    expired_at: 2026-11-30
+    statement: T48 upstream chart default pod and container securityContext, taken over unchanged from the running source operator. Hardening is a separate reviewed change before the expiry.

@@ -1,0 +1,6 @@
+{
+  "evaluation_profiles": [
+    {"tenant_id": "bravo", "profile_id": "demo-gate", "profile_version": "1"},
+    {"tenant_id": "bravo", "profile_id": "apply-recheck", "profile_version": "1"}
+  ]
+}

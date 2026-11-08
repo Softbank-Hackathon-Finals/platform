@@ -135,6 +135,8 @@ python3 infra/envs/rehearsal-access/access.py target-apply \
 
 T31은 지정한 Deployment 한 개의 get/watch/patch, 같은 namespace의 Pod get/list만 갖는다. Deployment 생성·삭제, pods/exec, Secret, RBAC 변경 권한은 없다. 초기 앱 배포는 T30의 승인된 배포 경로가 담당하며 T31은 검증·승인한 이미지 digest의 승격을 맡는다. 이 출력만으로 실제 앱이 배포되지는 않는다.
 
+`--exposure`(ADR-0044, 기본은 끔)를 주면 T31이 이미지 뒤에 첨부 버킷을 닫을 수 있게, 같은 Role에 이름이 정해진 두 자원만 더한다: Secret `target-seaweedfs-auth`의 get/update, Deployment `target-seaweedfs`의 get/watch/patch. 그 Secret에는 저장소의 bootstrap 키가 있으므로 이 옵션을 켜는 것은 T31 신원이 그 키를 읽는다는 뜻이다. 다른 Secret 조회·목록, Secret 생성·삭제, 저장소 삭제는 여전히 없다.
+
 T15 AI 실행 신원은 기존 [T3 템플릿](../../../services/rehearsal-runner/templates/)의 `rehearsal-exec`를 사용한다. namespace를 만들고 지우는 관리 신원, 검증 Job을 구성하는 러너, AI 도구 신원을 구별한다. RBAC는 `rehearsal-*` 접두사만으로 namespace 생성 권한을 제한하지 못한다. 신뢰된 관리 경계와 UID 조건 삭제가 필요하다. 관리 러너가 읽을 시험 버킷 Secret 한 건을 AI 신원의 Role에 추가하면 안 된다. 같은 namespace의 Pod 생성 권한은 간접 Secret mount 가능성도 있으므로 보호된 검증 자격을 그곳에 두는 것으로 격리했다고 주장하지 않는다.
 
 ## 확인 및 정리

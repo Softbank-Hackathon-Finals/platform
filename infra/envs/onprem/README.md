@@ -130,7 +130,7 @@ RKE2와 CIS 기준은 `infra/shared/rke2/bootstrap.sh` 한 곳에 있고 T7 플�
 
 RKE2 버전은 `render-user-data.sh`에 고정돼 있다. T7의 `rke2_version` 기본값과 출발지 EKS의 Kubernetes 1.35에 맞췄다. 올릴 때는 세 곳을 같이 본다.
 
-감사 정책 원본은 [`rke2-audit-policy.yaml`](../../../services/control-runner/templates/rke2-audit-policy.yaml) 한 곳이다. user-data는 이 파일을 그대로 넣는다. T7 EC2는 `bootstrap.sh`만 쓰므로 이 정책을 받지 않는다.
+감사 정책 원본은 [`rke2-audit-policy.yaml`](../../../services/control-runner/templates/rke2-audit-policy.yaml) 한 곳이다. user-data는 T44 노드 묶음 [`infra/iac/nodes/<환경>`](../../iac/nodes)(기본 `target-dev`, `BRAVO_NODE_ENV`로 바꾼다)을 `manifest.json` 그대로 조립한다. 묶음은 원본과 바이트가 같고(시험 고정), 해시가 맞지 않으면 user-data를 내지 않는다. T7 EC2는 `bootstrap.sh`만 쓰므로 이 정책을 받지 않는다. 실행 중인 플랫폼 노드는 `infra/iac/nodes/apply.py`로 맞춘다([IaC 안내](../../iac/README.md)).
 
 ## 후속 작업이 알아야 할 것
 

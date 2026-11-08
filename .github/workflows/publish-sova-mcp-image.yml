@@ -1,0 +1,75 @@
+name: publish-sova-mcp-image
+
+# T21: SOVA MCP host image. Only a commit already on develop is built, scanned, then
+# pushed with the job's short-lived GITHUB_TOKEN. Deployment pins the printed digest
+# (infra/charts/sova-mcp); a tag is never a deployment input.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full platform commit already merged into develop
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sova-mcp-image-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      IMAGE: ghcr.io/softbank-hackathon-finals/platform-sova-mcp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a develop commit
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/develop
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build one image for the platform node (amd64)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/sova-mcp/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/Softbank-Hackathon-Finals/platform
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          tags: ${{ env.IMAGE }}:sha-${{ env.SOURCE_SHA }}
+      - name: Scan before obtaining publisher credentials
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}:sha-${{ env.SOURCE_SHA }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          timeout: 10m
+      - name: Publish and print the digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:sha-$SOURCE_SHA"
+          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$SOURCE_SHA" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "### sova-mcp" >> "$GITHUB_STEP_SUMMARY"
+          echo "source \`$SOURCE_SHA\` → \`$IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# GCE user-data for one RKE2 node. Same layering as the T2 on-prem generator and the T7 AWS host:
+# the shared bootstrap (CIS profile, pinned release), the platform audit policy, and Tailscale installed
+# but not logged in. No secret is placed here; user-data stays readable on the instance.
+set -euo pipefail
+umask 077
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates python3
+echo 'RKE2_VERSION=${rke2_version}' >/etc/bravo-node.env
+export RKE2_VERSION='${rke2_version}'
+
+install -d -m 700 /etc/rancher /etc/rancher/rke2 /etc/rancher/rke2/config.yaml.d
+install -m 600 /dev/stdin /etc/rancher/rke2/audit-policy.yaml <<'AUDIT_POLICY'
+${audit_policy}
+AUDIT_POLICY
+
+# Artifact Registry pulls with the node service account (IAM: one repository, reader). The kubelet asks
+# this plugin per image; the token comes from the metadata server and is never written to disk.
+install -d -m 755 /var/lib/rancher/credentialprovider/bin
+install -m 755 /dev/stdin /var/lib/rancher/credentialprovider/bin/gcp-metadata-credential-provider <<'PROVIDER'
+#!/usr/bin/python3
+import json
+import sys
+import urllib.request
+
+json.load(sys.stdin)  # CredentialProviderRequest; the registry below is the only one matched
+request = urllib.request.Request(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    headers={"Metadata-Flavor": "Google"})
+token = json.load(urllib.request.urlopen(request, timeout=5))
+json.dump({
+    "kind": "CredentialProviderResponse",
+    "apiVersion": "credentialprovider.kubelet.k8s.io/v1",
+    "cacheKeyType": "Registry",
+    "cacheDuration": str(max(60, int(token["expires_in"]) - 300)) + "s",
+    "auth": {"${registry}": {"username": "oauth2accesstoken", "password": token["access_token"]}},
+}, sys.stdout)
+PROVIDER
+install -m 600 /dev/stdin /var/lib/rancher/credentialprovider/config.yaml <<'CONFIG'
+apiVersion: kubelet.config.k8s.io/v1
+kind: CredentialProviderConfig
+providers:
+  - name: gcp-metadata-credential-provider
+    matchImages: ["${registry}"]
+    defaultCacheDuration: 10m
+    apiVersion: credentialprovider.kubelet.k8s.io/v1
+CONFIG
+install -m 600 /dev/stdin /etc/rancher/rke2/config.yaml.d/90-bravo-gcp-credential-provider.yaml <<'DROPIN'
+image-credential-provider-bin-dir: /var/lib/rancher/credentialprovider/bin
+image-credential-provider-config: /var/lib/rancher/credentialprovider/config.yaml
+DROPIN
+%{ if public_issuer != "-" ~}
+
+# Public issuer first: new ServiceAccount tokens carry it, and Tailscale fetches its keys from the public
+# copy (ADR-0035). The cluster-internal issuer stays accepted so existing tokens keep working.
+install -m 600 /dev/stdin /etc/rancher/rke2/config.yaml.d/80-bravo-sa-issuer.yaml <<'ISSUER'
+kube-apiserver-arg:
+  - service-account-issuer=${public_issuer}
+  - service-account-issuer=https://kubernetes.default.svc.cluster.local
+  - service-account-jwks-uri=${public_issuer}/openid/v1/jwks
+ISSUER
+%{ endif ~}
+
+cat >/run/bravo-rke2-bootstrap.sh <<'BOOTSTRAP'
+${rke2_bootstrap}
+BOOTSTRAP
+bash /run/bravo-rke2-bootstrap.sh
+
+# Pods must not reach the metadata server (node token). The CRDs come with the Canal chart, so retry
+# until they exist; the ready marker below is written only after the guard is in place.
+install -m 600 /dev/stdin /run/bravo-metadata-guard.yaml <<'GUARD'
+${metadata_guard}
+GUARD
+for attempt in $(seq 1 60); do
+  /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml apply -f /run/bravo-metadata-guard.yaml && break
+  sleep 5
+done
+/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get clusternetworkpolicy bravo-deny-instance-metadata >/dev/null
+
+curl --fail --silent --show-error --location --retry 3 https://tailscale.com/install.sh -o /run/install-tailscale.sh
+sh /run/install-tailscale.sh
+touch /var/lib/bravo-runtime-ready

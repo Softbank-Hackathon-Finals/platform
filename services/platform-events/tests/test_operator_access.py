@@ -297,18 +297,12 @@ def test_http_real_signatures_and_current_access_protect_snapshot_sse_and_mutati
                                      ("Authorization", headers["Authorization"])]).status_code == 403
 
 
-def test_grant_cutoff_requires_new_authentication_not_only_token_refresh(secured):
+def test_a_reissued_grant_keeps_an_earlier_authentication(secured):
+    # T49: a system re-issue of the grant no longer forces a new login; the grant window still applies.
     f = secured
     f.access.set_permissions(SPEC.plan_id, f.operator, permissions=["read", "approve_cutover"],
         valid_after=f.now, expires_at=EXPIRES, expected_revision=0,
-        administration_ref="fixture-force-reauth", command_key="reauth")
-    with pytest.raises(EventError, match="forbidden"):
-        f.approve()
-    f.operator = f.identity.verifier.verify(f.identity.token(iat=EPOCH + 1, nbf=EPOCH + 1))
-    with pytest.raises(EventError, match="forbidden"):
-        f.approve()
-    f.operator = f.identity.verifier.verify(f.identity.token(iat=EPOCH + 1, nbf=EPOCH + 1,
-                                                            auth_time=EPOCH + 1))
+        administration_ref="fixture-reissue", command_key="reauth")
     assert f.approve()["actor_id"] == f.operator.subject_id
 
 
