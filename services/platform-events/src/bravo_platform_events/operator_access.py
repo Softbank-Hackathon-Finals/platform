@@ -203,7 +203,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                                change_authority=None, change_authority_wrapper=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
                                change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15,
-                               list_tasks=None, delegated_shift=None):
+                               list_tasks=None, delegated_shift=None, first_run=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -226,7 +226,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         bindings=bindings, authority=access.failback_authority(failback_authority), read_integrity=read_integrity,
         edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
     rehearsals = None if rehearsal_host is None else RehearsalService(
-        store, host=rehearsal_host, check_start=access.requires("start_rehearsal"))
+        store, host=rehearsal_host, check_start=access.requires("start_rehearsal"), first_run=first_run)
     from .workflow_stages import ShiftApprovalService
 
     shift_service = ShiftApprovalService(store, check_approve=access.requires("approve_shift"), clock=clock)

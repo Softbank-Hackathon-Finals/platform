@@ -21,6 +21,7 @@ files only (`/rehearsal/operator.json`):
                          "subject_id": "platform-approval-host",
                          "source_revision": "<40 lowercase hex>",
                          "registrar": {"tenant_id": "<tenant>", "subject_id": "<operator grant>"}},
+                                            # or false: review off, as before #924 (T49 demo, switched on later)
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -214,28 +215,35 @@ def create(store, config_file=CONFIG):
     authority = records.cutover_authority(
         upstream=current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
         load_gate=load_gate)
-    from . import gate_services
-    from .operator_access import OperatorAccess
-    from .security_governance import SecurityProgramRecords, SecurityReviewAuthority, review_ports
+    change_wrapper = None
+    if config["security_review"] is not False:  # T49: false = review off (the db16f140 behaviour) until it is switched on
+        from . import gate_services
+        from .operator_access import OperatorAccess
+        from .security_governance import (
+            SecurityProgramRecords,
+            SecurityReviewAuthority,
+            review_ports,
+        )
 
-    clock = gate_services.server_clock
-    transport, credential, subject_id, source_revision = review_ports(config["security_review"], clock=clock)
-    access = OperatorAccess(store, clock=clock)
+        clock = gate_services.server_clock
+        transport, credential, subject_id, source_revision = review_ports(config["security_review"], clock=clock)
+        access = OperatorAccess(store, clock=clock)
 
-    def authorize(connection, principal, plan, permission):
-        access.require(connection, principal, plan, permission)
-        return True
+        def authorize(connection, principal, plan, permission):
+            access.require(connection, principal, plan, permission)
+            return True
 
-    programs = SecurityProgramRecords(store, authorize=authorize, load_session=authority.load_session,
-                                      baseline_sha=source_revision, clock=clock)
-    authority = SecurityReviewAuthority(upstream=authority, records=programs,
-        requirements=(("patch", "postflight"), ("migration", "preflight")),
-        transport=transport, credential_for=credential, subject_id=subject_id, clock=clock)
+        programs = SecurityProgramRecords(store, authorize=authorize, load_session=authority.load_session,
+                                          baseline_sha=source_revision, clock=clock)
+        authority = SecurityReviewAuthority(upstream=authority, records=programs,
+            requirements=(("patch", "postflight"), ("migration", "preflight")),
+            transport=transport, credential_for=credential, subject_id=subject_id, clock=clock)
 
-    def secure_change(upstream):
-        return SecurityReviewAuthority(upstream=upstream, records=programs,
-            requirements=(("patch", "preflight"),), transport=transport,
-            credential_for=credential, subject_id=subject_id, clock=clock)
+        def secure_change(upstream):
+            return SecurityReviewAuthority(upstream=upstream, records=programs,
+                requirements=(("patch", "preflight"),), transport=transport,
+                credential_for=credential, subject_id=subject_id, clock=clock)
+        change_wrapper = secure_change
     failback = {}
     if config.get("failback") is True:
         failback = {"failback_authority": current_failback(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
@@ -250,8 +258,8 @@ def create(store, config_file=CONFIG):
     shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate)
              } if type(delegation) is dict else {}
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
-                            change_authority_wrapper=secure_change, **failback, **iac,
-                            delegation=delegation is not False, **shift)
+                            change_authority_wrapper=change_wrapper, **failback, **iac,
+                            delegation=delegation is not False, first_run=rehearsal.first_run, **shift)
 
 
 def _delegated_shift(edge, profile_file, records, load_gate):
