@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 const root = new URL("../src/bravo_console/static/", import.meta.url);
 const html = readFileSync(new URL("index.html", root), "utf8");
 for (const name of [
+  "observation-app.js",
+  "observation-model.js",
+  "observation.css",
   "app.js",
   "audit.js",
   "security-progress.js",

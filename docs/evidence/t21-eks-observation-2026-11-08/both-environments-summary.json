@@ -1,0 +1,48 @@
+{
+  "kind": "console-two-environment-observation.v1",
+  "source_revision": "f669842b9f87e1f42afe5053084cb1685100ee57",
+  "queried_at": "2026-11-07T16:58:55.395389+00:00",
+  "environment_statuses": [
+    {
+      "lane": "source",
+      "status": "CURRENT"
+    },
+    {
+      "lane": "target",
+      "status": "CURRENT"
+    }
+  ],
+  "api_nodes": 29,
+  "rendered_nodes": 29,
+  "rendered_links": 27,
+  "http_probe_links": 2,
+  "api_revision": 3,
+  "rendered_revision": "3",
+  "javascript_errors": 0,
+  "authorizes_execution": false,
+  "operational_plan_connected": false,
+  "migration_verified": false,
+  "read_only_changes_status": {
+    "cutover": 405,
+    "registration": 405
+  },
+  "evidence_summary_only": true,
+  "originals": [
+    {
+      "artifact": "browser-result.json",
+      "sha256": "5c28029c50211d6f78b6fb95ceaead5106ae634e7008c828ace0b4bf24a63ad5"
+    },
+    {
+      "artifact": "browser-document.json",
+      "sha256": "7b0c35840742fada1cc36e7f8ca9eda6b1f256180f73c8dbd836eff0723b5b52"
+    },
+    {
+      "artifact": "live-desktop.png",
+      "sha256": "7e6be05a0fe2abba32b61a3f472677aafe0c52f9ca6f52d10a1ce3c0f12388e2"
+    },
+    {
+      "artifact": "live-mobile.png",
+      "sha256": "19021706df7fa21bd3726c1972d492b01bf3f38232f78da3b4a9d5163058d5ac"
+    }
+  ]
+}

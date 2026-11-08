@@ -6,6 +6,8 @@ changes only where the human decision comes from:
 
 - A human approves the exact drill spec (`spec_digest`: plan, run, T36 profile, LB) once, as a T10
   `approval_kind=infra` approval on a plan that has not reached SHIFT (requester != approver, <= 24 h).
+  The requester may be the agent that prepared the spec; the approving human may then run it (ADR-0039,
+  2026-11-08 amendment: a demo drill needs one present human, not two).
 - `register` claims that approval once for this run (`apply_infra`; the approver must still hold
   `approve_infra`). Every later step re-reads approval, claim, revocation, expiry, plan version and
   both grants under the plan lock, as ShiftAuthority does for a SHIFT approval.
@@ -78,7 +80,11 @@ class DrillAuthority:
                 or not isinstance(binding, Binding) or asdict(binding) != self.spec["lb_binding"]):
             raise EdgeError("drill_spec_mismatch")
         _profile_valid(profile, plan_id, self.clock)
-        return self.approvals.claim(principal, plan_id, self.approval_id, run_id=run_id, plan_digest=self.digest)
+        # T10 compares the whole binding. The drill fixes the plan id (its run) and the spec digest;
+        # the spec names no requester, so the requester is the one T10 recorded (approver != it).
+        requested_by = self.approvals.read(principal, plan_id, self.approval_id)["binding"]["requested_by"]
+        binding = dict(infra_plan_id=run_id, plan_digest=self.digest, requested_by=requested_by)
+        return self.approvals.claim(principal, plan_id, self.approval_id, run_id=run_id, binding=binding)
 
     def proof(self, c, plan):
         """The approval and its claim for this drill, valid now; otherwise refuse."""

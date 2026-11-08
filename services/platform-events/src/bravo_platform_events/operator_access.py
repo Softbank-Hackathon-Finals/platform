@@ -30,7 +30,8 @@ PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_
 # SHIFT/cutover, and publishing or managing signature records. Granted per plan like the others.
 GATE_PERMISSIONS = frozenset({"gate:record", "gate:read", "gate:bind", "gate:evaluate", "gate:consume",
                               "gate:use-exception", "gate:publish-provenance", "gate:manage-provenance"})
-PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS
+SECURITY_PERMISSIONS = frozenset({"security:read", "security:register"})
+PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS | SECURITY_PERMISSIONS
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key, "infra": infra_key}
 
 
@@ -124,8 +125,9 @@ class OperatorAccess:
         grant = self._grant(c, plan["plan_id"], subject_id)
         if (grant is None or grant["tenant_id"] != plan["tenant_id"]
                 or permission not in grant["permissions"]
-                or not _timestamp(grant["valid_after"]).timestamp() <= now < _timestamp(grant["expires_at"]).timestamp()
-                or (authenticated_at is not None and authenticated_at < _timestamp(grant["valid_after"]).timestamp())):
+                or not _timestamp(grant["valid_after"]).timestamp() <= now < _timestamp(grant["expires_at"]).timestamp()):
+        # T49: a grant re-issued by the system (e.g. a security-review update) no longer drops an earlier
+        # authentication or the delegation built on it; the grant's own window and permissions still apply.
             raise EventError("forbidden")
         return grant
 
@@ -199,9 +201,10 @@ class OperatorAccess:
 
 def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
                                authority=unavailable_authority,
-                               change_authority=None, failback_authority=None,
+                               change_authority=None, change_authority_wrapper=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
-                               change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15):
+                               change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15,
+                               list_tasks=None, delegated_shift=None, first_run=None, auto_approver=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -209,6 +212,10 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         if change_intake.store is not store or change_authority is not None:
             raise ValueError("single_change_intake_required")
         change_authority = change_intake.current
+    if change_authority_wrapper is not None:
+        if change_authority is None or not callable(change_authority_wrapper):
+            raise ValueError("change_authority_wrapper_invalid")
+        change_authority = change_authority_wrapper(change_authority)
     if registered_pair is not None:
         bindings = executor.verified_bindings(registered_pair)
     access = OperatorAccess(store, clock=clock)
@@ -220,7 +227,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         bindings=bindings, authority=access.failback_authority(failback_authority), read_integrity=read_integrity,
         edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
     rehearsals = None if rehearsal_host is None else RehearsalService(
-        store, host=rehearsal_host, check_start=access.requires("start_rehearsal"))
+        store, host=rehearsal_host, check_start=access.requires("start_rehearsal"), first_run=first_run)
     from .workflow_stages import ShiftApprovalService
 
     shift_service = ShiftApprovalService(store, check_approve=access.requires("approve_shift"), clock=clock)
@@ -245,7 +252,10 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     if change_intake is not None:
         app.include_router(intake_router(change_intake))
     if delegations is not None:
-        _run_delegated_gates(app, DelegatedGates(store, delegations, cutover=service, failback=failback_service),
+        shift = delegated_shift(store, delegations) if delegated_shift is not None else None
+        _run_delegated_gates(app, DelegatedGates(store, delegations, cutover=service, failback=failback_service,
+                                                 rehearsal=rehearsals, list_tasks=list_tasks, shift=shift,
+                                                 auto_approver=auto_approver),
                              sweep_seconds)
     return app
 

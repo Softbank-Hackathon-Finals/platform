@@ -30,6 +30,8 @@ class Module:
     grants: Callable[[dict], list[dict]] = lambda params: []  # tailnet grants the module needs
     # tags the module puts on tailnet devices: [{"tailnet", "tag", "owner"}], for the policy's tagOwners
     tag_owners: Callable[[dict], list[dict]] = lambda params: []
+    # policy autoApprovers the module needs: [{"tailnet", "kind" ("services"), "name", "approver"}]
+    auto_approvers: Callable[[dict], list[dict]] = lambda params: []
 
 
 # --- target-object-exposure v1 ---------------------------------------------------------------
@@ -242,7 +244,10 @@ def _egress_render(params: dict) -> list[dict]:
             "ingress": [
                 {"from": [{"podSelector": {"matchLabels": {"app": "operator"}}}],
                  "ports": [{"protocol": "TCP", "port": OPERATOR_HEALTH_PORT}]},
-                {"from": [_client_peer(c) for c in group["clients"]], "ports": [_proxy_range()]}]}})
+                {"from": [_client_peer(c) for c in group["clients"]], "ports": [_proxy_range()]},
+                # WireGuard from tailnet peers for direct connections. tailscaled picks a random port per Pod,
+                # so all UDP; without it the proxy falls back to DERP relays (replication throughput and lag).
+                {"ports": [{"protocol": "UDP"}]}]}})
     return out
 
 
@@ -407,7 +412,7 @@ API_PROXY_PORT = "tcp:443"
 
 
 def _access_check(params: dict) -> dict:
-    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet",))
+    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet", "legacy_reach"))
     bindings = params["bindings"]
     if type(bindings) is not list or not 1 <= len(bindings) <= 4:
         raise IacError("IAC_PARAMS_INVALID")
@@ -431,6 +436,16 @@ def _access_check(params: dict) -> dict:
             raise IacError("IAC_PARAMS_INVALID")
         out["bindings"].append({"name": name, "group": group, "cluster_role": role,
                                 "tailnet_groups": sorted(sources)})
+    if "legacy_reach" in params:
+        # Reach to the proxy without a capability: an older per-person path (its own RBAC, no impersonated
+        # group) kept until its users move to a binding. Declared so the policy check knows it; removing
+        # the line removes it from the live policy too. Never also a binding source.
+        legacy = params["legacy_reach"]
+        bound = {s for b in out["bindings"] for s in b["tailnet_groups"]}
+        if (type(legacy) is not list or not 1 <= len(legacy) <= 4 or len(set(map(str, legacy))) != len(legacy)
+                or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in legacy) or bound & set(legacy)):
+            raise IacError("IAC_PARAMS_INVALID")
+        out["legacy_reach"] = sorted(legacy)
     return out
 
 
@@ -447,13 +462,17 @@ def _access_grants(params: dict) -> list[dict]:
     # One grant both opens the proxy port and tells the proxy which Kubernetes group to impersonate.
     return [{"tailnet": tailnet_of(params), "src": [src], "dst": [params["proxy_tag"]],
              "ip": [API_PROXY_PORT], "app": {KUBERNETES_CAP: [{"impersonate": {"groups": [b["group"]]}}]}}
-            for b in params["bindings"] for src in b["tailnet_groups"]]
+            for b in params["bindings"] for src in b["tailnet_groups"]] + [
+        {"tailnet": tailnet_of(params), "src": [src], "dst": [params["proxy_tag"]], "ip": [API_PROXY_PORT]}
+        for src in params.get("legacy_reach", [])]
 
 
 def _access_exposure(params: dict) -> dict:
     # A new binding, another role or another tailnet group is a widening; removing a binding is not.
-    reach = sorted(f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
-                   f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"] for src in b["tailnet_groups"])
+    reach = sorted([f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
+                    f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"] for src in b["tailnet_groups"]]
+                   + [f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]}) legacy reach'
+                      for src in params.get("legacy_reach", [])])
     return {"anonymous": [], "reach": reach, "checks": []}
 
 
@@ -467,6 +486,8 @@ OPERATOR_ACCESS = Module(
             "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
                            "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
                            "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "legacy_reach": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                               "type": "string", "pattern": TAILNET_GROUP_RE.pattern}},
                            "bindings": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
                                "type": "object", "additionalProperties": False,
                                "required": ["name", "group", "cluster_role", "tailnet_groups"],
@@ -480,3 +501,118 @@ OPERATOR_ACCESS = Module(
     exposure=_access_exposure,
     grants=_access_grants,
 )
+
+
+def _api_transport_check(params: dict) -> dict:
+    """Transport only: the existing Kubernetes/IAM authenticator still decides access."""
+    _exact(params, ("proxy_hostname", "proxy_tag", "tailnet_groups"), ("tailnet",))
+    sources = params["tailnet_groups"]
+    if (type(sources) is not list or not 1 <= len(sources) <= 4
+            or len(set(map(str, sources))) != len(sources)
+            or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in sources)):
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"proxy_hostname": _name(params["proxy_hostname"]), "proxy_tag": _tag(params["proxy_tag"]),
+           "tailnet_groups": sorted(sources)}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    return out
+
+
+def _api_transport_grants(params: dict) -> list[dict]:
+    return [{"tailnet": tailnet_of(params), "src": [source], "dst": [params["proxy_tag"]],
+             "ip": [API_PROXY_PORT]} for source in params["tailnet_groups"]]
+
+
+def _api_transport_exposure(params: dict) -> dict:
+    return {"anonymous": [], "checks": [], "reach": sorted(
+        f'{source}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]}):443 existing-kubernetes-auth'
+        for source in params["tailnet_groups"])}
+
+
+API_TRANSPORT_ACCESS = Module(
+    id="api-transport-access", version="1",
+    description="Private HTTPS reachability to an existing Kubernetes API proxy. Does not impersonate, "
+                "create RBAC or replace existing Kubernetes/IAM authentication.",
+    params={"type": "object", "additionalProperties": False,
+            "required": ["proxy_hostname", "proxy_tag", "tailnet_groups"],
+            "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
+                           "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "tailnet_groups": {"type": "array", "minItems": 1, "maxItems": 4,
+                                              "items": {"type": "string", "pattern": TAILNET_GROUP_RE.pattern}}}},
+    check=_api_transport_check, render=lambda params: [], exposure=_api_transport_exposure,
+    grants=_api_transport_grants,
+)
+
+
+# --- workload-api-access v1 (T48) ---------------------------------------------------------------
+# A separate auth-mode API server proxy for platform workloads (a kube-apiserver ProxyGroup), next to a
+# transport proxy for people (api-transport-access): one proxy is never both. A workload authenticates with
+# its tailnet tag; each binding gives one source tag its own Kubernetes group, bound to one namespace's Role,
+# so two executors never share rights. The ProxyGroup and RoleBindings are rendered into
+# infra/iac/operators/<environment> (the operator Application); this module gives the policy its part.
+SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
+
+
+def _workload_check(params: dict) -> dict:
+    _exact(params, ("proxy_hostname", "proxy_tag", "owner_tag", "bindings"), ("tailnet",))
+    bindings = params["bindings"]
+    if type(bindings) is not list or not 1 <= len(bindings) <= 4:
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"proxy_hostname": _name(params["proxy_hostname"]), "proxy_tag": _tag(params["proxy_tag"]),
+           "owner_tag": _tag(params["owner_tag"]), "bindings": []}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    for binding in bindings:
+        _exact(binding, ("source", "group", "namespace", "role"))
+        group, namespace = binding["group"], _name(binding["namespace"])
+        if (not isinstance(group, str) or not K8S_GROUP_RE.fullmatch(group) or group.startswith("system:")
+                or namespace in SYSTEM_NAMESPACES
+                or any(b["source"] == binding["source"] or b["group"] == group for b in out["bindings"])):
+            raise IacError("IAC_PARAMS_INVALID")  # one tag, one group: pairs stay apart
+        out["bindings"].append({"source": _tag(binding["source"]), "group": group, "namespace": namespace,
+                                "role": _name(binding["role"])})
+    if out["proxy_tag"] in {b["source"] for b in out["bindings"]}:
+        raise IacError("IAC_PARAMS_INVALID")
+    return out
+
+
+def _workload_grants(params: dict) -> list[dict]:
+    return [{"tailnet": tailnet_of(params), "src": [b["source"]], "dst": [params["proxy_tag"]],
+             "ip": [API_PROXY_PORT], "app": {KUBERNETES_CAP: [{"impersonate": {"groups": [b["group"]]}}]}}
+            for b in params["bindings"]]
+
+
+def _workload_exposure(params: dict) -> dict:
+    return {"anonymous": [], "checks": [], "reach": sorted(
+        f'{b["source"]}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
+        f' as {b["group"]} in {b["namespace"]}:{b["role"]}' for b in params["bindings"])}
+
+
+WORKLOAD_API_ACCESS = Module(
+    id="workload-api-access", version="1",
+    description="An auth-mode API server proxy (kube-apiserver ProxyGroup) for platform workloads: each tailnet "
+                "tag impersonates its own Kubernetes group, bound to one namespace's Role. No AWS or token.",
+    params={"type": "object", "additionalProperties": False,
+            "required": ["proxy_hostname", "proxy_tag", "owner_tag", "bindings"],
+            "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
+                           "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "owner_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "bindings": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                               "type": "object", "additionalProperties": False,
+                               "required": ["source", "group", "namespace", "role"],
+                               "properties": {"source": {"type": "string", "pattern": TAG_RE.pattern},
+                                              "group": {"type": "string", "pattern": K8S_GROUP_RE.pattern},
+                                              "namespace": {"type": "string", "pattern": NAME_RE.pattern},
+                                              "role": {"type": "string", "pattern": NAME_RE.pattern}}}}}},
+    check=_workload_check, render=lambda params: [], exposure=_workload_exposure, grants=_workload_grants,
+    tag_owners=lambda params: [{"tailnet": tailnet_of(params), "tag": params["proxy_tag"], "owner": params["owner_tag"]}],
+    auto_approvers=lambda params: [{"tailnet": tailnet_of(params), "kind": "services",
+                                    "name": f'svc:{params["proxy_hostname"]}', "approver": params["proxy_tag"]}],
+)
+

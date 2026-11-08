@@ -1,0 +1,10 @@
+{
+  "region": "ap-northeast-1",
+  "bindings": [
+    {"function_name": "pii-check", "handler": "pii_check.handler", "handler_path": "/var/task",
+     "queue_name": "message-created", "batch_size": 10, "timeout_s": 5, "max_concurrency": 2,
+     "pass_env": ["DB_DSN"]},
+    {"function_name": "slow-check", "handler": "slow.handler", "handler_path": "/var/task",
+     "queue_name": "slow-check", "batch_size": 1, "timeout_s": 1, "max_concurrency": 1}
+  ]
+}

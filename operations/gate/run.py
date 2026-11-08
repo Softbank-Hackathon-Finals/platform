@@ -49,6 +49,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 PURPOSES = ("context", "run-source", "run-target", "readiness-binding", "readiness-snapshot", "gate-result")
 RELAY = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
          "-c", "host", "--", "python", "-m", "bravo_platform_events.gate_relay"]
+EVALUATE_MARGIN = timedelta(seconds=10)
 OBSERVER = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t15-rehearsal-host",
             "-c", "host", "--", "python", "-m", "bravo_platform_events.readiness_observer"]
 READINESS = ("readiness-binding", "readiness-snapshot")
@@ -58,6 +59,14 @@ MAX_KEY_HOURS = 48
 
 class RelayFailed(Exception):
     """The relay did not answer PASS or HOLD (kubectl, timeout, crash): exit 1, never a hold."""
+
+
+class Hold(RuntimeError):
+    """A hold that also prints what the operator decides on next: fixed codes and digests only."""
+
+    def __init__(self, code, **detail):
+        super().__init__(f"hold:{code}")
+        self.detail = detail
 
 
 def _private_dir(path):
@@ -163,6 +172,82 @@ def sign_requests(plan_id, subjects, keys, purposes, confirm, now, ttl):
     return requests
 
 
+# One exec for many requests: the deployed gate_relay.handle, one JSON line in, one out (same answers as
+# `python -m bravo_platform_events.gate_relay`). capture uses it: import + DB connect cost ~5 s per exec,
+# five of them outlived a 30 s readiness record (live S1, 11/8).
+LOOP = """
+import json, sys
+from pathlib import Path
+from bravo_gate.contract import GateError
+from bravo_platform_events import gate_relay, gate_services
+from bravo_platform_events.operator_access import OperatorAccess
+from bravo_platform_events.postgres import PostgresPlanStore
+from bravo_platform_events.store import EventError
+from bravo_platform_events.window_server import runtime_connection
+store = PostgresPlanStore(runtime_connection()); access = OperatorAccess(store)
+records = gate_services.gate_records(store, access)
+config = json.loads(Path(gate_relay.RELAY_CONFIG).read_text())
+print(json.dumps({"status": "READY"}), flush=True)
+for line in sys.stdin:
+    try:
+        out = {"status": "PASS", **gate_relay.handle(records, json.loads(line), config, access=access)}
+    except (EventError, GateError) as error:
+        code = getattr(error, "code", None) or (error.args[0] if error.args else "")
+        out = {"status": "HOLD", "code": code if isinstance(code, str) and gate_relay._CODE.fullmatch(code)
+               else type(error).__name__}
+    except Exception as error:
+        out = {"status": "FAIL", "reason": type(error).__name__}
+    print(json.dumps(out, sort_keys=True), flush=True)
+"""
+
+
+def answer(answer, stderr=""):
+    if answer.get("status") == "PASS":
+        return answer
+    if answer.get("status") == "HOLD":
+        raise RuntimeError(f"hold:{answer.get('code')}")
+    # kubectl or the relay failed: its own last line (local terminal only), never a hold
+    raise RelayFailed(answer.get("reason") or (stderr.strip().splitlines() or ["no_output"])[-1][:200])
+
+
+class Session:
+    """A relay kept open for one command: `with Session(argv) as call:` answers like relay_with(argv)."""
+
+    def __init__(self, argv, timeout=120):
+        self.argv, self.timeout = argv, timeout
+
+    def __enter__(self):
+        self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL, text=True)
+        if self._read().get("status") != "READY":
+            self.__exit__()
+            raise RelayFailed("relay_session_unavailable")
+        return self.call
+
+    def _read(self):
+        import select
+
+        if not select.select([self.proc.stdout], [], [], self.timeout)[0]:
+            raise RelayFailed("relay_timeout")
+        line = self.proc.stdout.readline()
+        try:
+            return json.loads(line) if line else {}
+        except ValueError:
+            return {}
+
+    def call(self, request):
+        self.proc.stdin.write(json.dumps(request) + "\n")
+        self.proc.stdin.flush()
+        return answer(self._read())
+
+    def __exit__(self, *_):
+        self.proc.stdin.close()
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
 def relay_with(argv):
     def call(request):
         try:
@@ -172,15 +257,10 @@ def relay_with(argv):
             raise RelayFailed("relay_timeout") from None
         lines = result.stdout.strip().splitlines()
         try:
-            answer = json.loads(lines[-1]) if lines else {}
+            value = json.loads(lines[-1]) if lines else {}
         except ValueError:
-            answer = {}
-        if answer.get("status") == "PASS":
-            return answer
-        if answer.get("status") == "HOLD":
-            raise RuntimeError(f"hold:{answer.get('code')}")
-        # kubectl or the relay failed: its own last line (local terminal only), never a hold
-        raise RelayFailed(answer.get("reason") or (result.stderr.strip().splitlines() or ["no_output"])[-1][:200])
+            value = {}
+        return answer(value, result.stderr)
     return call
 
 
@@ -198,7 +278,16 @@ def capture(args, *, relay, observe, clock):
     if args.evaluate:
         # The GATE record is written once per context: a data BLOCK (one lag spike) would cost the context.
         if recorded["data"]["decision"] != "PASS" and not getattr(args, "record_block", False):
-            raise RuntimeError("hold:readiness_data_block")
+            # The readiness record stays signed: the operator sees why it blocks and what is already published.
+            raise Hold("readiness_data_block",
+                       blocked=[{"test_id": r["test_id"], "reason": r["reason"]} for r in recorded["data"]["blocked"]],
+                       published=out["published"])
+        # Signing goes through kubectl exec round trips; a PASS that expires before the platform evaluates
+        # it becomes a freshness BLOCK for the whole context (live S1, 11/8: 37 s for a 30 s record).
+        # ponytail: fixed margin for one evaluate round trip (5-9 s measured); measure it if exec gets slower
+        if (recorded["data"]["decision"] == "PASS" and clock() + EVALUATE_MARGIN
+                >= datetime.fromisoformat(recorded["data"]["valid_until"])):
+            raise RuntimeError("hold:readiness_expires_before_evaluate")
         out["evaluated"] = relay({"op": "evaluate", "plan_id": args.plan_id})["evaluated"]
     out["elapsed_s"] = round(time.monotonic() - started, 1)
     return out
@@ -264,11 +353,17 @@ def main(argv=None):
     relay = relay_with([part.format(context=args.context) for part in (args.relay or RELAY)])
     observe = relay_with([part.format(context=args.context) for part in (args.observer or OBSERVER)])
     try:
-        print(json.dumps({"status": "DONE", **run(args, relay=relay, now=datetime.now(UTC), observe=observe)},
-                         indent=2))
+        if args.command == "capture" and not args.relay:
+            # warm before the observation: the record's 30 s start at the Executor's observation
+            session = [part.format(context=args.context) for part in RELAY[:RELAY.index("-m")]] + ["-c", LOOP]
+            with Session(session) as relay:
+                out = run(args, relay=relay, now=datetime.now(UTC), observe=observe)
+        else:
+            out = run(args, relay=relay, now=datetime.now(UTC), observe=observe)
+        print(json.dumps({"status": "DONE", **out}, indent=2))
         return 0
     except RuntimeError as error:
-        print(json.dumps({"status": "HOLD", "reason": str(error)[:200]}))
+        print(json.dumps({"status": "HOLD", "reason": str(error)[:200], **getattr(error, "detail", {})}))
         return 10
     except (RelayFailed, ValueError, KeyError, OSError) as error:
         print(json.dumps({"status": "FAILED", "reason": f"{type(error).__name__}:{str(error)[:160]}"}))

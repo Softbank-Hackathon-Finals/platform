@@ -21,6 +21,11 @@ or argv:
   socket with `application_name=<marker>` and checks `rolsuper`, then searches that container's own log
   (`pods/log`) until the marker's `connection authorized` line appears or 3 minutes pass. No DB password
   is handled. Neither environment ships CNPG logs to a store yet (ADR-0037).
+- either role, app -> pooler TLS (`pooler-tls`, ENC-01.1, apply-recheck:1): a qualified psql 18 (path, sha256,
+  version) connects with sslmode=verify-full through a loopback port-forward to the registered pooler
+  (`PGHOSTADDR` 127.0.0.1, `PGHOST` the name its certificate carries). The app's DB password is read from
+  the variable `password_env` names (from the app's own credential Secret). A wrong CA, a wrong hostname and
+  plaintext stay the collector's ENC-01.2/.3. The evidence records the client as `port-forward`.
 - target, OpenBao (`openbao`): when the Runner calls the collector, each ServiceAccount's token file
   (`kubectl create token`, mode 0600) is exchanged for an OpenBao token through the registered Kubernetes
   auth mount; the accessor binds the identity. Both tokens are revoked (revoke-self) after the collector
@@ -41,7 +46,9 @@ I/O).
 """
 
 import argparse
+import hashlib
 import http.client
+import ipaddress
 import json
 import os
 import stat
@@ -50,8 +57,18 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ADAPTERS = {"source": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}, "AUD-01.1": {"pod-log"}},
-            "target": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}, "AUD-01.1": {"pod-log"}}}
+# ADR-0034 both.control_probes: operator adapters by environment kind. Each test id here is one the
+# kind's probe registry (bravo_controls.default_registry) supports; gcp has no operator adapter yet.
+KIND_ADAPTERS = {"aws": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}, "AUD-01.1": {"pod-log"},
+                         "ENC-01.1": {"pooler-tls"}},
+                 "onprem": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}, "AUD-01.1": {"pod-log"},
+                            "ENC-01.1": {"pooler-tls"}},
+                 "gcp": {}}
+# The registration names a role; the aws->onprem demo fixes each role's kind.
+ROLE_KIND = {"source": "aws", "target": "onprem"}
+ADAPTERS = {role: KIND_ADAPTERS[kind] for role, kind in ROLE_KIND.items()}
+# ENC-01.1 from outside the namespace: the client is the port-forward, recorded as such in the evidence.
+POOLER_CLIENT = "port-forward"
 SESSION_SECONDS = 900
 CANARY_WINDOW = timedelta(minutes=3)
 POLL_SECONDS = 3
@@ -93,7 +110,6 @@ class Evidence:
 def assume_role_provider(profile, *, clock=lambda: datetime.now(UTC)):
     """role -> TemporaryCredentials, from the operator's own profile (STS AssumeRole, 15 minutes)."""
     import botocore.session
-
     from bravo_controls.aws_identity import TemporaryCredentials
 
     def provide(role):
@@ -264,6 +280,36 @@ class DbLoginAuditRun:
         return observation
 
 
+POOLER_FIELDS = {"adapter", "namespace", "pooler_uid", "hostname", "address", "port", "database", "username",
+                 "ca_file", "wrong_ca_file", "password_env", "psql", "psql_sha256", "psql_version"}
+
+
+def pooler_tls_probe(app, environment, entry, sink, *, environ=os.environ):
+    """ENC-01.1 (verify-full to the pooler) through a loopback port-forward to the registered pooler.
+
+    TLS is end to end with the pooler, so this shows the pooler's own certificate chain, hostname and
+    minimum version; it does not show the app namespace's network path. The app credential comes from
+    the named variable only and never reaches argv, a file or the evidence.
+    """
+    from bravo_controls.postgres_tls import PoolerTarget, PoolerTLSProbe
+
+    if type(entry) is not dict or set(entry) != POOLER_FIELDS:
+        raise ValueError("pooler_tls_fields")
+    if not ipaddress.ip_address(entry["address"]).is_loopback:
+        raise ValueError("pooler_tls_requires_port_forward")
+    password = environ.get(entry["password_env"])
+    if not password:
+        raise ValueError("credentials_missing:ENC-01.1")  # names only; values never printed
+    target = PoolerTarget(app, environment, entry["namespace"], POOLER_CLIENT, entry["pooler_uid"],
+                          "sha256:" + hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest(),
+                          entry["hostname"], entry["address"], entry["port"], entry["database"],
+                          entry["username"], Path(entry["ca_file"]).read_bytes(),
+                          Path(entry["wrong_ca_file"]).read_bytes())
+    return PoolerTLSProbe(target, executable=Path(entry["psql"]), executable_sha256=entry["psql_sha256"],
+                          psql_version=entry["psql_version"], credential_provider=lambda _context: password,
+                          evidence_sink=sink)
+
+
 def build_probes(registration, environment, evidence, *, environ=os.environ, aws_provider=assume_role_provider,
                  bao_login=openbao_login, bao_revoke=openbao_revoke, read=Path.read_text, kube=kubectl):
     """test id -> collector, only for tests the registration names with an adapter of the environment's role."""
@@ -308,6 +354,8 @@ def build_probes(registration, environment, evidence, *, environ=os.environ, aws
                                                          evidence_sink=evidence.sink(test_id))
         elif adapter == "pod-log":
             probes[test_id] = DbLoginAuditRun(entry, evidence.sink(test_id), kube=kube)
+        elif adapter == "pooler-tls":
+            probes[test_id] = pooler_tls_probe(app, environment, entry, evidence.sink(test_id), environ=environ)
         else:  # openbao
             from bravo_controls.openbao import BaoTarget
 

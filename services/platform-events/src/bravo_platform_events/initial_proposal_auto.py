@@ -100,7 +100,8 @@ class InClusterKubectl:
                 out = ("job.batch/" + json.loads(out)["metadata"]["name"]).encode() if status < 300 else out
             elif args[:2] == ["get", "job"]:
                 status, out = self.send("GET", f"{jobs}/{quote(args[2], safe='')}")
-            elif args[0] == "logs" and args[1].startswith("job/") and args[2:4] == ["--tail", "1"]:
+            elif (args[0] == "logs" and args[1].startswith("job/") and args[2:3] == ["--tail"]
+                  and args[3].isdigit() and 1 <= int(args[3]) <= 1000):
                 name = args[1].removeprefix("job/")
                 status, out = self.send("GET", f"/api/v1/namespaces/{self.namespace}/pods?labelSelector="
                                                 + quote(f"job-name={name}", safe=""))
@@ -110,7 +111,7 @@ class InClusterKubectl:
                     if not pods:
                         return 1, b"", b"no pod for job"
                     status, out = self.send("GET", f"/api/v1/namespaces/{self.namespace}/pods/"
-                                                   f"{quote(pods[-1]['metadata']['name'])}/log?tailLines=1")
+                                                   f"{quote(pods[-1]['metadata']['name'])}/log?tailLines={int(args[3])}")
             else:
                 raise ValueError("unsupported_kubernetes_call")
         except ValueError:

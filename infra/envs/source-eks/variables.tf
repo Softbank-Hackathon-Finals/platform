@@ -31,6 +31,15 @@ variable "node_release_version" {
   type        = string
 }
 variable "instance_type" { default = "t3.large" }
+variable "node_count" {
+  description = "Nodes in the source node group. 2 only while a test namespace source runs beside source-dev (T50)."
+  type        = number
+  default     = 1
+  validation {
+    condition     = contains([1, 2], var.node_count)
+    error_message = "node_count must be 1 or 2 (the group's max_size)."
+  }
+}
 variable "operator_principal_arn" {
   description = "Individual operator IAM role (SSO preferred) or existing personal IAM user for bootstrap validation only. Never an STS session ARN."
   type        = string

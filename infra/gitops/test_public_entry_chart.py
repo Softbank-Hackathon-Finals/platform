@@ -3,6 +3,7 @@
 # ///
 """Public entry: read-only Argo UI and the reconciler Application only with the reviewed development values."""
 import json
+import re
 import subprocess
 import sys
 import unittest
@@ -38,7 +39,23 @@ class PublicEntryChart(unittest.TestCase):
         self.assertTrue(kind(docs, "Deployment", "bravo-gitops-server"))
         cm = kind(docs, "ConfigMap", "argocd-cm")[0]["data"]
         self.assertEqual((cm["admin.enabled"], cm["exec.enabled"], cm["users.anonymous.enabled"]), ("false", "false", "true"))
-        self.assertEqual(kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]["policy.default"], "role:readonly")
+        rbac = kind(docs, "ConfigMap", "argocd-rbac-cm")[0]["data"]
+        # Anonymous sees Applications and projects only: no logs, no other resource kinds.
+        self.assertEqual(rbac["policy.default"], "role:platform-viewer")
+        self.assertNotIn("logs", rbac["policy.csv"])
+        # Applications whose values carry operational identifiers (hostAliases: private endpoints and IPs) stay hidden.
+        for project in ("platform-registration", "platform-rehearsal-host"):
+            self.assertIn(f"p, role:platform-viewer, applications, get, {project}/*, deny", rbac["policy.csv"])
+        # orphanedResources (any value) lists every unmanaged object of a destination namespace in the anonymous tree.
+        for template in (CHART / "templates").glob("*.yaml"):
+            self.assertNotIn("orphanedResources", template.read_text(), template.name)
+        # Every kind an Application ships must be tracked, or Argo skips it (ExcludedResourceWarning).
+        inclusions = yaml.safe_load(cm["resource.inclusions"])
+        tracked = {(g, k) for row in inclusions for g in row["apiGroups"] for k in row["kinds"]}
+        for group, kinds in (("external-secrets.io", ("ExternalSecret",)),
+                             ("networking.k8s.io", ("NetworkPolicy",)), ("", ("ConfigMap", "Service", "ServiceAccount"))):
+            for k in kinds:
+                self.assertIn((group, k), tracked)
         self.assertFalse(kind(docs, "ClusterRole") + kind(docs, "ClusterRoleBinding"))
 
         app = kind(docs, "Application", "platform-public-entry")[0]["spec"]
@@ -61,6 +78,18 @@ class PublicEntryChart(unittest.TestCase):
         app = kind(docs, "Application", "platform-observability")[0]["spec"]
         self.assertEqual(app["source"]["path"], "services/observability/deploy/platform-gitops")
         self.assertFalse(app["syncPolicy"]["automated"]["prune"])
+        # Argo rejects an Application whose destination namespace is not in its project (an empty one included).
+        # The release, not Argo, owns the Collector's Pod discovery grant (auth reconcile needs a cluster-scoped get).
+        role = next(d for d in kind(docs, "Role", "bravo-collector-db-discovery") if d["metadata"]["namespace"] == "platform-state")
+        self.assertEqual(role["rules"], [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]}])
+        binding = kind(docs, "RoleBinding", "bravo-collector-db-discovery")[0]
+        self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "bravo-collector", "namespace": "platform-telemetry"}])
+        controller = next(d for d in kind(docs, "Role", "platform-gitops-observability") if d["metadata"]["namespace"] == "platform-state")
+        self.assertNotIn("rbac.authorization.k8s.io", [g for r in controller["rules"] for g in r["apiGroups"]])
+        allowed = {d["namespace"] for d in kind(docs, "AppProject", "platform-observability")[0]["spec"]["destinations"]}
+        for name in ("platform-observability", "platform-public-entry"):
+            self.assertIn(kind(docs, "Application", name)[0]["spec"]["destination"].get("namespace"),
+                          allowed if name == "platform-observability" else {"platform-state"})
         project = kind(docs, "AppProject", "platform-observability")[0]["spec"]
         self.assertCountEqual([d["namespace"] for d in project["destinations"]],
                               ["bravo-observability", "platform-telemetry", "platform-state"])
@@ -92,6 +121,18 @@ class PublicEntryChart(unittest.TestCase):
         self.assertEqual(es["secretStoreRef"]["name"], "cloudflare-gitops-reader")
         spec = json.loads(kind(docs, "ConfigMap", "public-entry-spec")[0]["data"]["entries.json"])
         validate(spec)
+        # A public Argo answers 403 for APIs that run server-side work for anyone with `applications, get`.
+        argo = next(e for e in spec["entries"] if e["hostname"].startswith("platform-argocd."))
+        if argo.get("public"):
+            def denied(path):
+                return any(re.match(d, path) for d in argo["deny_paths"])
+            for path in ("/api/v1/applications/a/server-side-diff", "/api/v1/applications/a/manifests",
+                         "/api/v1/applications/manifestsWithFiles", "/api/v1/applications/a/revisions/r/metadata",
+                         "/application.ApplicationService/ServerSideDiff", "/application.ApplicationService/GetManifests"):
+                self.assertTrue(denied(path), path)
+            for path in ("/", "/applications", "/api/v1/applications", "/api/v1/applications/a",
+                         "/api/v1/applications/a/resource-tree", "/api/v1/stream/applications", "/assets/favicon/favicon-32x32.png"):
+                self.assertFalse(denied(path), path)
 
 
 if __name__ == "__main__":

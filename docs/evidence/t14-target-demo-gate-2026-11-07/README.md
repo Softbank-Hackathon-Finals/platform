@@ -32,3 +32,7 @@ T9 OpenBao 비교 역할 `t14-other`(#707, 22:0x 적용)가 생긴 뒤 같은 �
 - 첫 실행(22:53)은 SEC-01.1이 UNKNOWN(UNEXPECTED_RESPONSE)이었다. 실제 OpenBao 2.x가 KV 읽기 거부를 multierror 형식(`"1 error occurred:\n\t* permission denied\n\n"`)으로 돌려주는데, 수집기가 `"permission denied"` 한 형식만 받았다. 두 형식만 정확히 받도록 고친 뒤 다시 실행했다(이 PR).
 - 증거에는 비밀 값 · 토큰이 없다(SEC 증거는 단계 결과와 해시만).
 
+## 앱 쪽 신원을 `demo-chat`으로 (23:21 KST)
+
+#741로 앱 자기 SA `demo-chat`에 DB 경로 하나만 읽는 OpenBao 역할 `demo-chat`이 생겨서, SEC-01.1의 앱 쪽 신원을 ESO 읽기 계정(`target-eso-reader`)에서 `demo-chat`으로 바꿔 다시 실행했다. ESO 읽기 계정은 객체 · 관리자 경로도 읽으므로 앱 신원으로는 넓다. 결과는 같다: IAM-01.1 FAIL(open-demo) · **SEC-01.1 PASS**(`demo-chat` 읽기 성공, `t14-other` 403) · AUD-01.1 PASS. GATE 기록에는 이 실행을 쓴다.
+

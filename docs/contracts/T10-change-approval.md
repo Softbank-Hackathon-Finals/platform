@@ -66,46 +66,37 @@ T10은 기존 T11 Proposal 스키마, run/source, 허용 편집 경로와 원본
 T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 편집 결과인지 별도로 확인한다.
 검증용 후보 발행 영수증을 실제 계획의 영수증으로 재사용하지 않는다.
 
-### T7 발행 영수증을 읽는 운영자 연결
+### 플랫폼 후보 빌드 (ADR-0052, T49)
 
-[`candidate_publication`](../../services/platform-events/src/bravo_platform_events/candidate_publication.py)은
-기존 T7 `publish-candidate-image.yml`의 성공한 발행 기록을 읽는다. T10 호스트의
+2026-11-08 사용자 결정으로 해피패스에서 GitHub 개입을 제거했다. 후보는 플랫폼이 직접 만든다.
+[`candidate_build`](../../services/platform-events/src/bravo_platform_events/candidate_build.py)는
+등록 기준 이미지(비공개 ECR의 index, 등록 때 플랫폼별 config와 함께 고정)에 저장된 Proposal의
+파일 교체만 담은 계층 하나를 더해 digest로 push한다. T10 호스트의
 `publication_inputs(plan_id, version, **ref)`가 현재 권한을 확인한 뒤 저장 입력·의도·결과를
-같은 트랜잭션에서 반환한다. 이 메서드는 모델·T38 client·네트워크를 호출하지 않는다.
+같은 트랜잭션에서 반환한다.
 
 ```python
 value, intent, result = execution.publication_inputs(plan_id, version, **ref)
-publication = prepare_publication(
-    value=value, intent=intent, result=result,
-    selection=reviewed_publication_selection, repository=operator_owned_demo_chat_clone,
-)
+publication = builder.publication(value, intent, result)   # PlatformCandidateBuilder
 read_evidence = execution.evidence_reader(publication=publication)
 ```
 
-- `PublicationSelection`은 운영자가 검토한 workflow SHA/ID, 실행 번호, build·GHCR·ECR
-  각각의 시도/산출물 ID, 후보 SHA/PR을 고정한다. 모델이나 HTTP 요청에서 받지 않는다.
-  기존 `gh` 인증으로 GitHub GET만 수행하며 자격을 Pod·파일로 복사하지 않는다.
-- T10 요청 ID는 69자, T7 입력은 최대 64자다. T7 호출 담당은
-  `publication_request_id(intent)`의 **전체 SHA-256 64자리**를 발행 요청 ID로 쓴다.
-  T10 원본 ID·InitialIntent 형식은 유지한다. 조회기는 이 대응을 다시 계산한다.
-- GitHub의 정확한 workflow/main SHA·실행·시도·성공한 build/GHCR/ECR job을 확인한다.
-  각 산출물의 ID·실행·이름·만료·ZIP digest를 확인하고, 제한된 JSON 한 파일만 읽는다.
-  publisher 재시도는 원래 build 시도와 산출물 ID를 유지해야 한다.
-- 저장된 Proposal의 모든 변경을 등록 base→후보의 실제 Git 객체와 대조한다.
-  추가 변경·다른 내용·파일 모드 변경·심볼릭 링크를 거부하고, 계산한 원문 diff hash를
-  양쪽 발행 영수증과 대조한다. Git checkout이나 후보 코드 실행은 하지 않는다.
-- 검토한 T7 publisher가 기록한 scan 성공·같은 digest·registry 전체 바이트 readback을
-  인증된 영수증에서 확인한다. T10이 registry를 새로 pull하거나 현재 가용성을 확인하는
-  것은 아니다. 후보 프로세스의 packaging 출력은 self-report로 유지하며 T15/T31 성공으로
-  올리지 않는다. 검토한 publisher SHA를 고정하지 못하면 인수하지 않는다.
+- Dockerfile 단계를 실행하지 않고 후보 코드도 실행하지 않는다. 계층은 결정적이라 재시도해도 같은
+  digest가 된다. 기준 이미지가 그대로 복사하는 경로(`copied`, 예: `app/`) 밖의 편집은 계층으로
+  표현할 수 없으므로 `candidate_rebuild_required`로 PROPOSE에 남는다.
+- 기준 이미지의 source가 계획의 등록 source와 다르거나, 고정한 manifest·config가 registry와 다르면
+  `candidate_base_mismatch`로 멈춘다. registry 읽기·쓰기 실패는 영수증 없이 멈추고 다음 sweep에서 다시 한다.
+- 요청마다 영수증(`bravo.platform-candidate.v1`)을 한 번 쓰고 다시 쓰지 않는다. `diff_hash`는
+  T15/T31과 같은 `render_diff` 형식이고 `image_digest`는 push한 index digest다.
+- `publication_request_id(intent)`는 T10 요청 ID의 SHA-256 64자리이며 빌드 키와 태그에 쓴다.
 
 조회 준비는 계획 잠금 **밖에서** 수행한다. 반환한 조회기는 저장 입력·의도·결과의
-동일성만 로컬에서 확인하며 GitHub/Git을 다시 호출하지 않는다. 실제 전이 직전에는 기존
+동일성만 로컬에서 확인하며 registry를 다시 호출하지 않는다. 실제 전이 직전에는 기존
 T10 `evidence_reader`가 현재 권한·만료·계획·source를 다시 읽는다. 입력 준비 후 grant가
 회수돼도 전이는 거부한다. 이 모듈은 발행 dispatch, grant 발급, 실제 계획 전이를 실행하지 않는다.
 
 이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
-T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
+T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis,
 T15의 실제 planner·검증 Job·정리는 각 담당의 정본으로 연결해야 한다.
 최초 PROPOSE 입력을 실제 Admission으로 취급하지 않는다. 후보 이미지가 아직 없으면 PROPOSE에 남는다.
 저장 제안에는 도구 감사 기록이 없으므로 이 조회 성공만으로 감사 COMPLETE를 표시하지 않는다.

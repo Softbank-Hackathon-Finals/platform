@@ -1,0 +1,68 @@
+{
+  "kind": "t21-real-happy-path-intake.v1",
+  "repository_baseline": "aaee481cccd78f6ad937614f83da25a4de8a4e9a",
+  "platform_observed_at": "2026-11-07T16:27:25.547336+00:00",
+  "platform_cluster_identity_matches": true,
+  "platform_ready_deployments": 7,
+  "image_readback": {
+    "registration": {
+      "gitops_source_revision": "ff04c7412535ece5963e2006a25631d9b980b1a5",
+      "gitops_digest": "sha256:d8afde64841676724ffca6f2034217cf2d4e5cd6874c01c9a05180540e3dcbfc",
+      "image_id_matches": true,
+      "matched_containers": 1
+    },
+    "reader": {
+      "gitops_source_revision": "ff04c7412535ece5963e2006a25631d9b980b1a5",
+      "gitops_digest": "sha256:1618b96e84850b40425f85bd065c94ba8053e74bd97eeb24e972ef93ca06f547",
+      "image_id_matches": true,
+      "matched_containers": 1
+    },
+    "approval_host": {
+      "gitops_source_revision": "2cb46d0bf51e685ffb200c748cf4d53afbb52029",
+      "gitops_digest": "sha256:81d6aed6e692f528c08180ef484d52050b52e7bbc5712f4ed735e32c62236dfe",
+      "image_id_matches": true,
+      "matched_containers": 1
+    }
+  },
+  "operator_read": {
+    "at": "2026-11-07T16:57:51.359676+00:00",
+    "shared_mutations": 0,
+    "proofs_generated": 1,
+    "http_requests": 1,
+    "cluster_identity_matches": true,
+    "trust_anchor_kind": "pinned_self_signed_server_certificate",
+    "tls_verified": true,
+    "serving_certificate_matches_registered_secret": true,
+    "certificate_expires_at": "2026-11-08T19:30:23+00:00",
+    "http_status": 403,
+    "denial_code": "forbidden",
+    "owned_session_terminated": true
+  },
+  "operator_identity_registered_in_observed_config": false,
+  "identity_proposal_applied": false,
+  "legacy_retained_plan_profile": {
+    "id": "full",
+    "version": "1"
+  },
+  "canonical_happy_path_plan_confirmed": false,
+  "shared_resource_mutations": 0,
+  "migration_verified": false,
+  "originals": [
+    {
+      "artifact": "platform-inspection.json",
+      "sha256": "27dee37b862af41e70fc3f75d662e0a3cb619e4676508458e045ef84b9573684"
+    },
+    {
+      "artifact": "platform-pods.json",
+      "sha256": "020eb4299dbf0a3efcf55f252f9ae9daf36267f88b9458730ccba0b1c0a1b1ac"
+    },
+    {
+      "artifact": "operator-read-summary.json",
+      "sha256": "a30525f5e39458bbfd4ca98f795a0a30c2b0f5144dcd7cfa6333edca9214cd4d"
+    },
+    {
+      "artifact": "source-read-summary.json",
+      "sha256": "328ea2bb25cdc225a17db667d0c04230fe48287a8ed73fda0e05d8cb963e94e5"
+    }
+  ]
+}

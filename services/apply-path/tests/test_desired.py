@@ -13,7 +13,9 @@ from bravo_apply.desired import (
     DesiredRefused,
     application_id_for,
     apply_desired_exposure,
+    apply_planned_exposure,
     load_t44,
+    planned_application_id,
     read_desired,
 )
 from bravo_apply.policy import PolicyTarget
@@ -207,3 +209,122 @@ def test_cli_refuses_an_opening_revision_without_a_record(repo, tmp_path, capsys
     assert code == 2
     assert json.loads(capsys.readouterr().out) == {"recorded": False, "reason": "T31_NEVER_OPENS", "status": "REFUSED"}
     assert not (tmp_path / "receipts").exists()
+
+
+# --- ADR-0044: close from the approved agent infra.plan (Git keeps open-demo) ---------------------------------------
+
+def planned(repo, tmp_path, plan=None, approved=None, base=None, kube=None, probes=None):
+    plan = plan or iac_plan("open-demo", "closed")
+    kube = kube or fake_kube("open-demo")
+    record = apply_planned_exposure(plan, approved_iac_plan_digest=approved or plan["plan_digest"],
+                                    environment_id="target-dev", base_revision=base or repo.opened,
+                                    repo_root=repo.root, kube=kube, receipts_dir=tmp_path / "receipts", target=TARGET,
+                                    plan_id="plan-demo", policy_hooks=(probes or Probes()).hooks())
+    return record, kube
+
+
+def test_the_approved_agent_plan_closes_the_bucket_once_and_claims_the_exposure(repo, tmp_path):
+    from bravo_apply.policy import ANNOTATION_OWNER
+
+    plan = iac_plan("open-demo", "closed")
+    record, kube = planned(repo, tmp_path, plan)
+    assert (record["status"], record["reason"]) == ("APPLIED", "PLANNED_CLOSE_APPLIED")
+    assert record["application_id"] == planned_application_id(plan["plan_digest"]) == "iac-" + plan["plan_digest"][:16]
+    assert "anonymous" not in identities(kube)
+    owner = kube.secrets["target-seaweedfs-auth"]["metadata"]["annotations"][ANNOTATION_OWNER]
+    assert owner == "t31/" + record["application_id"]  # #709: object-operations will not reopen it
+    assert record["gate_recheck"] == {"application_id": record["application_id"], "environment_id": "target-dev",
+                                      "base_revision": repo.opened, "iac_plan_digest": plan["plan_digest"],
+                                      "tests": ["IAM-01.1"], "plan_id": "plan-demo"}
+    assert record["desired"]["base_digest"] == plan["base_digest"] and record["desired"]["origin"] == "agent"
+    again, _ = planned(repo, tmp_path, plan, kube=kube)
+    assert again == record and len(kube.secret_writes) == 1
+
+
+def _other_change():
+    """The closing change plus another module change (an operator may change the module set)."""
+    base, proposed = environment("open-demo"), environment("closed")
+    proposed["modules"] = [m for m in proposed["modules"] if m["id"] != "tailnet-ingress"]
+    return load_t44().plan(base, proposed, origin="operator")
+
+
+@pytest.mark.parametrize("case, code", [
+    ("not_approved", "IAC_PLAN_NOT_APPROVED"),
+    ("tampered", "IAC_PLAN_DIGEST_MISMATCH"),
+    ("resealed", "IAC_PLAN_NOT_A_CLOSE"),
+    ("more_than_close", "IAC_PLAN_NOT_A_CLOSE"),
+    ("widening", "IAC_PLAN_NOT_ACCEPTED"),
+    ("base_closed", "PLANNED_BASE_NOT_OPEN"),
+    ("no_origin", "IAC_PLAN_INVALID"),
+    ("short_base", "REVISION_NOT_FULL_SHA"),
+])
+def test_only_the_approved_plan_that_only_closes_this_bucket_is_applied(repo, tmp_path, case, code):
+    plan, approved, base = iac_plan("open-demo", "closed"), None, None
+    if case == "not_approved":
+        approved = "0" * 64
+    elif case == "tampered":
+        plan = plan | {"changes": []}
+    elif case == "resealed":
+        plan = resealed(plan, changes=[])
+    elif case == "more_than_close":
+        plan = _other_change()
+    elif case == "widening":
+        plan = resealed(plan, widens=True)
+    elif case == "base_closed":
+        base = repo.closed
+    elif case == "no_origin":
+        plan = resealed(plan, origin="someone")
+    elif case == "short_base":
+        base = repo.opened[:12]
+    kube = fake_kube("open-demo")
+    with pytest.raises(DesiredRefused) as refused:
+        planned(repo, tmp_path, plan, approved=approved, base=base, kube=kube)
+    assert refused.value.code == code
+    assert not (tmp_path / "receipts").exists() and kube.secret_writes == []
+
+
+def test_cli_planned_exposure_refuses_an_unapproved_plan_without_a_record(repo, tmp_path, capsys):
+    (tmp_path / "plan.json").write_text(json.dumps(iac_plan("open-demo", "closed")))
+    code = main(["planned-exposure", "--iac-plan", str(tmp_path / "plan.json"), "--approved-iac-plan-digest", "0" * 64,
+                 "--environment", "target-dev", "--base-revision", repo.opened, "--repo-root", str(repo.root),
+                 "--kubeconfig", str(tmp_path / "unused"), "--namespace", "target-dev",
+                 "--object-endpoint", TARGET.endpoint, "--probe-key", TARGET.probe_key,
+                 "--receipts", str(tmp_path / "receipts")])
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)["reason"] == "IAC_PLAN_NOT_APPROVED"
+
+
+def test_a_missing_t9_renderer_is_a_recorded_refusal_not_an_exception(repo, tmp_path, monkeypatch):
+    """ADR-0044 calls this after the image is deployed: once the record exists, nothing may raise."""
+    from bravo_apply import desired
+    from bravo_apply.policy import PolicyRefused
+
+    def unavailable():
+        raise PolicyRefused("T9_RENDERER_UNAVAILABLE")
+
+    monkeypatch.setattr(desired, "load_t9", unavailable)
+    record, kube = planned(repo, tmp_path)
+    assert (record["status"], record["reason"], record["cluster_mutation_attempted"]) == (
+        "REFUSED", "T9_RENDERER_UNAVAILABLE", False)
+    assert kube.secret_writes == [] and record["gate_recheck"] is None
+
+
+def test_a_plan_from_another_commit_that_only_closes_this_bucket_still_closes_it(repo, tmp_path):
+    """The desired-state file also carries the network modules and changes often; the host's configured
+    base can lag the proposal's checkout. The plan still only closes this bucket, so it is applied and the
+    record says the base was not the one it named."""
+    drifted = environment("open-demo")
+    next(m for m in drifted["modules"] if m["id"] == "tailnet-ingress")["params"]["devices"].pop()
+    closed = json.loads(json.dumps(drifted))
+    next(m for m in closed["modules"] if m["id"] == "target-object-exposure")["params"] = {"state": "closed",
+                                                                                      "bucket": BUCKET}
+    plan = load_t44().plan(drifted, closed, origin="agent")
+    assert plan["base_digest"] != iac_plan("open-demo", "closed")["base_digest"]
+    record, kube = planned(repo, tmp_path, plan)
+    assert (record["status"], record["desired"]["base_verified"]) == ("APPLIED", False)
+    assert "anonymous" not in identities(kube)
+
+
+def test_the_configured_base_is_verified_when_it_is_the_one_the_plan_names(repo, tmp_path):
+    record, _ = planned(repo, tmp_path)
+    assert record["desired"]["base_verified"] is True

@@ -54,6 +54,9 @@ standard library and performs no cluster or cloud API calls.
    memory/stdin. `ca.crt` is public; private keys and init responses are not files.
    Check the complete CA/leaf chain with the consumer's default strict TLS
    verification, including hostname and certificate extensions, before handoff.
+   The leaf must carry at least the SANs from `render.py server-cert-sans`
+   (`DNS:target-openbao.bravo-secrets.svc` for every client, `IP:127.0.0.1` for
+   the chart's readiness probe); see "T14 SEC-01.1 roles and the server name".
 5. Render `bao-values` with Helm `--skip-tests --kube-version <actual version>`.
    Pass its parsed JSON objects through `finalize-bao` before deployment. This
    validates the namespace, image, retained-volume selection and service
@@ -168,8 +171,8 @@ namespace**, not a run id, and the only reader policy is one operator-owned temp
 | `rehearsal-writer-policy` | HCL for policy `rehearsal-openbao-writer` (T15 prep Job) | See "Rehearsal writer" below |
 | `rehearsal-writer-auth-role` | Body for `auth/kubernetes/role/rehearsal-openbao-writer` | SA `rehearsal-openbao-writer` in exactly `bravo-rehearsal-control`; audience `openbao`; writer policy only; TTL 300/900 s; no default policy |
 | `rehearsal-writer-identity` (optional) | Namespace `bravo-rehearsal-control` (PSS restricted) + ServiceAccount `rehearsal-openbao-writer` (no automount) | Apply only if T15/T30 agree T9 owns them; see below |
-| `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side stays `target-app-reader` |
-| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side for the in-cluster T14 Job) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
+| `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side is role `demo-chat` (next row) |
+| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side; collected from the operator machine with `kubectl create token --audience openbao`, never minted in-cluster) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
 
 The earlier `rehearsal-policy --run-id <run>` stage (one writer-written policy per run) and the
 `--run-id` flag are removed; the renderer refuses them.
@@ -206,6 +209,125 @@ as entity alias metadata after TokenReview has confirmed the JWT's name, UID and
 paths. If the accessor is wrong or stale, the template does not resolve and OpenBao skips the
 rule, so readers are **denied** (verified locally), never widened. Disabling and re-enabling
 `auth/kubernetes` creates a new accessor: re-render and rewrite `rehearsal-app-reader`.
+
+### T14 SEC-01.1 roles and the server name (operator)
+
+T14's destination SEC-01.1 compares two Kubernetes auth roles on mount `kubernetes`. Both are
+renderer stages (#707, #741) and were applied to the target on 2026-11-07 by the T14 side;
+SEC-01.1 passed at 22:55 and 23:21 KST
+([evidence](../../../docs/evidence/t14-target-demo-gate-2026-11-07/README.md)).
+
+| Role | ServiceAccount | Policy | Reads the app DB path |
+| --- | --- | --- | --- |
+| `demo-chat` | `target-dev/demo-chat` | `demo-chat-db-reader` only (no default) | yes, `secret/data/bravo/target/precutover/database` only |
+| `t14-other` | `target-dev/t14-other` (T30 #666) | `default` only | no (403 after a successful login) |
+
+Both use audience `openbao` and TTL 300/900 s. The KV is v2 on mount `secret`; the app DB
+credential is key `bravo/target/precutover/database` (API path
+`secret/data/bravo/target/precutover/database`, field `credentials_json`). Its current version
+exists only in the cluster; read it from metadata, never from the value.
+
+Apply or re-apply (the same body is idempotent), with an operator token, from the repository
+root (same `RENDER_PYTHON`/`OUTPUT_DIR`/`renderer` as above):
+
+```sh
+"$RENDER_PYTHON" "$renderer" app-db-policy > "$OUTPUT_DIR/demo-chat-db-reader.hcl"
+bao policy write demo-chat-db-reader "$OUTPUT_DIR/demo-chat-db-reader.hcl"
+"$RENDER_PYTHON" "$renderer" app-auth-role | bao write auth/kubernetes/role/demo-chat -
+"$RENDER_PYTHON" "$renderer" t14-other-auth-role | bao write auth/kubernetes/role/t14-other -
+```
+
+Read back (no secret values):
+
+```sh
+for role in demo-chat t14-other; do
+  bao read -format=json "auth/kubernetes/role/$role" | jq '.data | {bound_service_account_names,
+    bound_service_account_namespaces, audience, token_policies, token_no_default_policy, token_ttl, token_max_ttl}'
+done   # TTLs read back as 300/900 (seconds)
+bao policy read demo-chat-db-reader          # must equal the rendered file
+bao policy read default | grep -c 'secret/'  # 0: default grants nothing under the KV mount
+bao kv metadata get -mount=secret -format=json bravo/target/precutover/database | jq '.data.current_version'
+```
+
+Login and denial from the operator Mac over a port-forward. TLS is verified against the CA
+ConfigMap and the service name, as the T14 collector does. The JWT and OpenBao token go through
+stdin, never argv; only HTTP status codes are printed.
+
+```sh
+kubectl -n bravo-secrets port-forward svc/target-openbao 18200:8200 & PF=$!
+kubectl -n target-dev get configmap target-openbao-ca -o jsonpath='{.data.ca\.crt}' > "$OUTPUT_DIR/ca.crt"
+BAO=https://target-openbao.bravo-secrets.svc:18200
+tls() { curl -sS --resolve target-openbao.bravo-secrets.svc:18200:127.0.0.1 --cacert "$OUTPUT_DIR/ca.crt" "$@"; }
+login() {  # $1 = ServiceAccount = role name
+  kubectl -n target-dev create token "$1" --audience openbao --duration 10m \
+    | jq -R --arg role "$1" '{role: $role, jwt: .}' \
+    | tls -f -X POST --data @- "$BAO/v1/auth/kubernetes/login" | jq -r .auth.client_token
+}
+status() { printf 'X-Vault-Token: %s\n' "$1" | tls -H @- -o /dev/null -w '%{http_code}\n' "${@:2}"; }
+tls -o /dev/null -w '%{http_code}\n' "$BAO/v1/sys/health"                          # 200: chain + hostname OK
+TOKEN=$(login t14-other)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/precutover/database"             # 403 (permission denied)
+status "$TOKEN" -X POST "$BAO/v1/auth/token/revoke-self"                            # 204
+TOKEN=$(login demo-chat)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/precutover/database"             # 200 (body discarded)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/objects"                         # 403
+status "$TOKEN" -X POST "$BAO/v1/auth/token/revoke-self"                            # 204
+unset TOKEN; kill "$PF"
+```
+
+A failed login (empty token) is not a denial: T14 records that as UNKNOWN. OpenBao 2.x returns
+the 403 body as `1 error occurred:\n\t* permission denied\n\n` (#742).
+
+**Server certificate SANs.** No repository code issues the leaf; the operator creates it in
+memory (step 4). `render.py server-cert-sans` is the required minimum, and the tests tie it to
+every `https://` address the renderer emits and to the pinned chart's `BAO_ADDR`. Check the live
+leaf through a port-forward as above (OpenSSL 1.1.1+ for `-ext`):
+
+```sh
+"$RENDER_PYTHON" "$renderer" server-cert-sans | jq -r .subject_alt_name
+openssl s_client -connect 127.0.0.1:18200 -servername target-openbao.bravo-secrets.svc \
+  -CAfile "$OUTPUT_DIR/ca.crt" -verify_hostname target-openbao.bravo-secrets.svc -verify_return_error \
+  </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName -enddate
+```
+
+Every rendered name must appear in the `X509v3 Subject Alternative Name` line, and `s_client`
+must not fail verification.
+
+Observed on the current target (T14 owner, 2026-11-07 23:59 KST, with the check above):
+
+| Field | Current leaf |
+| --- | --- |
+| Key | EC P-256 |
+| SAN | `DNS:localhost`, `DNS:target-openbao`, `DNS:target-openbao.bravo-secrets`, `DNS:target-openbao.bravo-secrets.svc`, `DNS:target-openbao.bravo-secrets.svc.cluster.local`, `IP:127.0.0.1` |
+| KeyUsage | `digitalSignature` (critical) |
+| Extended key usage | `serverAuth` |
+| BasicConstraints | `CA:FALSE` (critical) |
+| SKI / AKI | present |
+| `notAfter` | 2026-12-03 14:24 UTC |
+
+Both rendered SANs are present, so no reissue is needed for SEC-01.1. This matches the indirect
+evidence: the T14 collector's TLS check with `server_hostname` `target-openbao.bravo-secrets.svc`
+succeeded (SEC-01.1 PASS), ESO's SecretStores verify the same name, and the Pod's TLS-verified
+readiness probe on `127.0.0.1` is Ready.
+
+Reissue only if a name is missing or before `notAfter` (the leaf is issued for 30 days):
+
+1. Keep the CA key and certificate, so `target-dev/target-openbao-ca`,
+   `bravo-rehearsal-control/target-openbao-ca` and the T14 registration CA stay valid. A new CA
+   means updating every copy and comparing SHA-256 again.
+2. Generate a new EC P-256 leaf key in memory. Keep the current leaf's profile: every SAN of
+   the current leaf plus the rendered `subject_alt_name`, KeyUsage `digitalSignature` (critical)
+   only, EKU `serverAuth`, BasicConstraints `CA:FALSE` (critical), SKI and AKI. Do not add
+   `keyEncipherment`: it does not apply to an EC key (RFC 5480 section 3). The 2026-11-04 Python
+   consumer refused a leaf without AKI.
+3. Replace Secret `bravo-secrets/target-openbao-tls` from stdin (server-side apply), never from
+   key files. Wait until `/openbao/tls/tls.crt` in the Pod shows the new fingerprint.
+4. Reload the listener with `SIGHUP` to the `bao` process. Restarting the Pod also works but
+   OpenBao comes back **sealed** and needs the step 7 unseal from the credential store. The
+   SIGHUP reload has not yet been exercised on this target; if the old certificate is still
+   served afterwards, fall back to the restart.
+5. Re-run the `openssl` and `curl .../sys/health` checks above, then the ESO readiness and T14
+   SEC-01.1.
 
 ### Rehearsal prep flow (T15)
 

@@ -66,6 +66,9 @@ spec:
         {{- if .Values.rehearsalHost.enabled }}
         || (object != null ? object.metadata.name : oldObject.metadata.name) == 't15-rehearsal-host'
         {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        || (object != null ? object.metadata.name : oldObject.metadata.name) == 'security-review'
+        {{- end }}
         {{- if .Values.workflowHost.enabled }}
         || (request.resource.resource in ['deployments', 'serviceaccounts'] &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-workflow-host')
@@ -91,6 +94,9 @@ spec:
         {{- if .Values.rehearsalHost.enabled }}
         object.metadata.name == 't15-rehearsal-host' ? object.spec.template.spec.serviceAccountName == 't15-rehearsal-host' :
         {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        object.metadata.name == 'security-review' ? object.spec.template.spec.serviceAccountName == 'security-review' :
+        {{- end }}
         {{- if .Values.workflowHost.enabled }}
         object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
         {{- end }}
@@ -114,6 +120,28 @@ spec:
         'bravo-t10-rehearsal-intake' == v.projected.sources[0].serviceAccountToken.audience &&
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        || (object.metadata.name == 't15-rehearsal-host' && v.name == 'security-review-token' &&
+        size(v.projected.sources) == 1 && has(v.projected.sources[0].serviceAccountToken) &&
+        'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
+        has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
+        v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        || (object.metadata.name == 'security-review' && v.name == 'api' &&
+        size(v.projected.sources) == 2 && has(v.projected.sources[0].serviceAccountToken) &&
+        'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
+        has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
+        v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600 &&
+        has(v.projected.sources[1].configMap))
+        {{- end }}
+        {{- if and .Values.workflowHost.enabled .Values.initialProposal.hostCreatesJobs }}
+        {{- /* T49 initialProposalAuto: the host's API token for its only grant, the bravo-initial Job Role
+        (initial-proposal.yaml); default audience, short-lived, plus the cluster CA. Inside the CEL scalar a
+        YAML comment would be part of the expression. */}}
+        || (object.metadata.name == 't10-workflow-host' && v.name == 'kube-api-token' &&
+        v.projected.sources.all(s, (has(s.serviceAccountToken) && !has(s.serviceAccountToken.audience) &&
+        has(s.serviceAccountToken.expirationSeconds) && s.serviceAccountToken.expirationSeconds <= 3600) ||
+        (has(s.configMap) && s.configMap.name == 'kube-root-ca.crt')))
         {{- end }})))
       # Exception: the platform Collector (observability) lists CNPG Pods in platform-state; its only grant is the
       # read-only discovery Role (platform-gitops-state-names).

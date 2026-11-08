@@ -208,6 +208,14 @@ def _provider(key: str, provider: str, attribute: str | None = None) -> Callable
     return check
 
 
+def _any(*checks):
+    def check(wiring):
+        return any(item(wiring) for item in checks)
+
+    check.adapter_name = "/".join(item.adapter_name for item in checks)
+    return check
+
+
 def _all(*checks):
     def check(wiring):
         return all(item(wiring) for item in checks)
@@ -333,9 +341,11 @@ def default_registry() -> ProbeRegistry:
     }
     for kind, (module, name, exact) in audit.items():
         for test_id in ("AUD-01.1", "AUD-01.2", "AUD-01.3"):
-            registry.register(
-                kind,
-                test_id,
-                _lazy("audit_probes", "AuditSearchProbe", _instance("search", module, name, exact)),
-            )
+            native = _instance("search", module, name, exact)
+            if test_id == "AUD-01.1":
+                # T34 / ADR-0037: the DB login canary may also be found in the CNPG primary's own
+                # pod log through the Kubernetes API. CNPG is the common base, so every kind may use it
+                # (operations/controls/run.py `pod-log` on both sides of aws->onprem).
+                native = _any(native, _instance("search", "pod_log_audit", "PodLogAuditSearch", True))
+            registry.register(kind, test_id, _lazy("audit_probes", "AuditSearchProbe", native))
     return registry

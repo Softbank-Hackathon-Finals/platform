@@ -1,0 +1,1 @@
+{"FunctionName": "slow-check", "Runtime": "python3.12", "Handler": "slow.handler", "Timeout": 1, "MemorySize": 128, "PackageType": "Zip"}

@@ -70,7 +70,9 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
             infrastructure = path.startswith("infra/")
             repository_tool = path.startswith("scripts/")
             infra |= infrastructure
-            scripts |= repository_tool or (infrastructure and PurePosixPath(path).suffix.lower() == ".py")
+            # scripts/tests also read infra JSON (e.g. every tailnet tag must be denied the collector port),
+            # so a JSON-only infra change still runs them (#912 review).
+            scripts |= repository_tool or (infrastructure and PurePosixPath(path).suffix.lower() in {".py", ".json"})
             if owners:
                 # Nested workspaces are checked with their owning parent too.
                 selected.update((p["path"], p["kind"]) for p in owners)

@@ -197,9 +197,12 @@ def test_entry_point_builds_one_host_from_deployment_ports(backend, tmp_path):
 
     producers = Producers(tmp_path / "remote.db")
     collect(backend.store)
+    rest = ["PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", "CUTOVER", "WATCH"]
+    with pytest.raises(ValueError, match="workflow_state_unwired:AWAIT_APPROVAL,CUTOVER,GATE,PROPOSE,REHEARSE,WATCH"):
+        build(backend.store, lambda store: {"cutover": service(store, None), "readers": {"ANALYZE": producers.read}})
     host = build(backend.store, lambda store: {"cutover": service(store, None),
-                                               "readers": {"ANALYZE": producers.read}})
-    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE not wired in these ports
+                                               "readers": {"ANALYZE": producers.read}, "deferred": rest})
+    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE declared deferred: a named gap
     with pytest.raises(ValueError):
         build(backend.store, lambda store: {"cutover": service(store, None), "other": 1})
 
@@ -250,6 +253,10 @@ class _Delegations:
 
     def __init__(self, delegated, store=None):
         self.delegated, self.store, self.calls = delegated, store, []
+
+    def live(self, c, plan_id):
+        return {"gates": ["change", "shift", "cutover", "failback", "rehearsal"], "approver": "fixture"} \
+            if self.delegated else None
 
     def principal_for(self, plan_id, gate, *, binding, version):
         if not self.delegated:
@@ -310,11 +317,14 @@ def test_a_delegated_change_approval_approves_the_current_candidate_as_the_appro
     assert _delegated_change(f.service(), delegations, plan_id, 1) is None  # a held candidate is never approved
 
 
-def _edge(store, weight, at):
+def _edge(store, weight, at, *, revision, verdict="PASS"):
+    """A T17 ShiftHost CONFIRMED stage and its SLI judgement, as operator_ports.edge_at_full reads them."""
     from bravo_platform_events.cutover import _put
 
     with store._transaction(write=True, plan_id=PLAN) as c:
-        _put(c, PLAN, f"edge-host-receipt-{weight}-{at}", {}, dict(status="CONFIRMED", weight_target=weight, confirmed_at=at))
+        _put(c, PLAN, f"edge-host-receipt-{revision}", {},
+             dict(status="CONFIRMED", weight_target=weight, confirmed_at=at, revision=revision))
+        _put(c, PLAN, f"edge-host-judgement-{revision:013}-{1:013}", {}, dict(judgement={"verdict": verdict}))
 
 
 def test_delegated_cutover_waits_for_the_edge_at_100_then_submits_as_the_approver(backend, tmp_path, steps):
@@ -339,10 +349,12 @@ def test_delegated_cutover_waits_for_the_edge_at_100_then_submits_as_the_approve
         gates = DelegatedGates(store, delegations, cutover=cutover)
         assert gates.sweep() == {}                                  # no Edge stage yet
         entered = store.snapshot(PLAN)["updated_at"]
-        _edge(store, 100, "2000-01-01T00:00:00+00:00")             # an older SHIFT's stage never counts
-        _edge(store, 50, entered)
+        _edge(store, 100, "2000-01-01T00:00:00+00:00", revision=1)  # an older SHIFT's stage never counts
+        _edge(store, 50, entered, revision=2)
+        _edge(store, 100, (datetime.fromisoformat(entered) + timedelta(seconds=1)).isoformat(), revision=3,
+              verdict="UNKNOWN")                                    # 100% without a PASS waits
         assert gates.sweep() == {} and delegations.calls == []
-        _edge(store, 100, (datetime.fromisoformat(entered) + timedelta(seconds=1)).isoformat())
+        _edge(store, 100, (datetime.fromisoformat(entered) + timedelta(seconds=2)).isoformat(), revision=4)
         decided = gates.sweep()
         assert "held" not in decided[PLAN] and [c[0] for c in delegations.calls] == ["cutover"]
         assert store.snapshot(PLAN)["state"] == "CUTOVER"
