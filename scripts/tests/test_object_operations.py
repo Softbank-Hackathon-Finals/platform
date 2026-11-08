@@ -262,6 +262,7 @@ class StoreAPI(FakeAPI):
         self.app_pair = self.auth["identities"][1]["credentials"][0].copy()
         self.generation = 1
         self.mutations = []
+        self.secret_annotations = {}
 
     def call(self, method, path, body=None, patch=False):
         if method == "PATCH":
@@ -275,7 +276,8 @@ class StoreAPI(FakeAPI):
         if path.endswith("target-app-objects"):
             return {"data": {name: base64.b64encode(self.app_pair[key].encode()).decode() for name, key in (("access_key", "accessKey"), ("secret_key", "secretKey"))}}
         if path.endswith(worker.SECRET):
-            return {"metadata": {"uid": "secret", "resourceVersion": "1"}, "data": {"s3.json": base64.b64encode(json.dumps(self.auth).encode()).decode()}}
+            return {"metadata": {"uid": "secret", "resourceVersion": "1", "annotations": dict(self.secret_annotations)},
+                    "data": {"s3.json": base64.b64encode(json.dumps(self.auth).encode()).decode()}}
         if path == worker.APPS:
             return {"metadata": {"uid": "deployment", "resourceVersion": "1", "generation": self.generation},
                     "spec": {"replicas": 1, "template": {"metadata": {}, "spec": {"containers": [{"image": "fixture"}]}}},
@@ -362,6 +364,36 @@ class WorkerBoundaryTest(unittest.TestCase):
         self.assertEqual((report["verdict"], report["cleanup"], report["final_state"]), ("FAIL", "CLEAN", "closed"))
         self.assertFalse(store.objects)
         self.assertEqual(report["application_error"], "application_readback_failed")
+
+    def test_platform_owned_exposure_is_never_reopened_and_refuses_before_any_effect(self):
+        for action in ("open", "cycle"):
+            api = StoreAPI(action)
+            api.secret_annotations[worker.EXPOSURE_OWNER] = "t31/pol-0001"
+            store = StoreS3(api)
+            report = self.run_worker(api, store)
+            self.assertEqual(api.value["phase"], "FINISHED")
+            self.assertEqual(report["error"], "exposure_owned_by_platform")
+            self.assertEqual((api.mutations, store.puts), ([], 0))
+            self.assertFalse(any(i["name"] == "anonymous" for i in api.auth["identities"]))
+
+    def test_platform_owned_exposure_can_still_be_closed(self):
+        api = StoreAPI("close")
+        api.secret_annotations[worker.EXPOSURE_OWNER] = "t31/pol-0001"
+        report = self.run_worker(api, StoreS3(api))
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertNotEqual(report.get("error"), "exposure_owned_by_platform")
+        self.assertEqual(report["final_state"], "closed")
+
+    def test_open_checks_ownership_again_on_the_write_it_fences(self):
+        api = StoreAPI("open")
+        runner = worker.Worker(api, "executor")
+        runner.request = {"run_id": "objects-" + "a" * 32}
+        runner.config = api.value["config"]
+        api.secret_annotations[worker.EXPOSURE_OWNER] = "t31/pol-0002"  # T31 closed after the request began
+        with self.assertRaises(worker.Failure) as raised:
+            runner.transition("open-demo")
+        self.assertEqual(str(raised.exception), "exposure_owned_by_platform")
+        self.assertEqual(api.mutations, [])
 
     def test_real_worker_open_keeps_original_and_deletes_only_own_objects(self):
         api = StoreAPI("open")

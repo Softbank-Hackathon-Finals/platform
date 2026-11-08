@@ -31,7 +31,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 ## 역할 분담
 
-**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (9개, P0 7개)
+**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (11개, P0 7개)
 - `T1` AWS 기반: 권한 · VPC 2개 · 비용 태그 (P0)
 - `T6` 출발지: EKS + CNPG + PgBouncer + ESO (P0)
 - `T7` 플랫폼 클러스터 (EC2 + RKE2) + Actions OIDC (P0)
@@ -41,21 +41,25 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T43` 플랫폼 GitOps 배포: Argo CD · Helm · GitFlow 승격 (P0)
 - `T27` Exit Drill (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
+- `T50` GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull (P2)
+- `T48` tailnet 합류 · 정책 · 분리의 코드화: Tailscale 워크로드 신원 연합(WIF) (P1)
 
-**김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (5개, P0 5개)
+**김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (6개, P0 5개)
 - `T2` 온프렘 RKE2 (Ubuntu VM, CIS) + 공통 cloud-init (P0)
 - `T8` 복제 경로: 논리 복제 왕복 · 첨부 동기화 (P0)
 - `T13` 무결성 비교와 영수증 (P0)
 - `T18` 부하 생성기와 관측 (P0)
 - `T30` 목적지 워크로드: CNPG · PgBouncer · 앱 + Tailscale 연결 (P0)
+- `T47` 데모 앱 로그인: Cognito → Keycloak 이전 (P1)
 
-**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (6개, P0 4개)
+**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (7개, P0 4개)
 - `T12` Cutover Executor (P0)
 - `T3` 리허설 네임스페이스 격리 실측 (P0)
 - `T15` 리허설 러너: 작업 → 검증 Job → 승인 결속 (P0)
 - `T20` 되돌리기 (failback) (P0)
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T42` rehearsal.exec: AI가 리허설 공간에서 정해진 동작으로 시험 (P1)
+- `T46` SQS → Lambda 호환 런타임: 수정 없는 핸들러를 목적지에서 실행하고 컷오버에 큐를 포함 (P1)
 
 **이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (16개, P0 11개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
@@ -75,13 +79,14 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T41` 기존 Actions 인증을 재사용하는 Merge Queue 자동 등록 (P0)
 - `T44` 목적지 IaC API: 모듈 카탈로그 · 결정적 plan · 에이전트 계획 도구 · GitOps 적용 (P1)
 
-**전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (6개, P0 4개)
+**전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (7개, P0 4개)
 - `T9` 목적지 보안 구성요소: OpenBao · ESO · SeaweedFS (P0)
 - `T11` 에이전트 워커 + 도구 계층 + 제안서 스키마 (P0)
 - `T16` 의존성 · 설정 인벤토리: 정적 탐지 + 설정 수집 + 3등급 분류 (P0)
 - `T24` 감사 로그 (S3 Object Lock) (P1)
 - `T31` 승인 반영 경로: diff → 이미지 → 목적지 배포 (P0)
 - `T32` 이전 대상 추천: 적합성 검사 + AI 추천 (P1)
+- `T45` 목적지 처음 구축 실행기: 정형 단계 스택 · T10 승인 · T44 Argo CD (P1)
 
 **전원** · 통합 · 문서 (2개, P0 1개)
 - `T29` 결정 문서 · ADR · 설계 문서 갱신 (P1)
@@ -327,8 +332,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 컷오버 중에도 채팅이 이어지는 것을 눈으로 보인다.
 
 **할 일**
-- [ ] 수~금에 구현 (11/1 회의)
-- [ ] 오픈소스 활용 가능
+- [x] 수~금에 구현 (11/1 회의)
+- [x] 오픈소스 활용 가능
 - [x] v0의 8.10 조건(멱등 키 · DB 조회 전파 · 쓰기 차단 스위치)을 그대로 유지
 
 **완료 기준** 컷오버 중 휴대폰 채팅이 끊김 없이 이어지고 환경 표시가 AWS → 온프렘으로 바뀐다.
@@ -383,7 +388,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **할 일**
 - [x] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
 - [x] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
-- [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
+- [x] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
 - [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
 - [ ] Google Cloud 수집기: Security Command Center
 - [x] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
@@ -506,9 +511,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 같은 시험을 원본과 대상에 돌려 통제 ID별로 나란히 보인다.
 
 **할 일**
-- [ ] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
+- [x] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
 - [x] UNKNOWN은 차단으로 처리
-- [ ] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
+- [x] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
 
 **완료 기준** 6개 통제가 양쪽 환경에서 통제 ID별 결과를 낸다.
 
@@ -525,7 +530,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [x] 출발지: CNPG `log_connections` · pgaudit, EKS 컨트롤 플레인 `audit` 로그 활성화 (T6 담당과 협의)
-- [ ] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
+- [x] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
 - [ ] 목적지 로그 수집 경로 (온프렘은 바깥 방향 연결만)
 - [ ] T14용 읽기 전용 검색 권한
 - [ ] 카나리 이벤트 3종이 양쪽에서 10분 안에 검색되는지 실측
@@ -544,7 +549,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 양쪽 환경 모두 백업을 새 환경으로 실제 복원할 수 있음을 같은 방법으로 보인다.
 
 **할 일**
-- [ ] 출발지 CNPG 백업 (S3)
+- [x] 출발지 CNPG 백업 (S3)
 - [ ] 목적지 CNPG 백업 (SeaweedFS)
 - [ ] 빈 시험 클러스터로 복원, 표식 행 id 기준 행 수 비교
 - [ ] 앱 · 실행 역할로는 백업을 지울 수 없게 제한
@@ -563,13 +568,13 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 모든 환경의 서버 지표를 같은 기준으로 한 곳에서 보고, 볼 수 없는 환경은 "확인 불가"로 드러낸다.
 
 **할 일**
-- [ ] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
-- [ ] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
+- [x] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
+- [x] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
 - [x] 민감 속성 제거(허용 목록), SEC-01.3 카나리가 지표 저장소에서 0건인지 확인
 - [x] 수집이 끊긴 환경을 "확인 불가"로: 환경별 최근 수신 시각
 - [x] 콘솔용 조회 API: 환경별 요청 · 오류 · p95, PgBouncer 상태, 수집 시각
 - [x] 목적지 Collector를 T34 로그 파이프라인과 하나로 둘지 결정
-- [ ] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
+- [x] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
 
 **완료 기준** 출발지 · 목적지 앱 지표가 플랫폼에서 환경별로 조회되고, 한 환경의 Collector를 멈추면 그 환경이 "확인 불가"로 바뀐다. 다른 환경 이름을 붙여 보낸 지표는 그 환경으로 기록되지 않는다.
 
@@ -692,10 +697,15 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 10장 데모 흐름을 한 화면에서 조작하고 설명한다.
 
 **할 일**
-- [ ] SSE로 진행 실시간 반영
+- [x] SSE 진행 표시·재접속·중복 제거·권한 회수를 T10 API와 로컬 브라우저에서 검증
 - [x] 승인 버튼은 결속 값과 함께 표시
+- [ ] 실제 운영 계획·본인 조회 권한으로 SSE 진행 표시와 연결 복구를 인수
+- [ ] 10장 실제 통합 데모 흐름 전체를 콘솔 한 화면에서 조작·설명하고 인수
+- [ ] 인벤토리 표시를 T16 계약 v1에 맞춤: 후보 기능의 출처(등록값 · 관측값 · 감지 불가) 표시, `found_in = deploy` 항목 강조(#928)
 
 **완료 기준** 10장 데모 흐름 전체를 콘솔 한 화면에서 조작할 수 있다.
+
+SSE 구현 검증과 운영 인수는 [콘솔 SSE 인수 기준](../services/console/docs/sse-acceptance.md)에 따라 구분한다. 로컬 시험 통과로 운영 인수나 T21 전체를 완료 처리하지 않는다.
 
 ### [T24] 감사 로그 (S3 Object Lock)
 
@@ -806,6 +816,60 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** 발표용 수치 표 1개.
 
+### [T46] SQS → Lambda 호환 런타임: 수정 없는 핸들러를 목적지에서 실행하고 컷오버에 큐를 포함
+
+**어디에 필요** 앱이 SQS로 보낸 메시지로 Lambda가 실행되는 업무는 앱·DB를 옮겨도 AWS에 남는다. T16은 "대체 없음"으로 판정만 하고(카탈로그 messaging · function), 게이트와 컷오버는 이 의존성을 다루지 않는다(설계 7.3 · 8.6).
+
+**만들 것** SQS 호환 서버와, 큐에서 메시지를 꺼내 수정하지 않은 핸들러를 AWS SQS 이벤트 형식으로 부르는 실행기. 실행기는 큐 연결 · 호출 관리 · 메시지 형식을 분리해 이후 공통 인터페이스 방식으로 바꿀 수 있게 한다. 데모 업무는 demo-chat 메시지 개인정보 검사(큐에는 ID만, 결과는 `message_checks`). 리허설 검증 Job으로 동등성을 채점하고, Cutover Executor와 되돌리기가 큐를 포함해 전환한다. 해피패스 경로(Executor · 리허설 러너 · demo-chat `main` · 공용 환경)는 해피패스 검증 뒤에만 바꾼다.
+
+- **우선순위** P1 · **영역** 데이터 · 컷오버 · **담당** 배규태
+- **선행** 없음 (통합 시점: `T6`, `T16`, `T19`, `T22`, `T30`) · **후속** `T28` · **설계 문서** 7.3, 8.4, 8.5, 8.6, 8.10, FR-2, FR-5, FR-9~11
+
+**목표** AWS 없이 목적지에서 같은 결과로 처리되고, 컷오버 · 되돌리기 중 이벤트가 유실 · 중복되지 않는다.
+
+**할 일**
+- [x] 큐 서버 고르기: ElasticMQ와 Postgres 기반 직접 구현을 같은 시험(보내기 · 받기 · 재시도 · 실패 보관 · 재시작 후 유지 · 허용 안 된 접근 차단 · 암호화)으로 비교하고, 고른 이유를 ADR로 남긴다
+- [x] 실행기 만들기(`services/function-runtime`): 큐에서 메시지를 꺼내 기존 Lambda 핸들러를 AWS와 같은 형식으로 부른다. 실패하면 재시도, 계속 실패하면 실패 보관 큐로 옮긴다. 큐 연결 · 호출 관리 · 메시지 형식을 나눠 만든다. 지원하지 않는 설정(FIFO 등)은 시작할 때 거부한다
+- [x] 내 PC에서 증명: Compose로 큐 서버 · DB · 실행기를 띄우고, 고치지 않은 앱 코드와 핸들러로 결과가 저장되는지 확인. 같은 메시지가 두 번 와도 결과는 1건
+- [ ] M2 시작 전 합의: 그때 코드를 다시 보고 출발지 SQS · Lambda(T6), 데모 앱 개인정보 검사 기능(T22), 목적지 배포 · DB 스키마 · 개발 환경(T30 · T8)을 각 담당과 정한다
+- [ ] 핸들러 이미지: 핸들러를 담은 이미지를 GHCR에 올리고, 출발지 Lambda와 같은 코드인지 기록한다
+- [ ] 목적지에서 돌리기(개발 환경): AWS를 막은 상태에서 메시지가 처리되고, 목적지 큐가 원본 SQS처럼 허용 안 된 접근을 막는지 확인
+- [ ] 리허설 시험(T15): 리허설 공간에 큐 서버 · 실행기 · 가짜 DB를 띄워 결과가 기대대로 나오는지 채점한다. 걸리는 시간도 잰다
+- [ ] M3 시작 전 합의: 그때 코드를 다시 보고 의존성 판정(T16 · T7), 게이트(T19), 데이터 비교(T13), Exit Drill(T27), 부하 측정(T18), 콘솔 표시(T21)를 각 담당과 정한다
+- [ ] 컷오버에 큐 넣기(T12): 쓰기를 막을 때 실행기도 멈추고, 출발지 큐에 남은 메시지를 처리한 뒤 Lambda 트리거를 끈다. 확인이 안 되면 쓰기 전에 취소한다. 큐가 없는 계획은 지금과 똑같이 동작한다
+- [ ] 되돌리기에 큐 넣기(T20): 목적지 큐를 비우고 실행기를 멈춘 뒤, 출발지 Lambda 트리거를 다시 켠다
+- [ ] 모의 환경 시험: 컷오버 · 되돌리기 · 취소 · 멈춤(SAFE_HOLD) 상황에서 메시지가 빠지거나 두 번 처리되지 않는지 확인. 기존 시험도 전부 통과
+- [ ] 병합 순서: 실행기 · ADR은 만들 때마다 병합. 컷오버 · 되돌리기 · 리허설 변경은 해피패스 검증이 끝난 뒤 병합
+- [ ] 켜기: 데모 앱 기능 · 출발지 SQS · 의존성 판정 변경을 한 번에 켠다. 쓰기 정지 5초 이하, 메시지 유실 · 중복 0, 화면이 의도대로일 때만 켜고, 아니면 별도 장면으로 보여준다
+- [x] ADR: 호환 런타임을 고른 이유, 컷오버의 큐 단계와 Executor에 줄 AWS 권한
+- [ ] 설계 문서 버전 올리기: 7.3 대응표, 8.6 컷오버 순서, 8.10 데모 앱 조건
+
+**완료 기준** AWS 접근을 막은 목적지에서 수정하지 않은 송신 코드와 핸들러로 메시지가 처리되고, 목적지 큐가 원본 SQS와 같은 접근 거부 · 전송 암호화 시험을 통과하며, 리허설 검증 Job이 동등성을 PASS로 채점한다. 부하 상태의 컷오버 · 되돌리기에서 이벤트 결과의 유실 · 중복이 0건이고, 결과 테이블이 무결성 영수증에 포함된다. 큐 상태를 확인할 수 없으면 쓰기 전 실패로 끝나고, 큐 의존성이 없는 계획의 컷오버는 이전과 같다.
+
+### [T47] 데모 앱 로그인: Cognito → Keycloak 이전
+
+**어디에 필요** 관리형 인증(Cognito)도 플랫폼이 옮긴다는 장면. 지금 demo-chat은 로그인이 없어 인증 의존성을 보여 줄 수 없다(설계 7.3 대응표에 인증 행이 없다).
+
+**만들 것** 표준 OIDC 로그인(앱은 발급자 주소와 공개 클라이언트 ID만 안다), 출발지 Cognito 사용자 풀, 목적지 Keycloak, 비밀번호 없는 사용자 이동, 이사 중 두 발급자를 믿는 전환, 출구 판정과 의존성 탐지.
+
+- **우선순위** P1 · **영역** 인프라 · CI · Edge · **담당** 김태현
+- **선행** 없음 (통합 시점: `T6`, `T16`, `T17`, `T18`, `T22`, `T27`, `T30`, `T45`) · **후속** `T28` · **설계 문서** 7.3, 8.10
+
+**목표** 같은 앱 이미지가 `AUTH_ISSUER`만 바꿔 Cognito에서 Keycloak으로 옮겨지고, 이사 중 로그인한 사용자의 쓰기가 끊기지 않는다.
+
+**할 일**
+- [x] demo-chat 표준 OIDC 로그인(demo-app #28): 기본 꺼짐, 쓰기에만 ID 토큰, 작성자는 토큰 이름, 쓰기 차단 503 우선, `AUTH_ALSO_TRUST` 이중 신뢰
+- [ ] 출발지 Cognito 사용자 풀 `infra/envs/source-identity`: 공개 클라이언트, 비밀번호 흐름 · 스스로 가입 · 이름 속성 쓰기 없음. 실제 계정 적용 뒤 호스팅 로그인 · 첫 비밀번호 변경 확인
+- [ ] 목적지 Keycloak `identity.py`와 사용자 이동 `identity_users.py`(Cognito는 비밀번호를 내보내지 않아 첫 로그인에 새로 정함), 목적지 적용
+- [ ] Edge(T17): 로그인 공개 주소를 목적지 Keycloak으로 보내는 경로
+- [ ] 동등성 시험(출발지 · 목적지 모두): 스스로 가입이 막힘, 정확한 redirect만 받음, 토큰 없는 쓰기는 401
+- [x] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
+- [ ] 인벤토리(T16): 앱의 `AUTH_ISSUER` cognito-idp 주소와 출발지 사용자 풀을 의존성으로 탐지(담당과 범위 합의)
+- [ ] 부하 생성기(T18)용 클라이언트는 브라우저 클라이언트를 넓히지 않고 따로 둠
+- [x] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
+
+**완료 기준** 목적지에서 `AUTH_ISSUER`만 바꾼 같은 이미지로 로그인과 쓰기가 되고, `AUTH_ALSO_TRUST`를 지운 뒤 Exit Drill이 인증을 AWS 의존성으로 남기지 않는다. 옮긴 사용자는 첫 로그인에서 새 비밀번호를 정하고, 목적지에서도 스스로 가입이 막혀 있다.
+
 ### [T27] Exit Drill
 
 **어디에 필요** "떠날 수 있다"를 출발지 차단으로 보이는 장면(FR-15).
@@ -882,7 +946,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** 목적지 구성이 Terraform(AWS)·쉘(온프렘 VM)·파이썬 렌더러+kubectl(목적지 워크로드)로 나뉘어 있고, 버킷 공개 같은 설정 결함을 명령형으로 고쳐 Git에 이력이 남지 않는다(설계 FR-3·NFR-7과 어긋남). 에이전트는 인프라를 읽기만 하고 계획할 도구가 없다.
 
-**만들 것** 목적지 구성을 버전 있는 IaC 모듈과 환경별 원하는 상태(Git)로 관리하고, 플랫폼이 모듈 목록·결정적 plan을 API로 제공한다. 에이전트는 계획 단계에서 `infra.plan`으로 변경을 제안만 한다. 적용은 GitOps: 사람이 검토·병합한 원하는 상태만 적용한다. 첫 모듈은 목적지 첨부 버킷 공개 상태(T9 렌더러와 같은 형태), ADR-0032.
+**만들 것** 목적지 구성을 버전 있는 IaC 모듈과 환경별 원하는 상태(Git)로 관리하고, 플랫폼이 모듈 목록·결정적 plan을 API로 제공한다. 에이전트는 계획 단계에서 `infra.plan`으로 변경을 제안만 한다. 적용은 GitOps: 사람이 검토·병합한 원하는 상태만 적용한다. 첫 모듈은 목적지 첨부 버킷 공개 상태(T9 렌더러와 같은 형태), ADR-0032. 비밀 값이 필요한 자원(버킷 계정 Secret)은 처음 구축 때 T45(목적지 처음 구축 실행기, ADR-0033)가 없을 때만 만들고, 원하는 상태가 바뀐 뒤의 적용과 적용 뒤 IAM-01.1 재대조는 T31 버킷 정책 반영 분기(`services/apply-path` `policy.py`)를 재사용한다. namespace와 그 보안 레이블은 T45가 맡는다. 형태(공개 상태)는 이 작업의 원하는 상태를 따르고, T31 반영의 입력은 병합된 원하는 상태의 변경이다.
 
 - **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 이상무
 - **선행** `T9` (통합 시점: `T10`, `T11`, `T31`) · **후속** 없음 · **설계 문서** FR-3, NFR-7, 8.3, ADR-0032
@@ -890,22 +954,86 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 목적지 설정 변경 한 건이 "에이전트 계획 → plan diff·digest → PR 검토·병합 → 적용 → GATE 재대조"로 이어지고, 변경 이력이 Git에 남는다. 에이전트는 노출 확대·모듈 추가/삭제를 계획할 수 없고 적용 권한이 없다.
 
 **할 일**
-- [ ] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
-- [ ] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
-- [ ] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
+- [x] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
+- [x] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
+- [x] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
 - [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
 - [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
-- [ ] 비밀 값이 필요한 모듈(버킷 계정)의 GitOps 적용과 적용 뒤 IAM-01.1 재대조
-- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인
+- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인. #648 이전 단계 스택 확인 검사의 적용 신원은 두 읽기 권한만 남긴다(`target-dev` CNPG 주 인스턴스 `pods/exec`로 읽기 전용 트랜잭션의 고정 SELECT 한 줄, nonResourceURL `/metrics`로 감사 이벤트 수)
 - [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
 - [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
 - [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
-- [ ] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
+- [x] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
 
-**완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용 → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
+**완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용(비밀 값 주입은 T45) → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 
-## 6단계
+### [T45] 목적지 처음 구축 실행기: 정형 단계 스택 · T10 승인 · T44 Argo CD
+
+**어디에 필요** 목적지 클러스터 위 구성(CNPG · SeaweedFS · Tailscale · OpenBao/ESO · 앱)을 운영자가 README 순서대로 렌더 · 적용하고 있어, 구축 절차가 코드로 관리되지 않고 재구축 시간도 측정되지 않는다(11/7 중간 점검 지적). 설계 문서 8.11의 "목적지 구축" 어댑터 구현이다.
+
+**만들 것** 기존 렌더러를 정형 단계(`probe` · `gitops_publish` · `gitops_sync` · `render_apply` · `helm_release` · `secret_generate` · `wait` · `operator_action`)로 감싼 `target-onprem` 스택 정의, 계획 엔진(렌더 · 설정 저장소 트리 digest · 서버 측 dry-run · `plan_digest`), T10 `kind=infra` 승인을 재계산 digest와 대조한 뒤에만 적용하는 실행기, T44 목적지 Argo CD에 더하는 AppProject · Application과 비공개 설정 저장소, 계획 · 적용 · 조회 API(에이전트는 계획 생성 · 조회만). 결정은 ADR-0033. 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44(ADR-0032)가 맡고, T45는 그 Argo에 Application을 더하며 T44의 "비밀 값이 필요한 자원은 다른 적용기 담당"을 맡는다. 렌더러 코드는 바꾸지 않는다. 예외: 두 번째 스택 `target-onprem-migration`(#648)을 위해 T30 database 렌더가 T8 정방향 외부 클러스터를 선언한다(ADR-0033 3.8).
+
+- **우선순위** P1 · **영역** 에이전트 · 리허설 · **담당** 전동훈
+- **선행** `T9`, `T30` (통합 시점: `T10`, `T24`, `T44`) · **후속** 없음 · **설계 문서** 8.8, 8.11, ADR-0033
+
+**목표** 새 목적지 VM을 API 호출 몇 번으로 같은 기준까지 구축하고, 사람이 승인한 계획과 설정 저장소 커밋 · 실제 클러스터 상태가 같으며, 단계별 소요 시간이 남는다. 선언형 상태는 고객 클러스터 안의 Argo CD가 유지하고, 에이전트는 정형 계획만 낼 수 있고 적용할 수 없다.
+
+**할 일**
+- [ ] 스택 정의 · 계획 요청 JSON Schema와 `target-onprem` 스택(README 16단계, 병렬 줄기 4개), T30 · T9 담당 순서 확인
+- [ ] 계획 엔진: 렌더러 고정 인자 호출, chart `helm template` 후처리, 설정 저장소 트리 digest, 읽기 전용 신원 dry-run, 비밀값 없는 `plan_digest`, CI에서 스택 렌더 시험
+- [ ] T44 목적지 Argo CD 위에 줄기별 Application · 전용 AppProject(설정 저장소 한정), 자동 prune 끔, 설정 저장소 읽기 전용 자격
+- [ ] 적용 실행기: T10 `kind=infra` 승인 대조, digest · 기준 커밋 재확인 거부, 설정 저장소 커밋과 Argo revision 확인, 의존 그래프 병렬 실행, 멱등 `SKIPPED`, `operator_action` 대기 · 확인, 상태 불명 `HOLD`, 삭제 동작 없음, T24 기록
+- [ ] 비밀 값 자원(버킷 계정 Secret): 처음 구축 때 T44 원하는 상태 모양으로 만들기(`object-secrets`), 데모 1번 "열린 버킷 → 닫기"의 적용 · IAM-01.1 재대조는 새 적용기 없이 T31 버킷 정책 분기(`apply-path` `policy.py`, `apply-recheck`)를 재사용하고 T44 `closed` 원하는 상태를 그 입력으로 잇기(T44 #646)
+- [ ] API: 계획 생성 · 조회(에이전트 포함), 적용 실행 · 조회 · 사람 단계 확인(사람만), 에이전트 신원의 실행 · 확인 거부와 요청 스키마 검사
+- [ ] 새 로컬 VM에서 계획 → 승인 → 적용 실측: 단계별 시각 · 전체 소요 시간, Argo revision과 커밋 일치, 재적용 전부 `SKIPPED`, 중간 실패 뒤 이어서 적용, digest 불일치 `REFUSED`, 비밀값 비노출 확인
+
+**완료 기준** `local-vm.sh up`으로 만든 새 VM이 API 적용만으로 16단계 확인을 통과하고 단계별 소요 시간이 기록된다. 목적지 Argo CD가 실행 기록의 커밋으로 수렴하고, 같은 계획 재적용은 커밋과 클러스터를 바꾸지 않으며, 승인 뒤 렌더 결과나 기준 커밋이 바뀌면 적용이 거부되고, 에이전트 신원은 승인 · 적용을 할 수 없다. 적용 신원의 권한 세분화와 AWS Terraform 스택 일괄 적용은 별도 범위로 진행한다.
+
+### [T48] tailnet 합류 · 정책 · 분리의 코드화: Tailscale 워크로드 신원 연합(WIF)
+
+**어디에 필요** tailnet 정책을 관리자가 콘솔에서 손으로 합치고, operator의 OAuth client secret(`operator-oauth`)을 사람이 클러스터에 넣는다. 새 클러스터는 VM 생성 때 합류하지 않고, 작업이 끝난 뒤 연결을 닫는 코드가 없다. 2026-11-07 새 RKE2 시험 클러스터는 T45 데이터 계층까지 섰으나 합류 단계에서 멈췄다.
+
+**만들 것** 정책은 `tailnet-policy` 워크플로(#667) 한 곳에서 쓰고, 환경별 연합 신원은 Terraform 스택 `infra/envs/tailnet`으로 관리하고, operator · CI · 플랫폼이 장기 secret 없이 OIDC 토큰으로 Tailscale에 인증한다. 온프렘 클러스터는 ServiceAccount 발급자를 공개 정적 주소로 둔다. 합류 · 제어 · 고객 접근 · 분리를 원하는 상태 PR과 사람 승인으로 진행한다. ADR-0035.
+
+- **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 류지환
+- **선행** `T44` (통합 시점: `T45`, `T2`, `T30`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-7, ADR-0035
+
+**목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
+
+**할 일**
+- [x] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [x] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
+- [x] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
+- [x] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
+- [x] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
+- [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
+- [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
+- [ ] 분리: 환경 tailnet 항목 삭제 PR → 승인 적용 → 장치 삭제 → operator 인증 실패 · 플랫폼 도달 실패 확인과 분리 영수증
+- [ ] 기존 플랫폼 · 대상 operator의 WIF 전환(별도 실행 창, 기존 Secret 회수)
+
+**완료 기준** 새 RKE2 시험 클러스터에서 원하는 상태 PR → 승인 → 합류 → Tailscale 관리자 신원으로 T45 실행(포트포워딩 없음) → 운영자 접근 확인 → 분리 PR → 도달 실패까지 이어지고, 저장소 · 클러스터 · 실행 기록에 Tailscale secret이 없다. 계획이나 CI 통과만으로 완료 처리하지 않는다.
+
+### [T50] GCP 목적지(GCE RKE2 · GKE): terraform으로 펼치고 접기 · IAM 접근 · Artifact Registry pull · tailnet 합류
+
+**어디에 필요** 목적지 RKE2는 Mac mini VM(T2) 하나뿐이라, 팀원이 각자 목적지를 펼치고 접으며 해피패스를 반복할 수 없다(11/7 GCP 팀 프로젝트 생성). 고객 목적지는 자체 운영 RKE2일 수도, 관리형 Kubernetes일 수도 있다(11/7 21:5x 사용자 기준: 플랫폼은 AWS 플랫폼 RKE2, 목적지는 고객마다 다르다). 같은 RKE2 어댑터와 T45 스택을 클라우드 VM과 GKE에서도 쓰려면 노드·접근 경로·이미지 전달·tailnet 합류를 코드로 둬야 한다.
+
+**만들 것** `infra/envs/gcp-rke2`: 공통 bootstrap으로 세운 외부 주소 없는 GCE 노드, IAP 범위만 허용하는 방화벽, Cloud NAT, 노드 서비스 계정 IAM으로 pull하는 Artifact Registry. `node.sh`는 `local-vm.sh`와 같은 동사(host 어댑터)를 낸다. `infra/envs/gcp-gke`: private 노드, IAM으로 확인하는 DNS endpoint, Workload Identity, Dataplane V2. tailnet 합류는 T48(ADR-0035) WIF로 하고, T45 Tailscale 단계를 WIF 값으로 바꾼다. 클러스터 위 구성은 T45 스택, 무인 진행은 T49가 맡는다.
+
+- **우선순위** P2 · **영역** 인프라 · **담당** 류지환
+- **선행** `T2` (통합 시점: `T45`, `T48`, `T49`) · **후속** 없음 · **설계 문서** 8.11
+
+**목표** 실제 GCP 프로젝트에서 터미널 몇 줄로 목적지(RKE2·GKE)를 펼치고 접는다. 들어오는 길은 IAM이 정하는 경로뿐이고, 이미지는 저장된 비밀 없이 digest로 pull하며, tailnet에는 장기 secret 없이 합류한다. AWS 플랫폼 RKE2가 이 목적지로 데이터·보안 해피패스를 끝까지 실행한다.
+
+**할 일**
+- [x] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
+- [x] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
+- [ ] GKE env·mock 시험(private 노드·endpoint, IAM DNS endpoint, Workload Identity, Dataplane V2)과 실측(공개 발급자, Pod의 metadata 은닉)
+- [ ] T48 WIF로 tailnet 합류: 환경 조각의 태그 소유자, 연합 신원, T45 Tailscale 단계를 WIF 값과 합류 관찰 확인으로 바꾸기
+- [ ] AWS 플랫폼 RKE2가 EKS 출발지 → GCP 목적지(GKE·GCE RKE2)로 데이터·보안 해피패스를 실행하고, 장애 시나리오(스플릿 브레인·epoch·lease·소유 인계·펜스) 영수증을 보존
+
+**완료 기준** 새로 펼친 GCP 목적지(GKE·GCE RKE2)에서 AWS 플랫폼의 T49 진행기가 사람 확인 없이 끝까지 성공하고, 장애 시나리오마다 기대 결과(거부·ABORT_PRE_WRITE·SAFE_HOLD)와 쓰기 DB 최대 하나가 실측으로 남는다. 같은 env를 접었다 다시 펼쳐도 같은 결과가 나오고, 단계별 시간과 비용 근거가 남는다.
 
 ### [T25] 반복 측정 · 장애 주입 · SAFE_HOLD 시험
 

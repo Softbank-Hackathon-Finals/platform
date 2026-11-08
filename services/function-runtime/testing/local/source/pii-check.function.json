@@ -1,0 +1,8 @@
+{
+  "FunctionName": "pii-check",
+  "Runtime": "python3.12",
+  "Handler": "pii_check.handler",
+  "Timeout": 5,
+  "MemorySize": 128,
+  "PackageType": "Zip"
+}

@@ -34,7 +34,7 @@
 | 환경 | 집계 출처 (P0) | 대체 출처 | 원본 형식 | 담는 것 |
 |---|---|---|---|---|
 | AWS | **Security Hub** `GetFindings` | Security Hub를 켤 수 없으면 GuardDuty `ListFindings` · `GetFindings` 직접 | ASFF | GuardDuty(위협), 보안 표준 점검(설정 위반), Inspector(취약점, 켠 경우) |
-| Google Cloud | **Security Command Center** `ListFindings` | — | SCC Finding | Security Health Analytics(설정 위반), 위협 탐지(등급에 따라) |
+| Google Cloud | **Security Command Center** v2 `ListFindings`(`locations/global`) | — | SCC Finding | Security Health Analytics(설정 위반), 위협 탐지(등급에 따라) |
 | 온프렘 (RKE2) | **Kyverno PolicyReport** (K8s API) + **Falco** (falcosidekick 웹훅) | — | PolicyReport CRD, Falco 이벤트 JSON | 정책 위반(Kyverno), 런타임 위협(Falco) |
 | 모든 환경 | **T5 통제 시험 결과** (`ControlRun`) | — | `docs/controls/control-result.schema.json` | 6개 통제 PASS / FAIL / UNKNOWN |
 

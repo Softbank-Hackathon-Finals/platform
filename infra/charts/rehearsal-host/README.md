@@ -17,15 +17,18 @@ runtime 입력에는 기존 객체 이름만 넣는다. bootstrap은 모두 존�
 | `recordsClaim` | `host.json`의 `records_root=/records`. 이 호스트만 쓰는 Retain PVC다. |
 | `secrets.host` | `record_key`, `tls_crt`, `tls_key`. OpenBao `t15/host` 항목을 추가할 때까지 운영자가 만드는 임시 Secret이다. |
 | `secrets.catalogKey`, `database`, `databaseCA` | Reader와 같은 기존 Secret. |
+| `secrets.securityReview` | security-review TLS root의 `ca.crt`. 서비스용 workload token과 분리한다. |
 
 SA `t15-rehearsal-host`는 기본 토큰을 받지 않는다. RBAC도 없다.
-`/var/run/secrets/t10-intake/token`에 audience `bravo-t10-rehearsal-intake`인 600초 projected token만 받는다.
+`/var/run/secrets/t10-intake/token`에 audience `bravo-t10-rehearsal-intake`,
+`/var/run/secrets/security-review/token`에 audience `registered-security-review-audience`인
+600초 projected token만 각각 받는다. 두 token은 서로 대체할 수 없다.
 목적지 접근은 T7 kubeconfig 두 개로만 한다. `t15-manager`는 namespace와 T3, `t15-runner`는 검증 Job에 쓴다.
 
 ## 설치 순서
 
 1. 목적지에 `t15-manager` 경계를 설치하고 T7 발급을 등록한다([rehearsal-access README](../../envs/rehearsal-access/README.md#별도-관리-계정-t15-manager)).
-2. GitOps는 NetworkPolicy를 관리하지 않는다. 그래서 [rehearsal-host-network.yaml](../../envs/rehearsal-access/rehearsal-host-network.yaml)을 다른 T7 tailnet 정책과 함께 적용한다. 이 파일은 `platform-state` egress와 `tailscale-system` ingress를 담는다.
+2. GitOps는 NetworkPolicy를 관리하지 않는다. 그래서 [rehearsal-host-network.yaml](../../envs/rehearsal-access/rehearsal-host-network.yaml)을 다른 T7 tailnet 정책과 함께 적용한다. 이 파일은 `platform-state` egress, security-review ingress와 `tailscale-system` ingress를 담는다.
 3. 이미지를 발행하고 pin PR을 병합한다. 보호 입력 객체를 만든다.
 4. bootstrap `--runtime-values`에 `rehearsalHost`를 넣어 적용한다. Argo Synced/Healthy를 확인하고, 기동 로그의 두 클라이언트 신원과 cluster UID 대조를 확인한다.
 

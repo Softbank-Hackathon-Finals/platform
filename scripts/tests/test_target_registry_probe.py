@@ -142,6 +142,11 @@ class ProbeTest(unittest.TestCase):
         with self.assertRaises(module.Failure):
             module.validate(self.input)
 
+    def test_the_reviewed_metadata_policy_is_the_one_the_nodes_get(self):
+        import hashlib
+        policy = Path(__file__).resolve().parents[2] / "services/control-runner/templates/rke2-audit-policy.yaml"
+        self.assertEqual(module.METADATA_POLICY_SHA256, hashlib.sha256(policy.read_bytes()).hexdigest())
+
     def test_preflight_identity_failure_precedes_any_write(self):
         wrong = {"metadata": {"uid": str(uuid.uuid4())}}
         with patch.object(module, "get", return_value=wrong), patch.object(module, "call") as call:

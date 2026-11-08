@@ -29,6 +29,7 @@ HTTP 입력이나 모델 출력으로 모듈을 선택하지 않는다. 이 함�
 | `planner` | T15 `BucketPlanner`: 목적지 profile·고정 시험 버킷·전용 자격 참조·인증된 T11 proposal source·현재 PlanBinding |
 | `executor`·`bindings` | 기존 T12 `ExecutorClient`와 등록된 DB 환경 쌍. command/read 자격은 구분 |
 | `cutover_authority` | 현재 T19 원문·SHIFT 관측을 같은 계획 트랜잭션에서 읽어 `CurrentCutover`를 반환하는 T10 접점 |
+| `security_review` | [보안 거버넌스 적용 계약](../../../../docs/security/platform-security-governance.md)의 고정 TLS origin, 전용 projected token, image source SHA. PATCH pre/postflight와 migration preflight는 기존 authority의 추가 조건이다. |
 
 `load_host(store, config_file, create_ports)`는 아래 JSON의 정확한 필드를 받는다.
 경로는 배포 소유자가 지정한 절대 경로다. 기록 디렉터리는 미리 마련된 영속

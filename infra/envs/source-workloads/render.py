@@ -78,7 +78,10 @@ def database():
                       "limits": {"cpu": "1", "memory": "1Gi"}},
         "certificates": {"serverAltDNSNames": [
             "source-pgbouncer", f"source-pgbouncer.{NAMESPACE}",
-            f"source-pgbouncer.{NAMESPACE}.svc", f"source-pgbouncer.{NAMESPACE}.svc.cluster.local"]},
+            f"source-pgbouncer.{NAMESPACE}.svc", f"source-pgbouncer.{NAMESPACE}.svc.cluster.local",
+            # The destination reaches this database by its T44 egress Service name (target-workloads/render.py
+            # SOURCE_REPLICATION) and checks it with verify-full.
+            "source-db-for-replication.target-dev.svc"]},
         "postgresql": {
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",

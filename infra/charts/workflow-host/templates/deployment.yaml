@@ -4,6 +4,7 @@
 {{- if not .Values.stateClaim }}{{ fail "stateClaim is required" }}{{- end }}
 {{- if not .Values.secrets.executor }}{{ fail "secrets.executor is required" }}{{- end }}
 {{- if and .Values.applyCredential.existingConfigMap .Values.secrets.applyKubeconfig }}{{ fail "use applyCredential or secrets.applyKubeconfig, not both" }}{{- end }}
+{{- with .Values.gateSigner.roleArn }}{{- if not (regexMatch "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]+$" .) }}{{ fail "gateSigner.roleArn must be one IAM role ARN" }}{{- end }}{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,6 +44,9 @@ spec:
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
+        # The AI Job ledger under /workflow-state must stay 0700/0600; the default (Always) pass re-adds
+        # group bits to every file on each mount and the host stops at its second start (live 11/8).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -55,6 +59,13 @@ spec:
             - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
             - {name: PYTHONUNBUFFERED, value: "1"}
             - {name: HOME, value: /tmp}
+            {{- if .Values.gateSigner.roleArn }}
+            # T19 platform signer (ADR-0038): boto3's web identity provider, nothing stored.
+            - {name: AWS_ROLE_ARN, value: {{ .Values.gateSigner.roleArn | quote }}}
+            - {name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/sts/token}
+            - {name: AWS_REGION, value: {{ .Values.gateSigner.region | quote }}}
+            - {name: AWS_STS_REGIONAL_ENDPOINTS, value: regional}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -70,15 +81,46 @@ spec:
             - {name: catalog, mountPath: /catalog, readOnly: true}
             - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
             - {name: executor, mountPath: /executor, readOnly: true}
-            {{- if .Values.secrets.githubApp }}
-            - {name: github-app, mountPath: /github-app, readOnly: true}
+            {{- if .Values.secrets.candidatePush }}
+            # T49: pushes the platform-built candidate (propose.build.credentials_file /ecr-push/.dockerconfigjson).
+            - {name: candidate-push, mountPath: /ecr-push, readOnly: true}
             {{- end }}
             {{- if or .Values.secrets.applyKubeconfig .Values.applyCredential.existingConfigMap }}
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
             {{- end }}
+            {{- if .Values.secrets.targetControlsKubeconfig }}
+            - {name: target-controls-kubeconfig, mountPath: /t14, readOnly: true}
+            {{- end }}
+            {{- if .Values.candidatePull.enabled }}
+            # T49: the registry credential the host copies into the target's one pull Secret before an apply.
+            - {name: candidate-pull, mountPath: /ghcr, readOnly: true}
+            {{- end }}
             - {name: state, mountPath: /workflow-state}
+            {{- if .Values.initialProposalAuto.enabled }}
+            # Only for creating and reading initial-proposal Jobs in bravo-initial (Role there allows nothing else).
+            - {name: kube-api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+            {{- end }}
+            {{- if .Values.gateSigner.roleArn }}
+            - {name: sts-token, mountPath: /var/run/secrets/sts, readOnly: true}
+            {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        {{- if .Values.gateSigner.roleArn }}
+        # Audience sts.amazonaws.com only: this token cannot call the Kubernetes API.
+        - name: sts-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken: {path: token, audience: sts.amazonaws.com, expirationSeconds: 3600}
+        {{- end }}
+        {{- if .Values.initialProposalAuto.enabled }}
+        - name: kube-api-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+        {{- end }}
         - name: credential
           secret:
             secretName: {{ .Values.secrets.database }}
@@ -117,13 +159,21 @@ spec:
             items:
               - {key: ca.crt, path: ca.crt}
               - {key: read-token, path: read-token}
-        {{- if .Values.secrets.githubApp }}
-        - name: github-app
+        {{- if .Values.candidatePull.enabled }}
+        - name: candidate-pull
           secret:
-            secretName: {{ .Values.secrets.githubApp }}
+            secretName: {{ .Values.secrets.registry }}
             defaultMode: 0440
             items:
-              - {key: private-key.pem, path: private-key.pem}
+              - {key: .dockerconfigjson, path: .dockerconfigjson}
+        {{- end }}
+        {{- if .Values.secrets.candidatePush }}
+        - name: candidate-push
+          secret:
+            secretName: {{ .Values.secrets.candidatePush }}
+            defaultMode: 0440
+            items:
+              - {key: .dockerconfigjson, path: .dockerconfigjson}
         {{- end }}
         {{- if .Values.secrets.applyKubeconfig }}
         - name: apply-kubeconfig
@@ -141,6 +191,15 @@ spec:
             items:
               - {key: kubeconfig, path: kubeconfig}
               - {key: registration.json, path: registration.json}
+        {{- end }}
+        {{- if .Values.secrets.targetControlsKubeconfig }}
+        # ADR-0041: the platform's bravo-t14-collector identity on the target (watch.target_controls).
+        - name: target-controls-kubeconfig
+          secret:
+            secretName: {{ .Values.secrets.targetControlsKubeconfig }}
+            defaultMode: 0440
+            items:
+              - {key: kubeconfig, path: kubeconfig}
         {{- end }}
         - name: state
           persistentVolumeClaim:

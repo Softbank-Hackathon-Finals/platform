@@ -121,6 +121,42 @@ def test_sdk_pages_archived_sample_and_summary():
     assert cells["ENCRYPTION"]["state"] == "NONE"
 
 
+def test_live_last_page_ends_with_an_empty_next_token():
+    # The real ListFindings returns NextToken "" on its last page (11-08, three sample findings).
+    client = boto3.client(
+        "guardduty",
+        region_name=REGION,
+        aws_access_key_id="testing",
+        aws_secret_access_key="testing",
+    )
+    only = finding(1)
+    with Stubber(client) as stub:
+        stub.add_response("list_detectors", {"DetectorIds": [DETECTOR]}, {"MaxResults": 50})
+        stub.add_response(
+            "get_detector",
+            {"Status": "ENABLED", "ServiceRole": "example", "FindingPublishingFrequency": "FIFTEEN_MINUTES"},
+            {"DetectorId": DETECTOR},
+        )
+        stub.add_response(
+            "list_findings",
+            {"FindingIds": [only["Id"]], "NextToken": ""},
+            dict(
+                DetectorId=DETECTOR,
+                MaxResults=50,
+                FindingCriteria={"Criterion": {"updatedAt": {"Gte": 0, "Lte": T0}}},
+            ),
+        )
+        stub.add_response(
+            "get_findings",
+            {"Findings": [only]},
+            {"DetectorId": DETECTOR, "FindingIds": [only["Id"]]},
+        )
+        counts, store = run(client)
+        stub.assert_no_pending_responses()
+    assert counts["created"] == 1 and not counts["failed"]
+    assert store.source("aws_guardduty", "env-aws").error_code is None
+
+
 @pytest.mark.parametrize(
     "fault",
     [

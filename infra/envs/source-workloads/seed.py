@@ -93,8 +93,11 @@ class Runtime:
         actual = self.secret("source-pgbouncer-auth", lambda: expected)
         # The control verifier has a random salt; validate its password, not bytes.
         lines = actual.get("userlist.txt", "").splitlines()
-        if len(lines) != 2 or lines[0] != expected["userlist.txt"].splitlines()[0]:
+        if len(lines) not in (2, 3) or lines[0] != expected["userlist.txt"].splitlines()[0]:
             raise RuntimeError("existing pooler application verifier differs; rotate deliberately")
+        # T37 PgBouncer exporter account (stats_users, SHOW only). Its password is issued outside this seed.
+        if len(lines) == 3 and not lines[2].startswith('"bravo_stats" "SCRAM-SHA-256$'):
+            raise RuntimeError("unexpected pooler account")
         if not lines[1].startswith('"cutover_control" "') or not password_matches(control["pgbouncer_password"], lines[1].split('"')[3]):
             raise RuntimeError("existing pooler control credential differs")
 

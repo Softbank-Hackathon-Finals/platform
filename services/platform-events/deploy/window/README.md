@@ -1,6 +1,6 @@
 # T10 전용 창 수신부
 
-`POST /v1/observability/windows`로 받은 T18 창을 기존 T10 계획 트랜잭션에 저장한다. 형식·통계·시각 검사는 고정한 T36 `020c6c78`의 코드가 맡는다. 이 서버는 콘솔 API, 계획 등록, binding 관리, SHIFT 판정이나 Executor 실행을 제공하지 않는다.
+`POST /v1/observability/windows`로 받은 T18 창을 기존 T10 계획 트랜잭션에 저장한다. 형식·통계·시각 검사는 고정한 T36 `24b3cf51`의 코드가 맡는다. 이 서버는 콘솔 API, 계획 등록, binding 관리, SHIFT 판정이나 Executor 실행을 제공하지 않는다.
 
 | 구간 | 연결과 권한 |
 |---|---|
