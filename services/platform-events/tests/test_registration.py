@@ -166,6 +166,22 @@ def test_profile_policy_is_tenant_bound_and_missing_policy_denies_new_plans(regi
         assert f.probe.results == []
 
 
+def test_happy_path_plan_is_accepted_with_packaged_readiness(registered):
+    """operations/demo-set/register_plan.py: aws -> onprem, demo-gate/1 + apply-recheck/1, P0 catalog
+    without catalog_role or cluster_uid. ADR-0034 checks must not change this develop flow."""
+    f = registered
+    assert f.registry.adapter_readiness == registration_kinds.adapter_readiness()
+    f.registry.evaluation_profiles = frozenset({(TENANT, "demo-gate", "1"), (TENANT, "apply-recheck", "1")})
+    body = f.setup_workload() | {"profile_id": "demo-gate", "profile_version": "1"} | RECHECK
+    created = f.post("plans", body, "demo-key")
+    assert created.status_code == 201
+    receipt = created.json()
+    assert (receipt["source_environment_id"], receipt["target_environment_id"], receipt["state"],
+            receipt["version"]) == ("env-src", "env-dst", "COLLECT", 1)
+    assert (receipt["profile_id"], receipt["recheck_profile_id"]) == ("demo-gate", "apply-recheck")
+    assert f.post("plans", body, "demo-key").json() == receipt
+
+
 def test_recheck_profile_is_immutable_tenant_allowed_and_digest_bound(registered):
     from bravo_platform_events.registration import digest
 
