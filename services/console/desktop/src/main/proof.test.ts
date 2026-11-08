@@ -6,7 +6,7 @@ describe('mintProof', () => {
   it('produces exactly the query the T10 verifier accepts', async () => {
     const token = await mintProof({
       region: 'ap-northeast-2', now: new Date('2026-11-07T13:00:00Z'),
-      credentials: async () => ({ accessKeyId: 'ASIAEXAMPLEEXAMPLE12', secretAccessKey: 's', sessionToken: 'tok+/=' }),
+      credentials: async () => ({ accessKeyId: 'ASIATESTKEY', secretAccessKey: 's', sessionToken: 'tok+/=' }),
     });
     expect(token.startsWith(PREFIX)).toBe(true);
     const url = new URL(Buffer.from(token.slice(PREFIX.length), 'base64url').toString('ascii'));
@@ -16,7 +16,7 @@ describe('mintProof', () => {
       'X-Amz-Expires', 'X-Amz-Security-Token', 'X-Amz-Signature', 'X-Amz-SignedHeaders']);
     expect(q['X-Amz-Expires']).toBe('60');
     expect(q['X-Amz-SignedHeaders']).toBe('host;' + AUDIENCE_HEADER);
-    expect(q['X-Amz-Credential']).toBe('ASIAEXAMPLEEXAMPLE12/20261107/ap-northeast-2/sts/aws4_request');
+    expect(q['X-Amz-Credential']).toBe('ASIATESTKEY/20261107/ap-northeast-2/sts/aws4_request');
     expect(q['X-Amz-Security-Token']).toBe('tok+/=');
     expect(q['X-Amz-Signature']).toMatch(/^[a-f0-9]{64}$/);
   });
