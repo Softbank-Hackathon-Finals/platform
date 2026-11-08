@@ -295,7 +295,10 @@ def next_safe_value(source: SequenceState, target: SequenceState) -> int:
 
 
 def correct_sequence(src, dst, sequence: str, table: str, column: str) -> dict:
-    """쓰기를 막은 뒤 부른다. 목적지 시퀀스를 올리기만 하고, 올린 값을 다시 읽어 확인한 영수증 항목을 돌려준다."""
+    """컷오버는 쓰기를 막은 뒤, GATE 사전 관찰은 목적지가 닫혀 있을 때만 부른다(T13 계약 「소비자 연결」).
+
+    목적지 시퀀스를 올리기만 하고, 올린 값을 다시 읽어 확인한 영수증 항목을 돌려준다.
+    """
     with only_fixed_errors("sequence_unconfirmed"):
         source = src.sequence_state(sequence, table, column)
         before = dst.sequence_state(sequence, table, column)

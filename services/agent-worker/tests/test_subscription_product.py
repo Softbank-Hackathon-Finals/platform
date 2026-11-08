@@ -297,8 +297,15 @@ def test_host_bridge_uses_job_identity_and_existing_worker(monkeypatch, setup, c
     claude = server.product_service(settings | {"provider": "claude", "anthropic_key_file": "/run/bravo/key"},
                                     Inputs(), service.journal.root / "claude")
     assert claude.run(body)[1]["state"] == "PROPOSAL_READY" and claude_calls == ["/run/bravo/key"]
+    # T49: OpenAI Agents SDK with the platform API key file, likewise without the subscription secret.
+    openai_calls = []
+    monkeypatch.setattr(product, "run_openai_worker",
+                        lambda key_file, directory, args: openai_calls.append(key_file) or worker(None, directory, args))
+    oai = server.product_service(settings | {"provider": "openai", "openai_key_file": "/run/bravo/openai"},
+                                 Inputs(), service.journal.root / "openai")
+    assert oai.run(body)[1]["state"] == "PROPOSAL_READY" and openai_calls == ["/run/bravo/openai"]
     with pytest.raises(ValueError):
-        product.invoke_product_worker(settings | {"provider": "openai"}, None, None, None, None)
+        product.invoke_product_worker(settings | {"provider": "gemini"}, None, None, None, None)
 
 
 def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, setup, tmp_path):

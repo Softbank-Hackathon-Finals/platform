@@ -20,6 +20,12 @@ spec:
         tailnet: {{ $tailnet | quote }}
   destination:
     server: https://kubernetes.default.svc
+  # tailnet-egress ExternalName Services carry "placeholder"; the Tailscale operator rewrites it to its proxy
+  # Service. Argo must neither report that as drift nor write "placeholder" back over a live route.
+  ignoreDifferences:
+    - group: ""
+      kind: Service
+      jsonPointers: [/spec/externalName]
   syncPolicy:
     automated:
       enabled: {{ .Values.application.autoSync }}
@@ -30,6 +36,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
     # Enabled only after the cluster's builder made the namespaces and Tailscale CRDs (README), so a
     # failure is real: retry a few times (about 5 minutes), then stop so a fixed revision can sync.
     retry:

@@ -13,7 +13,9 @@ from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
-OBSERVABILITY_REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
+OBSERVABILITY_REVISION = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63"
+SECURITY_REVISION = "cf33e09c8d3be567542a17fe039f3e6e2295568d"
+SECURITY_REPOSITORY = "https://github.com/Softbank-Hackathon-Finals/security.git"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
@@ -27,6 +29,10 @@ PACKAGES = {
     "edge-control": "bravo_edge_control",
     # T44 planning library under the agent worker's infra.plan tool (pure, no dependencies).
     "iac": "bravo_iac",
+    # ADR-0041: the workflow host's post-cutover target T14 run (collectors only; botocore from the lock).
+    "control-runner": "bravo_controls",
+    # T49 platform load Job (workflow host): the T18 generator, run as `python -m bravo_loadgen.cli`.
+    "loadgen": "bravo_loadgen",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
@@ -70,6 +76,34 @@ def copy_committed_tree(revision, prefix, destination):
         raise ValueError("committed_source_missing")
 
 
+def copy_security_tree(destination):
+    """Copy the immutable security package without putting Git metadata in the image."""
+    with tempfile.TemporaryDirectory(prefix="sova-security-") as directory:
+        repository = Path(directory)
+        subprocess.run(["git", "init", "-q", str(repository)], check=True)
+        subprocess.run(["git", "-C", str(repository), "remote", "add", "origin", SECURITY_REPOSITORY], check=True)
+        subprocess.run(["git", "-C", str(repository), "fetch", "-q", "--depth=1", "origin", SECURITY_REVISION],
+                       check=True)
+        resolved = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "FETCH_HEAD"], text=True).strip()
+        if resolved != SECURITY_REVISION:
+            raise ValueError("security_source_mismatch")
+        entries = subprocess.check_output(["git", "-C", str(repository), "ls-tree", "-rz", "FETCH_HEAD",
+                                           "--", "src/sova_security"]).split(b"\0")
+        count = 0
+        for entry in filter(None, entries):
+            metadata, raw_path = entry.split(b"\t", 1)
+            mode, kind, oid = metadata.decode().split()
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                raise ValueError("regular_committed_sources_required")
+            relative = Path(raw_path.decode()).relative_to("src/sova_security")
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(subprocess.check_output(["git", "-C", str(repository), "cat-file", "blob", oid]))
+            count += 1
+        if not count:
+            raise ValueError("security_source_missing")
+
+
 def build_kubectl(context, revision):
     """The patched, pinned kubectl (T15 rehearsal; T31 apply from the workflow host)."""
     # Keep the upstream command unchanged; compile its locked, patched module
@@ -94,7 +128,9 @@ def add_rehearsal_context(context, revision):
     build_kubectl(context, revision)
 
 
-def prepare_context(context, revision, *, rehearsal_host=False):
+def prepare_context(context, revision, *, rehearsal_host=False, security_review=False):
+    if rehearsal_host and security_review:
+        raise ValueError("one_image_role_required")
     # Export only hashed registry dependencies. Repo packages come from Git blobs.
     project = tomllib.loads((SERVICE / "pyproject.toml").read_text())
     upstream = project["tool"]["uv"]["sources"]["bravo-observability"]
@@ -102,26 +138,42 @@ def prepare_context(context, revision, *, rehearsal_host=False):
             or upstream.get("git") != "https://github.com/Softbank-Hackathon-Finals/platform.git"
             or upstream.get("subdirectory") != "services/observability"):
         raise ValueError("observability_source_mismatch")
+    security = project["tool"]["uv"]["sources"]["sova-security"]
+    if security != {"git": SECURITY_REPOSITORY, "rev": SECURITY_REVISION}:
+        raise ValueError("security_source_mismatch")
     requirements = context / "requirements.txt"
-    subprocess.run(["uv", "export", "--locked", "--no-header", "--no-dev", "--extra", "postgres",
-        "--group", "product-inputs", "--group", "gate-records", "--no-emit-project", "--no-emit-package", "bravo-observability",
-        "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
-        "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
-        "--no-emit-package", "bravo-iac",
-        "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
+    export = ["uv", "export", "--locked", "--no-header", "--no-dev"]
+    if security_review:
+        export += ["--only-group", "security-review", "--no-emit-project", "--no-emit-package", "sova-security"]
+    else:
+        export += ["--extra", "postgres", "--group", "product-inputs", "--group", "gate-records",
+            "--group", "target-controls", "--group", "security-governance", "--no-emit-project",
+            "--no-emit-package", "bravo-observability", "--no-emit-package", "sova-security",
+            "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
+            "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
+            "--no-emit-package", "bravo-iac", "--no-emit-package", "bravo-controls"]
+    subprocess.run([*export, "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line
            for line in text.splitlines() if not line.startswith("#")):
         raise ValueError("registry_dependencies_required")
-    for service, package in PACKAGES.items():
-        source = OBSERVABILITY_REVISION if service == "observability" else revision
-        copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
-    if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
-        raise ValueError("product_reader_missing")
+    if not security_review:
+        for service, package in PACKAGES.items():
+            source = OBSERVABILITY_REVISION if service == "observability" else revision
+            copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
+    copy_security_tree(context / "src/sova_security")
+    # T36's wheel force-includes its contract schema (services/observability pyproject); copying the
+    # package sources skips it, and every contract.validate in the image then fails (T17 drill, 11/8).
+    if not security_review:
+        (context / "src/bravo_observability/sli.schema.json").write_bytes(
+            git("show", f"{OBSERVABILITY_REVISION}:docs/observability/sli.schema.json"))
+        if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
+            raise ValueError("product_reader_missing")
     if rehearsal_host:
         add_rehearsal_context(context, revision)
-    recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
-              else "services/platform-events/deploy/product-read/Dockerfile")
+    recipe = ("services/platform-events/deploy/security-review/Dockerfile" if security_review else
+              "services/platform-events/deploy/approval/Dockerfile" if rehearsal_host else
+              "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
     # Every image fails its build when an entry point (lazy imports included) needs a module the
     # context did not copy, instead of a Pod that starts and dies (#546 workflow host, bravo_apply).
@@ -199,6 +251,7 @@ def main():
         if args.rehearsal_host:
             probe = ("import os,sys,subprocess; from bravo_platform_events.credential_host import create_ports; "
                      "from bravo_platform_events.rehearsal_server import load_host; "
+                     "from bravo_platform_events.security_governance import SecurityReviewAuthority; "
                      "assert os.getuid()==10001; "
                      "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
                      "'bravo_agent.subscription_admin')) for n in sys.modules); "
@@ -223,6 +276,7 @@ def main():
         receipt = dict(source_revision=revision, image=tag, image_id=image["Id"], platform="linux/amd64",
             archive_sha256=archive_digest, context_sha256=context_digest, source_sha256=hashes,
             observability_revision=OBSERVABILITY_REVISION, runtime_imports="pass",
+            security_revision=SECURITY_REVISION,
             deployed=False, registry_push=False, **identity)
         (output / "build.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps({k: receipt[k] for k in ("source_revision", "image_id", "archive_sha256")}))

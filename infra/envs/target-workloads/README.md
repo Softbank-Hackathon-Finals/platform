@@ -258,7 +258,7 @@ kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/t14-accounts.json" 
 kubectl -n target-dev logs job/target-t14-canary   # 크기 · SHA-256 · client 읽기 · 익명 읽기 결과 한 줄
 ```
 
-- 수집은 운영자 머신에서 `kubectl create token`과 port-forward로 한다(#644). 클러스터 안에는 토큰을 만드는 권한을 두지 않는다. RBAC는 TokenRequest의 audience와 수명을 제한하지 못하므로, 그런 권한은 T9가 만들 앱 OpenBao 역할로 가는 두 번째 길이 된다.
+- 수집은 클러스터 밖에서 `kubectl create token`과 port-forward로 한다. 운영자 머신(#644)이나 플랫폼 workflow host가 한다([ADR-0041](../../../docs/adr/0041-post-cutover-target-controls.md)). 클러스터 안의 워크로드에는 토큰을 만드는 권한을 두지 않는다. RBAC는 TokenRequest의 audience와 수명을 제한하지 못하므로, 그런 권한은 앱 OpenBao 역할로 가는 두 번째 길이 된다. 발급 권한은 플랫폼만 쓰는 SA `bravo-apply-access/bravo-t14-collector`(`t14_gate.py collector`)에만 있다. 대상은 `demo-chat`과 `t14-other` 두 이름이다. 그 SA의 자격은 24시간 이하 토큰이고, 플랫폼은 수명이 그보다 길거나 없는 자격을 쓰지 않는다(`collector_credential_unbounded`).
 - **컷오버 첨부 복사:** `attachments/t14-canary.txt`를 `ATTACHMENT_APPROVED_EXTRA_KEYS_FILE`에 넣는다. 출발지에도 같은 키가 있어서(#649) 어차피 필요하다. 목적지 객체는 출발지와 바이트가 같아야 하고, 다르면 복사가 `destination conflict`로 멈춘다.
 - 익명 읽기가 `allowed`이면 버킷이 위 "데모용 노출 상태"의 `open-demo`이거나 버킷 정책이 남은 것이다. 데모는 이 상태에서 IAM-01.1이 BLOCK되고 T31이 닫은 뒤 다시 잰다. 그래서 canary는 익명 읽기로 실패하지 않는다.
 - 권한 범위는 SubjectAccessReview로 확인한다. 이 접속 경로(Tailscale 인증 프록시)는 `kubectl --as`를 본인 신원으로 바꾸므로 `auth can-i --as`로는 확인되지 않는다.

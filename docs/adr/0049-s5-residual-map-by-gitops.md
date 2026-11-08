@@ -1,0 +1,61 @@
+# [ADR-0049] S5 잔존 의존성 지도를 사람 없이 GitOps로 만든다(데모: 지도까지, 차단 시험 제외)
+
+* **상태 (Status):** 제안됨(Proposed)
+* **날짜 (Date):** 2026-11-08
+* **관련 (Related):** T49, T27(ADR-0014), T45(ADR-0033), T44(ADR-0032), 해피패스 `wrap-map`(S5)
+
+## 1. 배경 및 문제 상황 (Context and Problem Statement)
+
+* **상황:** 해피패스의 마지막 단계 `wrap-map`(S5)은 사람 단계다. T27 도구(`services/exit-drill`)는 계획과 판정만 만들고 클러스터에 쓰지 않는다. 대조군 Pod 적용, 차단 정책 적용과 되돌리기, 재시작은 운영자가 한다([실행 안내](../operations/t27-exit-drill-real-run.md)).
+* **문제:** 사람 없는 해피패스(T49)에서는 S5만 사람 손이 남는다. 사용자 결정(11/8): 정책 적용은 GitOps로 한다. 같은 날 사용자 원칙: "보유한 채점셋을 기준으로 완화하고, 프로덕션 자료 없이 프로덕션 기준을 걸지 않는다."
+* **목표:** S5의 결과물인 잔존 의존성 지도를 사람 없이 만든다. 이미 있는 T27 판정·지도 코드를 그대로 쓴다.
+
+## 2. 고려한 옵션들 (Considered Options)
+
+### 1. 지도까지만, 대조군 Pod는 GitOps로 넣고 뺀다 (데모 범위)
+
+실행 안내 1단계("지도 뽑기, 차단 없이 끝난다")를 T45 스택 하나로 옮긴다. 쓰기는 비밀·계정 없는 대조군 Pod 하나뿐이고, 나머지는 읽기와 렌더다.
+
+**Pros**
+* 클러스터 쓰기가 Git 커밋과 Argo 동기화로만 일어난다. 되돌리기도 커밋이다.
+* 판정·지도는 기존 `render`·`map`을 그대로 쓴다. 새 판정 기준이 없다.
+* 업무 경로(앱·DB·복제)를 건드리지 않는다.
+
+**Cons**
+* 차단 뒤 동작(재시작·새 연결)은 재지 않는다. 지도는 선언과 인벤토리에서 나온 "남은 의존성"이고, 차단 시험의 PASS/FAIL은 없다.
+
+### 2. 차단 시험까지 GitOps로 (실행 안내 2단계 포함)
+
+차단 NetworkPolicy도 같은 경로로 넣고, 재시작 두 번, 쓰기 투입, 전후 측정과 판정을 코드로 한다.
+
+**Pros**
+* 설계 FR-15의 "출발지 없이 돌아가는가"를 실제로 잰다.
+
+**Cons**
+* 목적지 앱의 재시작과 쓰기 스위치를 무인으로 연다. 쓰기 대상이 바뀐 뒤(컷오버 뒤)에만 할 수 있고, 관측 창 15분 제약이 있다.
+* 이 판정을 채점할 실측 사례가 아직 없다(T27 실제 실행은 11/6 지도 단계까지).
+
+## 3. 결정 사항 (Decision Outcome)
+
+* **1안을 택한다.** 2안(차단 시험)은 데모 경계 밖이며, 실측 사례가 생기면 같은 스택에 단계를 더한다.
+* **스택 `infra/stacks/target-exit-map`(T45 실행기)**의 단계는 다음과 같다.
+  1. `control-pod`(gitops_publish): `bravo-exit-drill control-pod` 렌더를 목적지 설정 저장소 `exit-drill/`에 커밋한다. 이미지는 앱 고정 이미지(`application.py --print-image`)다.
+  2. `control-sync`(gitops_sync): Argo가 그 커밋으로 Synced·Healthy인지 확인한다(대조군 Ready).
+  3. `residual-map`(operator_action → 플랫폼 진행기): 목적지 `pods,networkpolicies`를 읽는다. 그 계획의 T16 인벤토리(T10 기록)로 `render`와 `map`을 실행하고, 계획과 지도를 증거로 남긴다. 거부(`refused`)도 그대로 결과다.
+  4. 대조군 제거는 단계로 두지 않는다. T45 게시는 Git 디렉터리만 바꾸고 Argo prune이 꺼져 있다(`adapters.py`). 그래서 커밋으로 Pod가 지워지지 않는다. 대조군은 `activeDeadlineSeconds` 4시간 뒤 스스로 끝난다(T27 `control_pod`).
+* 스택은 `target-identity → control-pod → control-sync → control-ready`(새 검사 `exit-drill-control-ready`)다. 지도는 스택이 SUCCEEDED한 뒤 진행기(`bravo_migration.residual_map`)가 만든다. 지도는 클러스터 객체가 아니라 플랫폼 증거라서 T45 확인 검사로 두지 않는다.
+* 진행기는 기존 `services/migration-driver`의 플랫폼 단계로 둔다(AWS 플랫폼 RKE2, 배치 기준).
+
+### 실측 (2026-11-08, 격리 VM bravo-t49)
+
+* `t45-s5-map-2`: 스택 SUCCEEDED(적용 4, 6초). 대조군 Pod가 GitOps로 Ready가 됐다. 이어서 T27 `render`가 `SELECTOR_MATCHES_NOTHING(pooler)`로 거부했다. 격리 VM에는 컷오버 전 pooler(`target-pgbouncer`, 이전 단계 스택에서 생김)가 없기 때문이다. 이 거부도 결과로 남긴다. live 목적지처럼 pooler가 있는 환경에서 지도까지 나오는지는 다음 실측에서 확인한다.
+
+### 결과 (Consequences)
+
+* **긍정적:** S5에서 사람 손이 사라진다. 쓰기는 Git으로 추적되고, 판정 코드는 T27 하나다.
+* **부정적:** 지도는 "차단 시험 없이" 만든 것임을 결과에 적는다. 차단 판정이 필요한 고객 시연은 2안을 운영자가 따로 실행한다.
+
+## 4. 남은 일
+
+* 스택·진행기 구현과 격리 VM 실측(T49).
+* 인벤토리 위치: S1이 T10에 남긴 T16 결과를 읽는다. 없으면 `residual-map`은 HOLD다(인벤토리를 지어내지 않는다).

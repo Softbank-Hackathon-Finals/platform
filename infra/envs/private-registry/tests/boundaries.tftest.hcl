@@ -22,7 +22,7 @@ run "exact_publisher_boundary" {
     error_message = "Encryption and on-push scanning must remain enabled."
   }
   assert {
-    condition     = jsondecode(aws_iam_role.publisher.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == ["repo:Softbank-Hackathon-Finals@10001/demo-chat@20002:ref:refs/heads/main"]
+    condition     = jsondecode(aws_iam_role.publisher.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == ["repo:Softbank-Hackathon-Finals@10001/demo-app@20002:ref:refs/heads/main"]
     error_message = "OIDC must bind the exact immutable repository identity and branch."
   }
   assert {

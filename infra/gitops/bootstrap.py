@@ -44,7 +44,7 @@ def verify_rehearsal_host(get, host):
     get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
     for claim in (runtime["reader"]["catalogClaim"], runtime["recordsClaim"]):
         get("pvc", claim, "platform-state")
-    for name in set(runtime["secrets"].values()):
+    for name in {v for v in runtime["secrets"].values() if v}:  # securityReview and edge are optional
         get("secret", name, "platform-state")
     image = json.loads((ROOT / "infra/gitops/environments/development/rehearsal-host-image.json").read_text())
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
@@ -60,13 +60,17 @@ def verify_initial_proposal(get, value):
     The Job Pod pulls the Reader image with the existing registry Secret in its own namespace; it must
     exist before the path is turned on, or the first Job fails on the image pull."""
     pem = value.get("brokerCaPem") if isinstance(value, dict) else None
-    if (set(value) != {"enabled", "brokerCaPem"} or value["enabled"] is not True or not isinstance(pem, str)
-            or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
+    # hostCreatesJobs (T49, chart values.yaml): the workflow host creates the Job itself; optional, bool only.
+    if (not {"enabled", "brokerCaPem"} <= set(value) <= {"enabled", "brokerCaPem", "hostCreatesJobs"}
+            or value["enabled"] is not True or not isinstance(value.get("hostCreatesJobs", False), bool)
+            or not isinstance(pem, str) or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
         raise ValueError("initial_proposal_public_ca_required")
     get("secret", INITIAL_PROPOSAL_REGISTRY, "bravo-initial")
 
 
-WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "applyCredential"}
+# Same list as templates/workflow-host-application.yaml (test_bootstrap keeps them equal).
+WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "applyCredential", "initialProposalAuto",
+                 "candidatePull"}
 APPLY_PLUGIN, APPLY_CONFIG = "/usr/local/bin/bravo-credential", "/t31/registration.json"
 
 
@@ -300,6 +304,9 @@ def main():
         if "workflowHost" in value:
             verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]
+    # Reviewed, non-secret environment settings (public entry and its read-only UI) come from Git. The runtime
+    # input is limited to the workload keys checked above, so it cannot change them.
+    values = ["--values", str(ROOT / "infra/gitops/environments/development/public-entry.json"), *values]
     chart = ROOT / "infra/gitops/argocd"
     run(
         [
@@ -329,7 +336,7 @@ def main():
         "revision": a.revision,
         "manifest_sha256": hashlib.sha256(render.stdout.encode()).hexdigest(),
         "runtime_input_sha256": runtime_hash,
-        "registration_enabled": bool(values),
+        "registration_enabled": runtime_hash is not None,
         "applied": False,
     }
     if a.apply:

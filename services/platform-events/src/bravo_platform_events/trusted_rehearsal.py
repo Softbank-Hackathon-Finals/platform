@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import BoundedSemaphore
 
 from rehearsal_runner.approval_handoff import submit_candidate
@@ -78,11 +79,14 @@ class TrustedHostPorts:
     catalog: object = field(repr=False)
     planner: object = field(repr=False)
     cutover_authority: object = field(repr=False)
+    change_authority_wrapper: object = field(default=None, repr=False)
     # T20 failback: upstream authority and integrity reader, both optional (absent = no failback route).
     failback_authority: object = field(default=None, repr=False)
     read_integrity: object = field(default=None, repr=False)
     edge: object = field(default=None, repr=False)  # T17 FailbackEdge over the one LB journal
     iac: object = field(default=None, repr=False)  # T44 platform repository port (iac_plans), optional
+    delegation: bool = False  # T49 pre-delegated approvals: the route and this process's cutover/failback sweep
+    delegated_shift: object = field(default=None, repr=False)  # T49: (store, delegations) -> DelegatedShift
 
     def __post_init__(self):
         if (not self.bindings or not callable(self.cutover_authority)
@@ -91,6 +95,12 @@ class TrustedHostPorts:
                     (self.planner, "binding"), (self.planner, "factory"),
                     (self.executor, "submit"), (self.executor, "read")))):
             raise ValueError("trusted_host_ports_required")
+
+
+def _tasks(catalog):
+    """The task ids registered for a plan in the T15 catalog (<root>/<plan_id>/<task_id>.json)."""
+    root = Path(getattr(catalog, "root", "/nonexistent"))
+    return lambda plan_id: sorted(p.stem for p in (root / plan_id).glob("*.json"))
 
 
 @dataclass(frozen=True)
@@ -125,9 +135,12 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
                           authorize_hold=OperatorHoldPolicy(access, verifier), clock=clock)
     app = create_operator_cutover_app(store, ports.executor, bindings=ports.bindings,
         verifier=verifier, authority=ports.cutover_authority, rehearsal_host=rehearsals,
+        change_authority_wrapper=ports.change_authority_wrapper,
         **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
             "edge": ports.edge} if ports.failback_authority is not None else {}),
-        change_intake=intake, clock=clock, **({"iac_repository": ports.iac} if ports.iac is not None else {}))
+        change_intake=intake, clock=clock, delegation=ports.delegation, list_tasks=_tasks(ports.catalog),
+        delegated_shift=ports.delegated_shift,
+        **({"iac_repository": ports.iac} if ports.iac is not None else {}))
     original_lifespan = app.router.lifespan_context
 
     @asynccontextmanager

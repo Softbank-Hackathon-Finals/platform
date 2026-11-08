@@ -120,7 +120,8 @@ def test_laptop_is_labelled_and_never_usable_for_judgement():
     r = report(rows=[ROW], **{**EDGE, "generator": "laptop"}, windows=[WINDOW])
     assert r["warnings"] == ["GENERATOR_NOT_EC2"]
     assert r["measurement"] == {
-        "path": "edge", "edge_measured": True, "generator": "laptop", "preflight": PREFLIGHT,
+        "path": "edge", "edge_measured": True, "generator": "laptop", "connections": "keepalive",
+        "preflight": PREFLIGHT,
     }
     assert r["sli_usable_for_judgement"] is False
     text = render_markdown(r)
@@ -251,3 +252,13 @@ def test_report_is_json_serializable_and_markdown_states_the_facts():
     md = render_markdown(r)
     assert "FAIL" in md and "유실" in md and "local-direct" in md
     assert "Edge 경유 측정이 아니다" in md
+
+
+def test_the_report_says_how_requests_reached_the_edge():
+    """연결 방식이 분배 관측을 바꾼다(실제 LB는 연결마다 pool을 고른다). 예전 실행은 keepalive다."""
+    from bravo_loadgen.report import render_markdown
+
+    assert report(rows=[ROW], windows=[WINDOW])["measurement"]["connections"] == "keepalive"
+    fresh = report(rows=[ROW], **EDGE, windows=[WINDOW], connections="fresh")
+    assert fresh["measurement"]["connections"] == "fresh"
+    assert "- 연결: `fresh`" in render_markdown(fresh)

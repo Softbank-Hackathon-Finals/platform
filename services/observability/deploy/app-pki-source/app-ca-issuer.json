@@ -1,0 +1,17 @@
+{
+  "apiVersion": "cert-manager.io/v1",
+  "kind": "ClusterIssuer",
+  "metadata": {
+    "name": "bravo-app-telemetry-ca",
+    "labels": {
+      "tier": "observability",
+      "role": "collector",
+      "domain": "customer"
+    }
+  },
+  "spec": {
+    "ca": {
+      "secretName": "bravo-app-telemetry-ca"
+    }
+  }
+}

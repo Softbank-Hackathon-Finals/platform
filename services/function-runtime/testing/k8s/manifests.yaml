@@ -1,0 +1,156 @@
+# T46 목적지 큐 보안 보완 검증(ADR-0046 5절, spec 완성 기준 10). 로컬 k3d 전용이며 값은 시험용이다.
+# ElasticMQ는 자체 인증 · TLS가 없으므로 앞단에서 막는다:
+#   - TLS 종단 프록시(queue-tls)만 ElasticMQ 평문 포트에 닿는다.
+#   - 큐 클라이언트 표시(role=queue-client)가 있는 Pod만 프록시에 닿는다.
+# 앱 쪽은 코드 수정 없이 AWS_ENDPOINT_URL_SQS를 https 프록시로, AWS_CA_BUNDLE을 CA 파일로 바꾼다.
+apiVersion: v1
+kind: Namespace
+metadata: { name: t46-queue-sec }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: elasticmq-config, namespace: t46-queue-sec }
+data:
+  elasticmq.conf: |
+    include classpath("application.conf")
+    node-address { protocol = http, host = elasticmq, port = 9324, context-path = "" }
+    rest-sqs { enabled = true, bind-port = 9324, bind-hostname = "0.0.0.0", sqs-limits = strict }
+    rest-stats { enabled = false }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: elasticmq, namespace: t46-queue-sec }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: elasticmq } }
+  template:
+    metadata: { labels: { app: elasticmq } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: elasticmq
+          image: softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+          ports: [{ containerPort: 9324 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /opt/elasticmq.conf, subPath: elasticmq.conf }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: config, configMap: { name: elasticmq-config } }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: elasticmq, namespace: t46-queue-sec }
+spec: { selector: { app: elasticmq }, ports: [{ port: 9324, targetPort: 9324 }] }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: queue-tls-config, namespace: t46-queue-sec }
+data:
+  default.conf: |
+    server {
+      listen 9443 ssl;
+      ssl_certificate /tls/tls.crt;
+      ssl_certificate_key /tls/tls.key;
+      ssl_protocols TLSv1.2 TLSv1.3;
+      location / {
+        proxy_pass http://elasticmq:9324;
+        proxy_set_header Host $host;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: queue-tls, namespace: t46-queue-sec }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: queue-tls } }
+  template:
+    metadata: { labels: { app: queue-tls } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: nginx
+          # 루트 없이 도는 nginx 이미지. 임시 파일 · pid는 /tmp에 쓴다.
+          image: nginxinc/nginx-unprivileged@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0  # 1.27-alpine
+          ports: [{ containerPort: 9443 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/nginx/conf.d }
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: config, configMap: { name: queue-tls-config } }
+        - { name: tls, secret: { secretName: queue-tls } }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: queue-tls, namespace: t46-queue-sec }
+spec: { selector: { app: queue-tls }, ports: [{ port: 9443, targetPort: 9443 }] }
+---
+# 허용된 큐 클라이언트(앱 · 실행기 역할)와 허용되지 않은 Pod. 같은 이미지(boto3 포함)를 쓴다.
+apiVersion: v1
+kind: Pod
+metadata: { name: client, namespace: t46-queue-sec, labels: { role: queue-client } }
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: c
+      image: t46-function-runtime:local
+      imagePullPolicy: Never
+      command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: ca, mountPath: /ca, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: ca, secret: { secretName: queue-ca } }
+    - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: other, namespace: t46-queue-sec, labels: { role: other } }
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: c
+      image: t46-function-runtime:local
+      imagePullPolicy: Never
+      command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: ca, mountPath: /ca, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: ca, secret: { secretName: queue-ca } }
+    - { name: tmp, emptyDir: {} }

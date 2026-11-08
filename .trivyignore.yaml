@@ -39,3 +39,17 @@ misconfigurations:
     paths:
       - infra/envs/oidc-issuer/main.tf
     statement: T48 public OIDC issuer. Anonymous readers cannot use a KMS key, so the public discovery and JWKS objects use SSE-S3; the bucket holds no secret (public keys only).
+  - id: AVD-KSV-0056
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    statement: T48 Tailscale operator (upstream chart 1.104.4, sha256-pinned render). It must create and update Services, Endpoints, EndpointSlices and NetworkPolicies for the proxies it runs; this is the RBAC already running on the source cluster, taken over by GitOps unchanged.
+  - id: AVD-KSV-0014
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    expired_at: 2026-11-30
+    statement: T48 upstream chart default container securityContext, taken over as it runs on the source cluster (only the API proxy mode changes). Hardening through operatorConfig.securityContext restarts the operator and is its own reviewed change.
+  - id: AVD-KSV-0118
+    paths:
+      - infra/iac/operators/source-dev/operator.yaml
+    expired_at: 2026-11-30
+    statement: T48 upstream chart default pod and container securityContext, taken over unchanged from the running source operator. Hardening is a separate reviewed change before the expiry.

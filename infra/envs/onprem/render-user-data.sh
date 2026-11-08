@@ -16,7 +16,8 @@ NODE_FILES=$(python3 - "$NODES" <<'ASSEMBLE'
 import hashlib, json, shlex, sys
 from pathlib import Path
 # The only node files root may write at first boot (same set as infra/iac/nodes/apply.py ALLOWED).
-ALLOWED = {"/etc/rancher/rke2/audit-policy.yaml": "0600"}
+ALLOWED = {"/etc/rancher/rke2/audit-policy.yaml": "0600",
+           "/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml": "0600"}
 root = Path(sys.argv[1])
 manifest = json.loads((root / "manifest.json").read_text())
 out = []

@@ -18,6 +18,18 @@ spec:
     - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: tailscale-system}},
             podSelector: {matchLabels: {tailscale.com/parent-resource: bravo-collector-egress, tailscale.com/parent-resource-type: proxygroup}}}]
       ports: [{port: 443, protocol: TCP}, {port: 10000, endPort: 10999, protocol: TCP}, {port: 10469, protocol: TCP}]
+    {{- if .Values.runtime.observability.enabled }}
+    # Read-only observability API (HTTPS + host token). Its ingress also requires the platform-client namespace label.
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: bravo-observability}},
+            podSelector: {matchLabels: {app: bravo-observability-api}}}]
+      ports: [{port: 8080, protocol: TCP}]
+    {{- end }}
+    {{- if .Values.runtime.security.enabled }}
+    # Read-only findings API (HTTPS + read credential).
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: bravo-security}},
+            podSelector: {matchLabels: {app: bravo-findings}}}]
+      ports: [{port: 8443, protocol: TCP}]
+    {{- end }}
     {{- with .Values.runtime.trustedEgressCidrs }}
     - to: [{{- range $i, $c := . }}{{ if $i }}, {{ end }}{ipBlock: {cidr: {{ $c | quote }}}}{{- end }}]
       ports: [{port: 443, protocol: TCP}]

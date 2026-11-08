@@ -21,6 +21,9 @@ What this accepts, and nothing else:
    cluster is touched. A second call returns that record and changes nothing.
 5. A target already without the ``anonymous`` identity is left as it is (``ALREADY_CLOSED``).
 
+``apply_planned_exposure`` (ADR-0044) is the run-time path of the demo: Git keeps ``open-demo`` and an
+approved agent ``infra.plan`` closing this bucket is the input instead of a reviewed revision.
+
 Secret values never leave ``policy.py``: records carry sha256 digests of ``s3.json`` only.
 """
 
@@ -103,6 +106,25 @@ def _module(repo_root: Path, ref: str, environment_id: str) -> tuple[dict, str, 
     return found[0]["params"], hashlib.sha256(shown.stdout).hexdigest(), doc
 
 
+def check_closing_plan(t44: ModuleType, plan: dict, environment_id: str) -> str:
+    """A self-consistent, accepted T44 plan for this environment that removes anonymous access to the
+    attachment bucket. Returns its ``plan_digest``. Which desired state it proposes is the caller's check
+    (``check_iac_plan`` for a Git revision; T10 binds the digest into the change approval, ADR-0044)."""
+    if type(plan) is not dict or plan.get("kind") != "iac-plan.v1" or plan.get("environment") != environment_id:
+        raise DesiredRefused("IAC_PLAN_INVALID")
+    body = {k: v for k, v in plan.items() if k != "plan_digest"}
+    if t44.digest(body) != plan.get("plan_digest"):
+        raise DesiredRefused("IAC_PLAN_DIGEST_MISMATCH")
+    if plan.get("accepted") is not True or plan.get("refusals"):
+        raise DesiredRefused("IAC_PLAN_NOT_ACCEPTED")
+    closing = [e for e in plan.get("effects") or [] if isinstance(e, dict) and e.get("module") == MODULE
+               and isinstance(e.get("anonymous_access"), dict)]
+    if len(closing) != 1 or closing[0]["anonymous_access"].get("after") != [] \
+            or not closing[0]["anonymous_access"].get("before"):
+        raise DesiredRefused("IAC_PLAN_DOES_NOT_CLOSE")
+    return plan["plan_digest"]
+
+
 def check_iac_plan(t44: ModuleType, plan: dict, state: dict, environment_id: str) -> str:
     """The T44 plan that staged ``state``: self-consistent, accepted, for this state, and closing."""
     if type(plan) is not dict or plan.get("kind") != "iac-plan.v1" or plan.get("environment") != environment_id:
@@ -118,11 +140,7 @@ def check_iac_plan(t44: ModuleType, plan: dict, state: dict, environment_id: str
         raise DesiredRefused("DESIRED_STATE_UNRECOGNIZED") from None
     if plan.get("proposed_digest") != state_digest:
         raise DesiredRefused("IAC_PLAN_NOT_THIS_REVISION")
-    closing = [e for e in plan.get("effects") or [] if isinstance(e, dict) and e.get("module") == MODULE
-               and isinstance(e.get("anonymous_access"), dict)]
-    if len(closing) != 1 or closing[0]["anonymous_access"].get("after") != [] \
-            or not closing[0]["anonymous_access"].get("before"):
-        raise DesiredRefused("IAC_PLAN_DOES_NOT_CLOSE")
+    check_closing_plan(t44, plan, environment_id)
     return state_digest
 
 
@@ -211,7 +229,93 @@ def apply_desired_exposure(environment_id: str, revision: str, *, reviewed_ref: 
     Otherwise returns the record: ``APPLIED``, ``ALREADY_CLOSED``, ``REFUSED`` (cluster untouched)
     or ``SAFE_HOLD`` (the Secret may have changed; a person looks, nothing is rolled back)."""
     desired = read_desired(Path(repo_root), environment_id, revision, reviewed_ref, target.bucket, iac_plan)
-    application_id = application_id_for(environment_id, revision)
+    recheck = {"environment_id": environment_id, "revision": revision, "iac_plan_digest": desired["iac_plan_digest"]}
+    return _close(application_id_for(environment_id, revision), desired, recheck, applied="DESIRED_STATE_APPLIED",
+                  kube=kube, receipts_dir=receipts_dir, target=target, plan_id=plan_id,
+                  timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+
+
+def read_planned(repo_root: Path, environment_id: str, base_revision: str, iac_plan: dict,
+                 approved_iac_plan_digest: str, bucket: str) -> dict:
+    """ADR-0044: check an agent's accepted ``infra.plan`` that closes the bucket (Git only, no cluster).
+
+    The plan must be the one the person approved (``approved_iac_plan_digest`` from the T10 binding) and
+    must close this bucket and change nothing else: its ``changes`` and ``effects`` equal what T44
+    computes for this module alone going from the committed ``open-demo`` to ``closed``. When
+    ``base_revision`` (the configured commit the proposal is expected to have planned against) holds the
+    very state the plan names (``base_digest``), the whole plan is also recomputed from it and must be
+    equal. A different base is recorded (``base_verified: false``), not refused: the desired-state file
+    also carries the network modules and changes often, and the cluster effect is the same either way,
+    removing anonymous access. Git keeps ``open-demo`` as the demo's starting state."""
+    if not ENVIRONMENT.fullmatch(environment_id or ""):
+        raise DesiredRefused("ENVIRONMENT_INVALID")
+    if not REVISION.fullmatch(base_revision or ""):
+        raise DesiredRefused("REVISION_NOT_FULL_SHA")
+    if (type(iac_plan) is not dict or iac_plan.get("kind") != "iac-plan.v1"
+            or iac_plan.get("origin") not in ("agent", "operator") or iac_plan.get("environment") != environment_id):
+        raise DesiredRefused("IAC_PLAN_INVALID")
+    if not isinstance(approved_iac_plan_digest, str) or approved_iac_plan_digest != iac_plan.get("plan_digest"):
+        raise DesiredRefused("IAC_PLAN_NOT_APPROVED")
+    if _git(repo_root, "cat-file", "-e", f"{base_revision}^{{commit}}").returncode != 0:
+        raise DesiredRefused("REVISION_UNKNOWN")
+    params, file_sha256, state = _module(repo_root, base_revision, environment_id)
+    if params.get("bucket") != bucket:
+        raise DesiredRefused("DESIRED_BUCKET_MISMATCH")
+    if params.get("state") != "open-demo":
+        raise DesiredRefused("PLANNED_BASE_NOT_OPEN")  # nothing for a closing plan to close
+    t44 = load_t44()
+    if t44.digest({k: v for k, v in iac_plan.items() if k != "plan_digest"}) != iac_plan.get("plan_digest"):
+        raise DesiredRefused("IAC_PLAN_DIGEST_MISMATCH")
+    if iac_plan.get("accepted") is not True or iac_plan.get("refusals") or iac_plan.get("widens") is not False:
+        raise DesiredRefused("IAC_PLAN_NOT_ACCEPTED")
+
+    def close_of(base):
+        proposed = json.loads(json.dumps(base))
+        next(m for m in proposed["modules"] if m.get("id") == MODULE)["params"] = {"state": "closed", "bucket": bucket}
+        try:
+            return t44.plan(base, proposed, origin=iac_plan["origin"])
+        except t44.IacError:
+            raise DesiredRefused("DESIRED_STATE_UNRECOGNIZED") from None
+
+    entry = next(m for m in state["modules"] if m.get("id") == MODULE)
+    alone = close_of({"schema_version": state.get("schema_version"), "environment": environment_id, "modules": [entry]})
+    if (iac_plan.get("changes"), iac_plan.get("effects")) != (alone["changes"], alone["effects"]):
+        raise DesiredRefused("IAC_PLAN_NOT_A_CLOSE")  # it changes more, or other than, this bucket's exposure
+    full = close_of(state)
+    base_verified = iac_plan.get("base_digest") == full["base_digest"]
+    if base_verified and iac_plan != full:
+        raise DesiredRefused("IAC_PLAN_NOT_A_CLOSE")
+    return {"environment_id": environment_id, "base_revision": base_revision, "module": MODULE,
+            "module_version": MODULE_VERSION, "state": "closed", "bucket": bucket,
+            "environment_file_sha256": file_sha256, "base_digest": iac_plan["base_digest"],
+            "base_verified": base_verified, "state_digest": iac_plan["proposed_digest"],
+            "iac_plan_digest": iac_plan["plan_digest"], "origin": iac_plan["origin"]}
+
+
+def planned_application_id(iac_plan_digest: str) -> str:
+    return f"iac-{iac_plan_digest[:16]}"
+
+
+def apply_planned_exposure(iac_plan: dict, *, approved_iac_plan_digest: str, environment_id: str, base_revision: str,
+                           repo_root: Path, kube: Kube, receipts_dir: Path, target: PolicyTarget,
+                           plan_id: str | None = None, timeout_seconds: int = 300,
+                           policy_hooks: dict | None = None) -> dict:
+    """ADR-0044 REHEARSE: close the bucket from the approved agent plan, then request IAM-01.1.
+
+    Same outcomes and records as ``apply_desired_exposure``; ``application_id`` is
+    ``iac-<plan_digest[:16]>`` so a repeated call returns the first record."""
+    desired = read_planned(Path(repo_root), environment_id, base_revision, iac_plan, approved_iac_plan_digest,
+                           target.bucket)
+    recheck = {"environment_id": environment_id, "base_revision": base_revision,
+               "iac_plan_digest": desired["iac_plan_digest"]}
+    return _close(planned_application_id(desired["iac_plan_digest"]), desired, recheck, applied="PLANNED_CLOSE_APPLIED",
+                  kube=kube, receipts_dir=receipts_dir, target=target, plan_id=plan_id,
+                  timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+
+
+def _close(application_id: str, desired: dict, recheck_fields: dict, *, applied: str, kube: Kube, receipts_dir: Path,
+           target: PolicyTarget, plan_id: str | None, timeout_seconds: int, policy_hooks: dict | None) -> dict:
+    """One record per ``application_id``, then the bucket-policy branch: the part both entry points share."""
     receipts_dir = Path(receipts_dir)
     existing = get_desired_result(application_id, receipts_dir)
     if existing is not None:
@@ -225,8 +329,7 @@ def apply_desired_exposure(environment_id: str, revision: str, *, reviewed_ref: 
 
     def finish(status, reason, *, mutation=False, policy=None, previous_image=None):
         if status in ("APPLIED", "ALREADY_CLOSED"):
-            recheck = {"application_id": application_id, "environment_id": environment_id, "revision": revision,
-                       "iac_plan_digest": desired["iac_plan_digest"], "tests": list(POLICY_GATE_RECHECK_TESTS)}
+            recheck = {"application_id": application_id, **recheck_fields, "tests": list(POLICY_GATE_RECHECK_TESTS)}
             if plan_id:
                 recheck["plan_id"] = plan_id
             record["gate_recheck"] = recheck
@@ -235,7 +338,12 @@ def apply_desired_exposure(environment_id: str, revision: str, *, reviewed_ref: 
         _replace(receipts_dir, record)
         return record
 
-    t9, renderer_sha256 = load_t9()
+    # From here on the record exists: every outcome is recorded, never raised, so a caller that already
+    # changed something (ADR-0044: the image, in the same T31 application) never sees STARTED forever.
+    try:
+        t9, renderer_sha256 = load_t9()
+    except PolicyRefused as exc:
+        return finish("REFUSED", exc.code)
     try:
         current = _secret_bytes(kube.get_secret(target.namespace, target.secret), target.secret_key)
     except Exception:  # noqa: BLE001 - no detail: the Secret's content must not reach a record
@@ -249,12 +357,11 @@ def apply_desired_exposure(environment_id: str, revision: str, *, reviewed_ref: 
                     "previous_s3_json_sha256": hashlib.sha256(current).hexdigest()}
         return finish("ALREADY_CLOSED", "NO_ANONYMOUS_IDENTITY", policy=observed)
     try:
-        applied = apply_bucket_policy(kube, target, t9=t9, renderer_sha256=renderer_sha256,
-                                      application_id=application_id, timeout_seconds=timeout_seconds,
-                                      **(policy_hooks or {}))
+        result = apply_bucket_policy(kube, target, t9=t9, renderer_sha256=renderer_sha256,
+                                     application_id=application_id, timeout_seconds=timeout_seconds,
+                                     **(policy_hooks or {}))
     except DeployMismatch as exc:
         if not exc.mutation_attempted:
             return finish("REFUSED", exc.code, policy=exc.policy)
         return finish("SAFE_HOLD", exc.code, mutation=True, policy=exc.policy, previous_image=exc.previous_image)
-    return finish("APPLIED", "DESIRED_STATE_APPLIED", mutation=True, policy=applied["policy"],
-                  previous_image=applied["previous_image"])
+    return finish("APPLIED", applied, mutation=True, policy=result["policy"], previous_image=result["previous_image"])

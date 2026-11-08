@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from test_application_host import host_case  # noqa: F401  (fixture)
+from test_change_intake import keys  # noqa: F401  (fixture)
 from test_cutover import BINDING, NOW, PRINCIPAL, SPEC
 from test_workflow_recovery import Producers, admit_change, collect, remote_executor, service
 
@@ -196,9 +197,12 @@ def test_entry_point_builds_one_host_from_deployment_ports(backend, tmp_path):
 
     producers = Producers(tmp_path / "remote.db")
     collect(backend.store)
+    rest = ["PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", "CUTOVER", "WATCH"]
+    with pytest.raises(ValueError, match="workflow_state_unwired:AWAIT_APPROVAL,CUTOVER,GATE,PROPOSE,REHEARSE,WATCH"):
+        build(backend.store, lambda store: {"cutover": service(store, None), "readers": {"ANALYZE": producers.read}})
     host = build(backend.store, lambda store: {"cutover": service(store, None),
-                                               "readers": {"ANALYZE": producers.read}})
-    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE not wired in these ports
+                                               "readers": {"ANALYZE": producers.read}, "deferred": rest})
+    assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE declared deferred: a named gap
     with pytest.raises(ValueError):
         build(backend.store, lambda store: {"cutover": service(store, None), "other": 1})
 
@@ -242,3 +246,163 @@ def test_operator_access_requires_host_apply_grant_and_approver_grant(backend):
                                expected_revision=rev, administration_ref="fixture-admin", command_key="grant-host")
     with pytest.raises(EventError, match="forbidden"):  # the approver has no approve_change grant
         call()
+
+
+class _Delegations:
+    """Stands in for ApprovalDelegations.principal_for (its own checks: tests/test_approval_delegation.py)."""
+
+    def __init__(self, delegated, store=None):
+        self.delegated, self.store, self.calls = delegated, store, []
+
+    def live(self, c, plan_id):
+        return {"gates": ["change", "shift", "cutover", "failback", "rehearsal"], "approver": "fixture"} \
+            if self.delegated else None
+
+    def principal_for(self, plan_id, gate, *, binding, version):
+        if not self.delegated:
+            raise EventError("approval_not_delegated")
+        if callable(binding):
+            with self.store._transaction() as c:
+                binding = binding(c, PRINCIPAL)
+        self.calls.append((gate, binding, version))
+        return PRINCIPAL
+
+
+@pytest.mark.parametrize("delegated", [True, False])
+def test_a_delegated_shift_approval_is_recorded_by_the_host_once(backend, tmp_path, steps, delegated):
+    from bravo_platform_events.workflow_stages import delegated_shift_preparer
+
+    store = backend.store
+    ledger = tmp_path / "remote.db"
+    producers = Producers(ledger)
+    reply = threading.Event()
+    reply.set()
+    with (remote_executor(ledger, threading.Event(), reply) as origin,
+          ExecutorClient(origin, token="fixture-read", command_token="fixture-command") as client):
+        shift = ShiftApprovalService(store, check_approve=lambda c, p, plan: None, clock=lambda: NOW)
+        delegations = _Delegations(delegated)
+        readers = StageReaders({"ANALYZE": producers.read, "PROPOSE": producers.read, "REHEARSE": producers.read,
+                                "GATE": producers.read, "CUTOVER": integrity_reader},
+                               preparers={"AWAIT_APPROVAL": delegated_shift_preparer(shift, delegations)})
+        host = WorkflowHost(WorkflowRecovery(service(store, client), read_evidence=readers))
+        collect(store)
+        host.sweep()
+        producers.application = admit_change(store)
+        [step] = host.sweep()
+        if delegated:
+            assert step.after == "SHIFT"  # no person called the approval route
+            [(gate, binding, version)] = delegations.calls
+            assert gate == "shift" and binding == {"plan_version": str(version)}
+        else:
+            assert (step.after, step.hold) == ("AWAIT_APPROVAL", "shift_approval_required")
+
+
+def test_a_delegated_change_approval_approves_the_current_candidate_as_the_approver(backend, keys):  # noqa: F811
+    from test_change_intake import BINDING as CANDIDATE_BINDING
+    from test_change_intake import NORMAL, IntakeFixture
+
+    from bravo_platform_events.workflow_stages import _delegated_change
+
+    f = IntakeFixture(backend, keys[0])
+    plan_id = NORMAL.plan_id
+    assert _delegated_change(f.service(), _Delegations(True), plan_id, 1) is None  # no candidate yet
+    f.deliver()
+    assert _delegated_change(f.service(), _Delegations(False), plan_id, 1) is None  # a person decides
+    delegations = _Delegations(True)
+    receipt = _delegated_change(f.service(), delegations, plan_id, 1)
+    assert receipt["actor_id"] == PRINCIPAL.subject_id and receipt["run_id"] == NORMAL.run_id
+    assert receipt["binding"] == CANDIDATE_BINDING and delegations.calls == [("change", CANDIDATE_BINDING, 1)]
+    assert _delegated_change(f.service(), delegations, plan_id, 1) == receipt  # same decision, once
+    f.hold()
+    assert _delegated_change(f.service(), delegations, plan_id, 1) is None  # a held candidate is never approved
+
+
+def _edge(store, weight, at, *, revision, verdict="PASS"):
+    """A T17 ShiftHost CONFIRMED stage and its SLI judgement, as operator_ports.edge_at_full reads them."""
+    from bravo_platform_events.cutover import _put
+
+    with store._transaction(write=True, plan_id=PLAN) as c:
+        _put(c, PLAN, f"edge-host-receipt-{revision}", {},
+             dict(status="CONFIRMED", weight_target=weight, confirmed_at=at, revision=revision))
+        _put(c, PLAN, f"edge-host-judgement-{revision:013}-{1:013}", {}, dict(judgement={"verdict": verdict}))
+
+
+def test_delegated_cutover_waits_for_the_edge_at_100_then_submits_as_the_approver(backend, tmp_path, steps):
+    from bravo_platform_events.approval_delegation import DelegatedGates
+
+    store = backend.store
+    ledger = tmp_path / "remote.db"
+    producers = Producers(ledger)
+    reply = threading.Event()
+    reply.set()
+    with (remote_executor(ledger, threading.Event(), reply) as origin,
+          ExecutorClient(origin, token="fixture-read", command_token="fixture-command") as client):
+        host, shift, cutover = driver(store, producers, client, {"sli": "UNKNOWN", "retest": "PASS"})
+        collect(store)
+        host.sweep()
+        producers.application = admit_change(store)
+        host.sweep()
+        shift.approve(PRINCIPAL, PLAN, expected_version=store.snapshot(PLAN)["version"], expires_at=LATER,
+                      command_key="shift-1")
+        assert host.sweep()[0].after == "SHIFT"
+        delegations = _Delegations(True, store)
+        gates = DelegatedGates(store, delegations, cutover=cutover)
+        assert gates.sweep() == {}                                  # no Edge stage yet
+        entered = store.snapshot(PLAN)["updated_at"]
+        _edge(store, 100, "2000-01-01T00:00:00+00:00", revision=1)  # an older SHIFT's stage never counts
+        _edge(store, 50, entered, revision=2)
+        _edge(store, 100, (datetime.fromisoformat(entered) + timedelta(seconds=1)).isoformat(), revision=3,
+              verdict="UNKNOWN")                                    # 100% without a PASS waits
+        assert gates.sweep() == {} and delegations.calls == []
+        _edge(store, 100, (datetime.fromisoformat(entered) + timedelta(seconds=2)).isoformat(), revision=4)
+        decided = gates.sweep()
+        assert "held" not in decided[PLAN] and [c[0] for c in delegations.calls] == ["cutover"]
+        assert store.snapshot(PLAN)["state"] == "CUTOVER"
+        assert gates.sweep() == {}                                  # decided once; CUTOVER is the host's
+
+
+def test_delegated_failback_runs_only_after_the_host_records_a_watch_fail(backend):
+    from bravo_platform_events.approval_delegation import DelegatedGates, watch_fail_key
+    from bravo_platform_events.cutover import _get
+
+    store = backend.store
+    store.register_plan(SPEC, run_id="register", occurred_at=NOW)
+    with backend.admin() as c:
+        c.execute(f"UPDATE plans SET state='WATCH' WHERE plan_id='{PLAN}'")
+    version = store.snapshot(PLAN)["version"]
+    calls = []
+
+    class Failback:
+        clock = staticmethod(lambda: NOW)
+
+        def _current(self, c, principal, plan, now):
+            return type("Current", (), {"binding": {"plan_id": plan["plan_id"]}})()
+
+        def approve(self, principal, plan_id, **kw):
+            calls.append(("approve", kw["command_key"]))
+            return {"approval_id": "a-1"}
+
+        def submit(self, principal, plan_id, **kw):
+            calls.append(("submit", kw["command_key"]))
+            return {"state": "FAILBACK"}
+
+    gates = DelegatedGates(store, _Delegations(True, store), cutover=None, failback=Failback())
+    assert gates.sweep() == {} and calls == []                      # WATCH alone never fails back
+    import bravo_platform_events.failback as failback_module
+    from bravo_platform_events.workflow_stages import watch_fail_preparer
+
+    original = failback_module.cutover_checkpoint
+    failback_module.cutover_checkpoint = lambda c, plan_id: ({"command_id": "cmd-1"}, {})
+    try:
+        verdict = {"value": "PASS"}
+        prepare = watch_fail_preparer(store, lambda c, plan, run: verdict["value"], reader="reader")
+        assert prepare(PLAN, SPEC.tenant_id, version) == "reader"
+        assert gates.sweep() == {}                                  # a PASS records nothing
+        verdict["value"] = "FAIL"
+        prepare(PLAN, SPEC.tenant_id, version)
+    finally:
+        failback_module.cutover_checkpoint = original
+    with store._transaction() as c:
+        assert _get(c, PLAN, watch_fail_key(version))
+    assert gates.sweep() == {PLAN: {"state": "FAILBACK"}}
+    assert calls == [("approve", f"delegated-failback-{version}"), ("submit", f"delegated-failback-submit-{version}")]

@@ -37,7 +37,8 @@ WINDOW_TOKEN_ENV = "BRAVO_WINDOW_TOKEN"
 BEARER_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 
 MEASUREMENT_PATHS = ("edge", "local-mock-edge", "local-direct")
-GENERATORS = ("loadgen-ec2", "laptop")
+# platform-job (T49): the platform's own Kubernetes Job; its windows reach T10 through the Job log (--window-stdout).
+GENERATORS = ("loadgen-ec2", "laptop", "platform-job")
 # infra/envs/loadgen-aws의 cloud-init이 첫 부팅 끝에 만든다. 다른 컴퓨터에는 없다.
 EC2_MARKER = Path("/var/lib/bravo-loadgen-ready")
 
@@ -101,9 +102,14 @@ def _add_load_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--attempt-timeout", type=float, default=15)
     parser.add_argument("--retry-budget", type=float, default=60)
     parser.add_argument("--window-url", help=f"창 요약을 POST할 플랫폼 주소. 토큰은 환경변수 {WINDOW_TOKEN_ENV}")
+    parser.add_argument("--window-stdout", action="store_true",
+                        help="닫힌 창을 표준 출력에도 'BRAVO_WINDOW <json>' 한 줄로 낸다(플랫폼 Job: T10이 로그에서 받는다)")
     parser.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
+    parser.add_argument("--fresh-connections", action="store_true",
+                        help="요청마다 새 연결을 연다(서로 다른 사용자처럼). 실제 Cloudflare LB는 연결마다 pool을 고르는 것으로 "
+                             "관측돼, keep-alive 연결 몇 개로는 가중치 분배를 잴 수 없다(T17 2026-11-08)")
 
 
 def _fail(message: str) -> int:
@@ -286,7 +292,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 async def _run_load(
     config: LoadConfig, args: argparse.Namespace, lock_dsn: str | None, window_token: str | None
 ) -> dict:
-    limits = httpx.Limits(max_connections=None, max_keepalive_connections=256)
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=0 if args.fresh_connections else 256)
     probe = LockProbe(lock_dsn) if lock_dsn else None
     if probe:
         probe.start()
@@ -309,6 +315,8 @@ async def _run_load(
             async def sink(window: dict) -> None:
                 windows_file.write(json.dumps(window, ensure_ascii=False) + "\n")
                 windows_file.flush()
+                if args.window_stdout:
+                    print("BRAVO_WINDOW " + json.dumps(window, ensure_ascii=False, separators=(",", ":")), flush=True)
                 if args.window_url:
                     response = await poster.post(
                         args.window_url,
@@ -329,6 +337,7 @@ async def _run_load(
         "target": args.base_url,
         "measurement_path": args.measurement_path,
         "generator": args.generator,
+        "connections": "fresh" if args.fresh_connections else "keepalive",
         "delivery_failed": result.delivery_failed,
         "invalid_windows": result.invalid_windows,
         "tail_requests": result.tail_requests,

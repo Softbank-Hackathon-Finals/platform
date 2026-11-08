@@ -20,6 +20,11 @@ rehearsalHost:
   # Protected operator input: existing config/claim/Secret references only.
   runtime: {}
 
+securityReview:
+  enabled: false
+  # Protected operator input: existing Secret/ConfigMap names and explicit API/DB network endpoints.
+  runtime: {}
+
 iacNetwork:
   # T44 platform tailnet routes (infra/iac/charts/platform). Needs the reviewed commit SHA and the
   # tailnet suffixes (never committed) and the controller permissions noted in the template.
@@ -27,6 +32,22 @@ iacNetwork:
   targetRevision: ""
   tailnet: ""
   tailnets: {}
+
+# Platform public entry (infra/envs/public-entry): Git-declared hostnames -> Cloudflare Access, Tunnel route and DNS.
+# Turned on with the UI by infra/gitops/environments/development/public-entry.json (bootstrap passes it).
+publicEntry:
+  enabled: false
+
+# Platform metrics store and the platform's own Collector (services/observability/deploy/platform-gitops).
+# Turned on by the development values; needs clusterCredentials.platform.namespaces to include its namespaces.
+observability:
+  enabled: false
+
+# T33 security findings API (services/security-findings/deploy/platform-gitops) in its own namespace bravo-security.
+# Turn on only after the host prerequisites (infra/envs/platform-security) and a pinned image digest exist, together
+# with bravo-security in clusterCredentials.platform.namespaces.
+securityFindings:
+  enabled: false
 
 registration:
   enabled: false
@@ -61,8 +82,17 @@ argo-cd:
         - apiGroups: [apps]
           kinds: [Deployment, ReplicaSet]
           clusters: ['*']
+        - apiGroups: [batch]
+          kinds: [CronJob, Job]
+          clusters: ['*']
         - apiGroups: ['']
-          kinds: [Pod, Service, ServiceAccount]
+          kinds: [Pod, Service, ServiceAccount, ConfigMap, PersistentVolumeClaim]
+          clusters: ['*']
+        - apiGroups: [networking.k8s.io]
+          kinds: [NetworkPolicy]
+          clusters: ['*']
+        - apiGroups: [external-secrets.io]
+          kinds: [ExternalSecret]
           clusters: ['*']
     clusterCredentials:
       platform:

@@ -24,7 +24,9 @@ from .initial_proposal import (
     InitialResult,
 )
 
-REPOSITORY = "Softbank-Hackathon-Finals/demo-chat"
+# The demo app repository was renamed demo-chat -> demo-app (11/8). GitHub App tokens are issued only for the
+# current name; the GHCR package and the in-workflow packet binding keep the name demo-chat.
+REPOSITORY = "Softbank-Hackathon-Finals/demo-app"
 WORKFLOW = ".github/workflows/publish-candidate-image.yml"
 IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat"
 MAX_RECEIPT = 128 * 1024

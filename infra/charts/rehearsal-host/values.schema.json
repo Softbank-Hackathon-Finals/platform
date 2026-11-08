@@ -109,6 +109,16 @@
         "executor": {
           "$ref": "#/definitions/name"
         },
+        "securityReview": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "$ref": "#/definitions/name"
+            }
+          ]
+        },
         "edge": {
           "type": "string"
         }

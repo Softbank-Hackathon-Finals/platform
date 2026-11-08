@@ -1,0 +1,42 @@
+# Operator entry: the registration and approval hosts on fixed tailnet names, replacing per-Pod kubectl port-forward.
+# The Services carry tailscale.com/expose (charts/registration, charts/rehearsal-host): https://bravo-registration and
+# https://bravo-approval on the platform tailnet, port 443. tailnet grant: group:bravo-operators, autogroup:admin and
+# autogroup:owner -> tag:bravo-platform-operator tcp:443 (infra/tailnet/routes-policy.json). App auth (SSO proof) is unchanged.
+# platform-state is default-deny, so only each Service's own Tailscale proxy may connect to that host's 8443.
+# The platform Argo cannot write NetworkPolicies; apply with the operator kubeconfig after a server dry-run:
+#   kubectl apply --dry-run=server -f infra/envs/operator-entry/network.yaml && kubectl apply -f infra/envs/operator-entry/network.yaml
+# TLS: the current registration certificate names only IP 127.0.0.1, so a tailnet client verifies against the pinned
+# private CA (registration-ca.crt) with hostname checking off until the certificate is reissued with the tailnet name.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: t10-registration-tailnet-ingress
+  namespace: platform-state
+  labels: {app.kubernetes.io/name: t10-registration, component: platform}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: t10-registration}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: tailscale-system}}
+          podSelector:
+            matchLabels: {tailscale.com/parent-resource: t10-registration, tailscale.com/parent-resource-ns: platform-state,
+                          tailscale.com/parent-resource-type: svc}
+      ports: [{port: 8443, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: t15-rehearsal-host-tailnet-ingress
+  namespace: platform-state
+  labels: {app.kubernetes.io/name: t15-rehearsal-host, component: platform}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: t15-rehearsal-host}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: tailscale-system}}
+          podSelector:
+            matchLabels: {tailscale.com/parent-resource: t15-rehearsal-host, tailscale.com/parent-resource-ns: platform-state,
+                          tailscale.com/parent-resource-type: svc}
+      ports: [{port: 8443, protocol: TCP}]
