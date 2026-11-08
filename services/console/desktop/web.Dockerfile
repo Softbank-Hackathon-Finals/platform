@@ -2,6 +2,7 @@
 # Build context: services/console/desktop (self-contained). One image for the platform node (linux/amd64).
 FROM node:22-trixie-slim@sha256:be1e2a3dc2c4fd68cdfadad2a696a280e0d2749098bee509230174d72fb768c6 AS build
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 CI=1
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 WORKDIR /src
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 COPY package.json pnpm-lock.yaml .npmrc ./
