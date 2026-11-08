@@ -7,15 +7,18 @@ import re
 from pathlib import Path
 
 import boto3
+
 from bravo_agent.subscription_product_reader import ProductReaderConfig
 
 MODEL_FIELDS = {"provider", "model", "reasoning_effort", "sandbox_image"}
+OPENAI_KEY_SOURCE = "/etc/bravo-subscription/openai-api-key"  # root 0600, written by the key delivery
+OPENAI_KEY_CREDENTIAL = "/run/credentials/bravo-subscription.service/openai.key"
 
 
 def model_config(value):
     """The environment's selectable model (e.g. infra/gitops/environments/<env>/agent-model.json)."""
     if (type(value) is not dict or not {"provider", "model"} <= set(value) <= MODEL_FIELDS
-            or value["provider"] not in {"chatgpt-plan", "claude"}
+            or value["provider"] not in {"chatgpt-plan", "claude", "openai"}
             or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", str(value["model"]))
             or ("reasoning_effort" in value and not re.fullmatch(r"[a-z]{1,16}", str(value["reasoning_effort"])))
             or ("sandbox_image" in value
@@ -60,6 +63,10 @@ def installation(sha, archive_digest, settings, model, *, product_reader=None, i
         raise ValueError("initial proposal requires the platform Job identity")
     settings = {**settings, "source_sha": sha, "worker": "/opt/bravo-subscription/worker",
                 "state_dir": "/var/lib/bravo-t11-subscription/state"}
+    if settings["provider"] == "openai":
+        # T49: the platform's OpenAI API key (root-only file on the VM) reaches only the DynamicUser service,
+        # as a systemd credential; settings name the mount path, never the value.
+        settings["openai_key_file"] = OPENAI_KEY_CREDENTIAL
     encoded = base64.b64encode(json.dumps(settings).encode()).decode()
     product_setup = ""
     if product_reader is not None:
@@ -83,6 +90,14 @@ chmod -R a-w "$ROOT/platform-{sha}"
 """
     tls_preflight = ("test -r /etc/bravo-subscription/broker.crt\ntest -r /etc/bravo-subscription/broker.key\n"
                      if product_reader is not None else "")
+    if settings["provider"] == "openai":
+        tls_preflight += f"test -r {OPENAI_KEY_SOURCE}\n"
+        product_setup += f"""install -d -m 755 /etc/systemd/system/bravo-subscription.service.d
+cat > /etc/systemd/system/bravo-subscription.service.d/openai-key.conf <<'KEY'
+[Service]
+LoadCredential=openai.key:{OPENAI_KEY_SOURCE}
+KEY
+"""
     return f'''set -eu
 {tls_preflight}
 test "$(systemctl is-active bravo-subscription.service || true)" != active

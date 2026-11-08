@@ -253,3 +253,15 @@ def test_cli_get_result_exit_codes(files, claim, tmp_path, capsys):
     assert failure["outcome"] == "REFUSED" and failure["reason"] == "TARGET_ENVIRONMENT_MISMATCH"
     (tmp_path / "r/app-0001.json").write_text("{}", encoding="utf-8")
     assert main(["get-result", "--application-id", "app-0001", "--receipts", str(tmp_path / "r")]) == 6
+
+
+def test_a_pull_secret_pins_the_digest_and_lets_an_imported_app_pull_the_candidate():
+    from bravo_apply.deploy import image_patch
+
+    plain = image_patch("ghcr.io/example/demo-chat", "sha256:" + "a" * 64, "app")
+    assert plain == {"spec": {"template": {"spec": {"containers": [
+        {"name": "app", "image": "ghcr.io/example/demo-chat@sha256:" + "a" * 64}]}}}}  # unchanged default
+    pulled = image_patch("ghcr.io/example/demo-chat", "sha256:" + "a" * 64, "app", "bravo-ghcr-reader")["spec"]["template"]["spec"]
+    assert pulled["containers"] == [{"name": "app", "image": "ghcr.io/example/demo-chat@sha256:" + "a" * 64,
+                                     "imagePullPolicy": "IfNotPresent"}]
+    assert pulled["imagePullSecrets"] == [{"name": "bravo-ghcr-reader"}]

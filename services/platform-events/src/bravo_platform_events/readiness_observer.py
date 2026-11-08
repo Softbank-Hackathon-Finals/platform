@@ -26,6 +26,25 @@ def request_for(pair, policy=POLICY):
             "max_age_seconds": policy.max_age_seconds}
 
 
+def named_by_pair(observation, pair):
+    """Refuse an observation that does not name both DBs by the registered pair's connection refs.
+
+    T10 compares these refs with the cutover command before SHIFT and cutover approval
+    (PLAN_GATE_DATABASE_PAIR_MISMATCH). Checking here stops a mismatch before the relay records and
+    signs it for the context, instead of after the GATE has spent it.
+    """
+    o = observation if isinstance(observation, dict) else {}
+    replication = o.get("replication") if isinstance(o.get("replication"), dict) else {}
+    for side in ("source", "target"):
+        part = o.get(side) if isinstance(o.get(side), dict) else {}
+        expected = pair[side]
+        if (part.get("environment_id") != expected["environment_id"]
+                or part.get("database_ref") != expected["connection_ref"]
+                or replication.get(side + "_database_ref") != expected["connection_ref"]):
+            raise ExecutorReadError("readiness_pair_mismatch")
+    return observation
+
+
 def observe(config_file=CONFIG, *, client=ExecutorClient):
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
@@ -40,7 +59,8 @@ def observe(config_file=CONFIG, *, client=ExecutorClient):
                 # a shorter client wait would report a hold while the Executor still raises the sequence.
                 timeout_seconds=30) as executor_client:
         executor_client.verified_bindings(executor["registered_pair"])  # the deployed pair is the registered one
-        return executor_client.observe_readiness(request_for(executor["registered_pair"]))
+        observation = executor_client.observe_readiness(request_for(executor["registered_pair"]))
+    return named_by_pair(observation, executor["registered_pair"])
 
 
 def main():

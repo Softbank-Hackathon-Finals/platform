@@ -1,7 +1,9 @@
 """온프렘 수집 에이전트. 온프렘 클러스터 안에서 돌며 플랫폼으로 **바깥 방향**으로만 보낸다(설계 문서 7.5).
 
 - Kyverno PolicyReport 결과를 읽어 보낸다 (K8s API, policyreports · clusterpolicyreports get · list만).
-- Falco DaemonSet 준비 상태를 확인해 heartbeat를 보낸다. 탐지 이벤트 자체는 falcosidekick이 웹훅으로 보낸다.
+  보고서를 만드는 reports-controller가 준비되지 않았으면 결과 대신 "확인 불가"를 보낸다.
+- Falco DaemonSet과 falcosidekick 준비 상태를 확인해 heartbeat를 보낸다. 탐지 이벤트 자체는 falcosidekick이
+  웹훅으로 보내므로, sidekick이 죽었는데 "OK, 0건"으로 보이지 않게 둘 다 본다.
 """
 
 from collections.abc import Callable
@@ -56,24 +58,39 @@ def falco_ready(daemonset: dict) -> bool:
     return desired > 0 and status.get("numberReady", 0) == desired
 
 
+def deployment_ready(deployment: dict) -> bool:
+    wanted = deployment.get("spec", {}).get("replicas", 1)
+    return wanted > 0 and deployment.get("status", {}).get("readyReplicas", 0) >= wanted
+
+
+def _deployment(namespace: str, name: str) -> str:
+    return f"/apis/apps/v1/namespaces/{namespace}/deployments/{name}"
+
+
 def collect(
     k8s_get: Callable[[str], dict],
     now: datetime,
     falco_namespace: str = "falco",
     falco_name: str = "falco",
+    sidekick_name: str = "falco-falcosidekick",
+    kyverno_namespace: str = "kyverno",
+    reports_controller: str = "kyverno-reports-controller",
 ) -> list[dict]:
     """플랫폼 ingest API로 보낼 요청 본문 목록. k8s_get은 경로를 받아 JSON을 돌려준다(인증된 클러스터 안 클라이언트)."""
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     batches = []
     try:
+        if not deployment_ready(k8s_get(_deployment(kyverno_namespace, reports_controller))):
+            raise RuntimeError("reports controller not ready")
         reports = [item for path in POLICY_REPORT_PATHS for item in k8s_get(path).get("items", [])]
         batches.append({"source": "kyverno", "events": policy_report_results(reports, now_iso)})
     except Exception:  # noqa: BLE001 — 읽지 못했으면 "확인 불가"로 보고한다
         batches.append({"source": "kyverno", "events": [], "agent_error": "SOURCE_UNHEALTHY"})
     try:
         ds = k8s_get(f"/apis/apps/v1/namespaces/{falco_namespace}/daemonsets/{falco_name}")
+        sidekick = k8s_get(_deployment(falco_namespace, sidekick_name))
         batch: dict[str, Any] = {"source": "falco", "events": []}
-        if not falco_ready(ds):
+        if not (falco_ready(ds) and deployment_ready(sidekick)):
             batch["agent_error"] = "SOURCE_UNHEALTHY"
         batches.append(batch)
     except Exception:  # noqa: BLE001

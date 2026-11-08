@@ -15,7 +15,7 @@ VALUES = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40,
           "configuration": {"existingConfigMap": "workflow-config", "sha256": "c" * 64},
           "reader": {"existingConfigMap": "reader-config-v2", "catalogClaim": "catalog"},
           "stateClaim": "workflow-state",
-          "secrets": {"catalogKey": "catalog-key", "executor": "executor-read", "githubApp": "github-app"}}
+          "secrets": {"catalogKey": "catalog-key", "executor": "executor-read", "candidatePush": "platform-ecr-push"}}
 
 
 def render(values, chart=CHART):
@@ -58,6 +58,37 @@ class WorkflowHostChart(unittest.TestCase):
         off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertNotIn("kube-api-token", {v["name"] for v in off_pod["volumes"]})
 
+    def test_gate_signer_adds_only_an_sts_audience_token_and_the_role(self):
+        role = "arn:aws:iam::111122223333:role/bravo-gate-signer"
+        result, docs = render(VALUES | {"gateSigner": {"roleArn": role, "region": "ap-northeast-2"}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertIs(pod["automountServiceAccountToken"], False)
+        [source] = next(v for v in pod["volumes"] if v["name"] == "sts-token")["projected"]["sources"]
+        self.assertEqual(source["serviceAccountToken"]["audience"], "sts.amazonaws.com")  # never the API audience
+        env = {e["name"]: e["value"] for e in pod["containers"][0]["env"]}
+        self.assertEqual((env["AWS_ROLE_ARN"], env["AWS_WEB_IDENTITY_TOKEN_FILE"]), (role, "/var/run/secrets/sts/token"))
+        self.assertFalse(any(k.startswith("AWS_") and "KEY" in k for k in env))  # no static credential
+        _, off = render(VALUES)
+        off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("sts-token", {v["name"] for v in off_pod["volumes"]})
+        self.assertFalse(any(e["name"].startswith("AWS_") for e in off_pod["containers"][0]["env"]))
+        bad, _ = render(VALUES | {"gateSigner": {"roleArn": "arn:aws:iam::111122223333:user/someone"}})
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_candidate_pull_mounts_only_the_registry_credential_read_only(self):
+        result, docs = render(VALUES | {"candidatePull": {"enabled": True}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "candidate-pull")["secret"]
+        self.assertEqual((volume["secretName"], volume["items"]), ("platform-ghcr-reader",
+                         [{"key": ".dockerconfigjson", "path": ".dockerconfigjson"}]))
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "candidate-pull")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/ghcr", True))
+        _, off = render(VALUES)
+        off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("candidate-pull", {v["name"] for v in off_pod["volumes"]})
+
     def test_missing_required_inputs_are_refused(self):
         for key in ("image", "configuration", "reader", "stateClaim"):
             values = {k: v for k, v in VALUES.items() if k != key}
@@ -66,12 +97,20 @@ class WorkflowHostChart(unittest.TestCase):
         values["secrets"]["executor"] = ""
         self.assertNotEqual(render(values)[0].returncode, 0)
 
-    def test_github_app_is_optional(self):
+    def test_candidate_push_mounts_only_the_docker_config_read_only_and_is_optional(self):
+        result, docs = render(VALUES)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "candidate-push")["secret"]
+        self.assertEqual((volume["secretName"], volume["items"]),
+                         ("platform-ecr-push", [{"key": ".dockerconfigjson", "path": ".dockerconfigjson"}]))
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "candidate-push")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/ecr-push", True))
         values = json.loads(json.dumps(VALUES))
-        values["secrets"]["githubApp"] = ""
+        values["secrets"]["candidatePush"] = ""
         result, docs = render(values)
         self.assertEqual(result.returncode, 0, result.stderr)
         pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("candidate-push", {v["name"] for v in pod["volumes"]})
         self.assertNotIn("github-app", {v["name"] for v in pod["volumes"]})
 
     def test_apply_credential_mounts_exec_config_and_excludes_the_token_secret(self):
@@ -144,6 +183,18 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertIn("t10-workflow-host", text)
         self.assertIn("serviceAccountName == 't10-workflow-host'", text)
 
+
+    def test_the_host_may_run_the_ai_job_and_refresh_the_pull_secret_but_nothing_else(self):
+        runtime = {"configuration": {"existingConfigMap": "c", "sha256": "s"},
+                   "initialProposalAuto": {"enabled": True}, "candidatePull": {"enabled": True}}
+        result, docs = render({"workflowHost": {"enabled": True, "runtime": runtime}}, ROOT / "infra/gitops/argocd")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        app = next(d for d in docs if d.get("kind") == "Application" and d["metadata"]["name"] == "platform-workflow-host")
+        values = app["spec"]["source"]["helm"]["valuesObject"]
+        self.assertEqual((values["initialProposalAuto"], values["candidatePull"]), ({"enabled": True}, {"enabled": True}))
+        refused, _ = render({"workflowHost": {"enabled": True, "runtime": runtime | {"image": {"digest": "x"}}}},
+                            ROOT / "infra/gitops/argocd")
+        self.assertNotEqual(refused.returncode, 0)  # the image stays the reviewed pin, never a runtime value
 
     def test_both_hosts_enabled_render_distinct_rbac(self):
         # sangmu1126 15:02Z (4): the rehearsal and workflow host apps must not render the same RBAC.

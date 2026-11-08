@@ -49,9 +49,12 @@ class LocalVmHost:
                     "BRAVO_VM_ARCH": connection["arch"], "BRAVO_SSH_PORT": str(connection["ssh_port"]),
                     "BRAVO_API_PORT": str(connection["api_port"])}
 
+    def _argv(self, command: str) -> list[str]:
+        return [str(self.generator), "ssh", command]
+
     def _ssh(self, command: str, *, stdin=None, timeout_s: float = 120) -> subprocess.CompletedProcess:
         try:
-            return subprocess.run([str(self.generator), "ssh", command], input=stdin, capture_output=True,
+            return subprocess.run(self._argv(command), input=stdin, capture_output=True,
                                   env=self.env, timeout=timeout_s, check=False)
         except subprocess.TimeoutExpired as e:
             raise HostError("host_timeout", "the site host did not answer in time") from e
@@ -83,7 +86,7 @@ class LocalVmHost:
         if self.image_names() >= set(names):
             return
         with open(oci_tar, "rb") as f:
-            result = subprocess.run([str(self.generator), "ssh", f"sudo {CTR} images import --base-name {shlex.quote(repo)} -"],
+            result = subprocess.run(self._argv(f"sudo {CTR} images import --base-name {shlex.quote(repo)} -"),
                                     stdin=f, capture_output=True, env=self.env, timeout=600, check=False)
         if result.returncode != 0:
             raise HostError("image_import_failed", "containerd import failed")
@@ -94,3 +97,22 @@ class LocalVmHost:
         tag_result = self._ssh(f"sudo {CTR} images tag --force {shlex.quote(tagged[0])} {shlex.quote(aliases[0])}")
         if tag_result.returncode != 0 or not self.image_names() >= set(names):
             raise HostError("image_alias_failed", "the digest alias was not created")
+
+
+class GceRke2Host(LocalVmHost):
+    """A GCE node made by infra/envs/gcp-rke2 (terraform). Same two operations, through `node.sh ssh`
+    (IAP and OS Login only: no public address, no stored key)."""
+
+    def __init__(self, node_sh: str | Path, node_json: str | Path):
+        self.generator = Path(node_sh)
+        self.env = {**os.environ, "BRAVO_GCP_NODE": str(Path(node_json).expanduser())}
+
+    def _argv(self, command: str) -> list[str]:
+        return [str(self.generator), "ssh", command]
+
+
+def site_host(host: dict):
+    """The site host a destination config names: `kind: gce` (gcp-rke2 node.sh) or a local VM (default)."""
+    if host.get("kind") == "gce":
+        return GceRke2Host(host["node_sh"], host["node_json"])
+    return LocalVmHost(host["generator"], host["state"])

@@ -1,0 +1,30 @@
+{
+  "at": "2026-11-07T16:42:35.385840+00:00",
+  "shared_mutations": 0,
+  "aws_identity_matches": true,
+  "eks_ca_matches_existing_registration": true,
+  "cluster_identity_matches": true,
+  "nodes": 9,
+  "edges": 7,
+  "http_probes_verified": 1,
+  "observed_at": "2026-11-07T16:42:38.911343+00:00",
+  "source_revision": "f669842b9f87e1f42afe5053084cb1685100ee57",
+  "owned_session_terminated": true,
+  "python_tests_passed": 483,
+  "operational_migration_verified": false,
+  "evidence_summary_only": true,
+  "originals": [
+    {
+      "artifact": "source-read-summary.json",
+      "sha256": "328ea2bb25cdc225a17db667d0c04230fe48287a8ed73fda0e05d8cb963e94e5"
+    },
+    {
+      "artifact": "source-observation.json",
+      "sha256": "55ab05d8a4e5dbf1dd78d07b1a5b12b154fecf4811da99c8295d51dbed36b19a"
+    },
+    {
+      "artifact": "console-tests-eks-null.log",
+      "sha256": "a4bb3f5a23f347eced8ead2d2a0c99633867c45e8ece9476594fc7dc5e818dfa"
+    }
+  ]
+}

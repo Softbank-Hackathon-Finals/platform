@@ -8,7 +8,9 @@
 - 사전 조건: cert-manager v1.19.1과 Barman Cloud 플러그인 0.15.1을 공식 릴리스 manifest로 설치했다. ObjectStore CRD와 플러그인 인증서가 Ready다.
 - K8s: ObjectStore 두 개와 복원 namespace를 만들었다. role-patch 뒤 `source-db` SA에 쓰기 역할 주석이 붙은 것을 확인했고, 이어 archive-patch를 적용했다. DB Pod는 21:42:25–21:42:55 KST(약 30초) 동안 다시 시작됐다. Cluster `ContinuousArchiving=True`이며, WAL이 `t35/source-db/` 아래에 5분 간격으로 기록된다.
 - 확인(`--stage before-restore`): 설정 읽기 9개 항목 통과. 삭제 시험은 쓰기·앱 DENIED, 시험 객체 버전 보존, 관리자가 시험 객체 삭제. 복원 SA는 아직 없다. Executor는 `UNKNOWN_NO_CREDENTIALS`로 판정이 `UNKNOWN`이다. 출발지 노드는 IMDSv2 hop limit 1이라 IRSA가 없는 Pod가 노드 역할 자격을 받지 못한다. 즉 Executor는 AWS 신원 자체가 없다. 아래 4단계의 "노드 역할로 나간다"는 이 클러스터에는 맞지 않는다. 판정 규칙은 완화하지 않았다.
-- 5단계(표식 · 백업)부터는 T35 담당이 이어간다. 실제 백업 · 복원은 아직 실행하지 않았다.
+- **T35 결정(11/8):** Executor에 삭제 거부를 보이려고 AWS 역할을 새로 주지 않는다. AWS를 쓰지 않는 구성요소에 신원을 더하면 공격 면만 늘어난다. 대신 "AWS 신원이 없음"을 시험으로 보이는 `--executor-without-aws`로 등록한다(4단계). 판정 기준은 그대로이고, `NO_AWS_IDENTITY`는 Executor에만 인정한다. 컷오버 Executor는 **출발지가 아니라 플랫폼 RKE2(`bravo-platform/cutover-executor`)에서 돈다.** 출발지에는 `source-dev/bravo-executor` SA와 권한만 있고 Pod는 없다. 그래서 11/6의 출발지 `bravo-executor` 시험 Pod는 실제 Executor의 신원을 본 것이 아니다. 확인은 `--executor-kubeconfig`로 플랫폼 클러스터에서 한다.
+- **재확인(11/8 05:2x KST, `--stage before-restore`):** `PARTIAL`(exit 3). 설정 읽기 9개 통과, 쓰기 · 앱 `DENIED`, 복원 SA 없음(`UNKNOWN_SA_NOT_FOUND`), Executor `NO_AWS_IDENTITY`(플랫폼 노드 IMDSv2 필수 · hop 1, Pod에 AWS 자격 출처 없음, 그 노드에 고정한 시험 Pod의 두 삭제 모두 자격 없음), 시험 객체 버전 보존 · 삭제 표식 없음 · 관리자가 제거. 남은 시험 Pod · 객체 0개.
+- 5단계(표식 · 백업)부터는 T35 담당이 이어간다. 실제 백업 · 복원은 아직 실행하지 않았다. 출발지 DB에 표식을 쓰고 같은 EKS에 복원 Cluster를 만드므로 해피패스 실행(S1~S3)과 겹치지 않는 창에서 한다.
 
 ## 등록 값 (T6 등록안 #57에 대한 답)
 
@@ -47,11 +49,20 @@
    ```sh
    python3 infra/envs/source-backup/verify.py --registration "$PRIVATE_DIR/backup-registration.json" \
      --kubeconfig "$KUBECONFIG" --delete-probe --stage before-restore \
-     --app-role-arn "$APP_ROLE_ARN" --executor "<Executor namespace>/<SA>=<그 Pod가 쓰는 역할 ARN>"
+     --app-role-arn "$APP_ROLE_ARN" --executor-without-aws bravo-platform/cutover-executor \
+     --executor-kubeconfig "$PLATFORM_KUBECONFIG" --executor-context "<플랫폼 context>"
+   # Executor에 AWS 역할이 있다면 대신: --executor "<namespace>/<SA>=<그 Pod가 쓰는 역할 ARN>"
    ```
 
+   출발지 EKS API는 사설 전용이다. `infra/envs/source-eks/README.md`의 운영자 경로(플랫폼 호스트를 거치는 SSM 원격 포트포워딩, EKS CA와 원래 TLS 서버 이름을 그대로 둔 비공개 kubeconfig)로 붙는다. 등록값은 `runtime/source-backup` state의 `backup_registration` 출력, 앱 역할은 `runtime/source-workloads`의 `workload_metadata.app_role_arn`이다.
+
    - **설정 읽기:** 버전 관리, 전용 키, 공개 차단, 소유권, 역할 신뢰 · 권한. 버킷 정책은 스택의 세 Deny 문과 **정확히** 같아야 한다(두 종류의 삭제 · 보호 변경 Action, 버킷 · 객체 Resource, Principal `*`, 관리자 예외, TLS 거부). Action을 줄이거나 Resource를 바꾼 정책, Allow 문이 더해진 정책은 FAIL이다.
-   - **삭제 시험:** 각 Pod가 `sts get-caller-identity`로 쓴 역할이 등록 역할과 같고, 두 삭제가 각각 AccessDenied일 때만 그 신원을 확인한 것으로 센다. SA 미배치 · 조회 실패 · 자격 없음 · 역할 불일치 · Pod 생성 실패는 UNKNOWN이다. **쓰기 · 앱 · Executor는 필수다.** `--executor`가 없거나 그 Pod의 거부가 확인되지 않으면 PARTIAL · PASS가 아니라 UNKNOWN이다. Executor처럼 IRSA가 없는 SA는 노드 역할로 나가므로 그 노드 역할 ARN을 적는다. 그 밖의 신원은 `--also-deny`로 더한다.
+   - **삭제 시험:** 각 Pod가 `sts get-caller-identity`로 쓴 역할이 등록 역할과 같고, 두 삭제가 각각 AccessDenied일 때만 그 신원을 확인한 것으로 센다. SA 미배치 · 조회 실패 · 자격 없음 · 역할 불일치 · Pod 생성 실패는 UNKNOWN이다. **쓰기 · 앱 · Executor는 필수다.** Executor 등록(`--executor` 또는 `--executor-without-aws`)이 없거나 그 거부가 확인되지 않으면 PARTIAL · PASS가 아니라 UNKNOWN이다. 그 밖의 신원은 `--also-deny`로 더한다.
+   - **AWS 신원이 없는 Executor(`--executor-without-aws`):** 아래를 모두 확인할 때만 `NO_AWS_IDENTITY`(거부로 인정)다. 하나라도 아니면 UNKNOWN이고, 삭제되면 FAIL이다.
+     1. 그 SA로 실행 중인 Executor Pod가 하나 이상 있고, 어느 컨테이너에도 AWS 자격 출처가 없다. 자격 환경변수(`AWS_ACCESS_KEY_ID` · `AWS_ROLE_ARN` · `AWS_CONTAINER_CREDENTIALS_*` · `AWS_PROFILE` 등), 키를 알 수 없는 `envFrom`, `.aws` 마운트, `sts.amazonaws.com` · `pods.eks.amazonaws.com` 대상 projected token, `hostNetwork`(노드 메타데이터가 한 홉)를 본다. IRSA · Pod Identity가 붙으면 웹훅이 이 환경변수와 token을 넣으므로 여기서 걸린다.
+     2. 그 Pod들이 도는 노드마다 EC2 메타데이터가 꺼져 있거나 IMDSv2 필수 · hop limit 1이다. EKS 노드는 `providerID`(`aws:///…/i-…`)로, RKE2 노드(`rke2://…`)는 하나뿐인 InternalIP와 같은 실행 중 인스턴스 하나로 찾는다(`ec2 describe-instances`).
+     3. 같은 SA의 시험 Pod를 **그 노드에 고정해** 띄우면, 주체 조회가 비고 두 삭제가 모두 `Unable to locate credentials`로 실패한다. 네트워크 오류나 AccessDenied는 "자격 없음"이 아니므로 UNKNOWN이다.
+     - 이미지 안에 넣은 자격 파일은 이 시험으로 보지 않는다(이미지 비밀 검사의 범위). 확인은 그 시점의 상태이므로 Executor 배포나 노드 그룹을 바꾸면 다시 돌린다.
    - **결과:** `PASS`(0), `FAIL`(1, 삭제됨 · 설정 다름), `UNKNOWN`(2), `PARTIAL`(3, `--stage before-restore`에서 복원 SA만 아직 없음). 복원 Cluster를 만든 뒤 `--stage final`로 다시 돌려 `PASS`를 받는다.
    - 시험 객체는 관리자가 마지막에 지운다. 실제 백업은 건드리지 않는다.
 5. **백업:** 표식 행 기록(기준 문서 "표식과 데이터 경계") 뒤, 이번 실행의 ID를 **한 번만** 정해 저장한다.
@@ -75,5 +86,6 @@
 | `trivy config` HIGH · CRITICAL | 0건 |
 | k3s(CNPG 1.30.1 + Barman CRD 0.15.1) | stores 적용, role-patch 뒤 기존 SA에 역할 주석 5초 안에 반영, archive-patch가 기존 Cluster 필드를 지우지 않음, Backup · 복원 Cluster server-side dry-run 통과 |
 | `verify.py` 판정 | `scripts/tests/test_source_backup_verify.py` 7개: 스택 정책만 통과(Action 축소 · Resource 치환 · Allow 추가 · 관리자 변경 · Sid 변경 등 13가지 거부), 등록 역할 · AccessDenied 2회만 확인, SA 조회 금지(Forbidden)는 UNKNOWN, 복원 전 PARTIAL. 변이 13/13. 삭제 메시지 형식은 실제 aws-cli 2.38.0 출력 |
+| `--executor-without-aws` | 같은 파일 7개 더: Executor 노드에 고정한 시험 Pod, `Unable to locate credentials` 2회만 인정, Pod의 자격 출처 7종(키 · IRSA · Pod Identity · hostNetwork · envFrom · token · `.aws` 마운트)은 시험 Pod 전에 UNKNOWN, 메타데이터 v1 허용 · hop 2 · 노드 식별 불가(IP 없음 · 둘 · 형식 오류) · 인스턴스 0개 · 중복은 UNKNOWN, Executor는 자기 클러스터(`--executor-kubeconfig`)에서 조회 · 시험, RKE2 노드는 IP로 인스턴스 조회, `NO_AWS_IDENTITY`는 Executor에만. 변이 13/13. 실환경 결과는 위 "재확인" |
 
 **재지 않은 것:** 실제 AWS의 IAM · 버킷 정책 평가, IRSA로 Barman이 S3에 실제로 백업하는지, 플러그인 설치. 앱 역할은 IAM에 이 버킷 권한이 아예 없어서 삭제가 거부되므로, 그 거부가 버킷 정책의 증거는 아니다. 버킷 정책 자체는 `verify.py`의 설정 읽기가 확인한다. 삭제 거부는 Object Lock 같은 불변 보존이 아니다(기준 문서).

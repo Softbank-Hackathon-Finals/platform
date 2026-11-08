@@ -1,7 +1,8 @@
 > **작성자:** 이상무 (보안 통제 · 게이트 담당)
 > **원본:** [노션 (팀원 전용)](https://app.notion.com/p/Patching-as-a-Service-40c8bee9ada4804ca2b9d33928e33c98). 이 문서는 2026-11-03 기준 사본이다. 고칠 때는 노션을 먼저 고친다.
-> **상태:** 추후 고려사항. 현재 작업(T5 등 스켈레톤)의 범위를 바꾸지 않는다.
+> **상태:** 보안 control catalog와 플랫폼 실행 게이트가 구현됐다. 실환경 서비스·근거 생산자 인수는 별도다.
 > **출처 확인:** SoftBank 발표 내용과 인용 자료는 발표 · 설계 문서 반영 전에 원문을 확인한다(T23).
+> **플랫폼 적용 계약:** [Platform security governance enforcement](platform-security-governance.md)
 
 # Patching as a Service 기반 지속적 보안 개선 및 멀티클라우드 마이그레이션 아키텍처
 

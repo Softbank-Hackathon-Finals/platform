@@ -2,7 +2,7 @@
 
 설계 7.1의 6단계("사람 승인 → 반영")에서 **승인된 것과 배포되는 것이 같은 바이트인지**를 코드가 보장하는 부품이다(FR-7 승인 결속). 모델은 이 단계에 손대지 못한다. 상태 머신 · 승인 · 접수는 T10이, 리허설 검증은 T15가, 게이트 재대조는 T19가 맡고, T31은 그 사이를 digest로 묶는다. 변경 종류는 두 가지다: 앱 이미지 변경(Deployment 이미지 digest 고정)과 버킷 정책 변경(SeaweedFS `s3.json` Secret 교체, [아래](#버킷-정책-변경-분기)).
 
-**상태: 시험 120개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
+**상태: 시험 140개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -10,8 +10,8 @@
 | `deploy.py` | digest 고정 패치(`repository@sha256:…`, 태그 금지), rollout 대기, 실행 중 Pod의 digest 확인. 모든 클러스터 호출 오류를 변경 전/후로 구분해 `DeployMismatch`로. `FakeKube`(단위 시험 전용) · `KubectlKube`(실제). 정책 분기용 `get_secret` · `replace_secret` · `restart_workload` |
 | `policy.py` | 버킷 정책 분기: 승인 정책 → T9 노출 상태 번역, T9 렌더러로 `s3.json` closed 생성, Secret 교체 · 워크로드 재시작 · 익명/서명 GET 관찰 |
 | `path.py` | `apply(application_id, …)` · `get_result(application_id, receipts_dir)`. 결속 → (정책 번역) → STARTED 기록 → 배포 또는 정책 반영 → 게이트 재대조 요청. 결과는 스키마 검증, application_id당 기록 하나 |
-| `desired.py` | T44 원하는 상태 반영: 검토된 커밋의 `target-object-exposure`가 `closed`이면 `policy.py` 분기로 Secret을 맞추고 IAM-01.1 재대조를 요청([아래](#t44-원하는-상태-반영)) |
-| `cli.py` | `bravo-apply check / run / get-result / diff-hash / desired-exposure` |
+| `desired.py` | T44 원하는 상태 반영과 에이전트 계획으로 닫기(ADR-0044): 검토된 커밋의 `target-object-exposure`가 `closed`이면 `policy.py` 분기로 Secret을 맞추고 IAM-01.1 재대조를 요청([아래](#t44-원하는-상태-반영)) |
+| `cli.py` | `bravo-apply check / run / get-result / diff-hash / desired-exposure / planned-exposure` |
 | `schemas/apply-result.schema.json` | 결과·기록 v1.2 (결과별 · 변경 종류별 필드 조건 포함). v1.1 기록도 그대로 읽는다 |
 
 ## 경로
@@ -162,6 +162,27 @@ bravo-apply desired-exposure --environment target-dev --revision <승격한 커�
 ```
 
 종료 코드: APPLIED · ALREADY_CLOSED 0 · REFUSED 2 · SAFE_HOLD 3 · STARTED(이전 실행이 끝나지 않음) 4.
+
+### 에이전트 계획으로 닫기 (ADR-0044, 데모 S2)
+
+데모에서는 Git의 원하는 상태가 `open-demo`(심어 둔 결함)로 남고, S2에서 에이전트가 `infra.plan`으로 닫기를 계획한다. 사람이 그 계획의 `iac_plan_digest`가 담긴 binding을 승인(또는 사전 위임)하면, `apply_planned_exposure`(`bravo-apply planned-exposure`)가 런타임에 닫는다. 쓰는 주체는 여전히 이 분기 하나다.
+
+| 확인 | 거부 코드 (기록 없음 · 클러스터 접촉 없음) |
+|---|---|
+| 계획이 `iac-plan.v1`이고 `origin`이 agent · operator, `plan_digest`가 승인된 binding의 값과 같다 | `IAC_PLAN_INVALID` · `IAC_PLAN_NOT_APPROVED` |
+| `--base-revision`(제안 Job이 계획한 커밋)의 상태가 이 버킷의 `open-demo`다 | `REVISION_NOT_FULL_SHA` · `REVISION_UNKNOWN` · `DESIRED_BUCKET_MISMATCH` · `PLANNED_BASE_NOT_OPEN` |
+| `plan_digest`가 자기 일치하고 수락됐으며 넓히지 않는다. 계획의 `changes` · `effects`가 이 모듈 하나만으로 T44 `plan()`을 계산한 결과(이 버킷 Secret 하나를 `open-demo` → `closed`)와 **정확히 같다**(다른 변경이 섞이면 거부) | `IAC_PLAN_DIGEST_MISMATCH` · `IAC_PLAN_NOT_ACCEPTED` · `IAC_PLAN_NOT_A_CLOSE` |
+| 계획의 `base_digest`가 `--base-revision`의 상태와 같으면 전체 계획을 그 상태에서 다시 계산해 완전히 같아야 한다. 다르면 거부하지 않고 기록에 `base_verified: false`를 남긴다(원하는 상태 파일은 네트워크 모듈 때문에 자주 바뀌고, 클러스터 효과는 어느 쪽이든 익명 접근 제거뿐이다) | `IAC_PLAN_NOT_A_CLOSE` |
+
+통과 뒤의 동작은 `desired-exposure`와 같다(기록 하나, `ALREADY_CLOSED`, Secret 교체 · 재시작 · 관찰, 쓰는 주체 표시). 결과 ID는 `iac-<plan_digest 앞 16자>`이고, `gate_recheck`에 `base_revision` · `iac_plan_digest`가 담긴다.
+
+```sh
+bravo-apply planned-exposure --iac-plan <에이전트 plan.json> --approved-iac-plan-digest <binding의 iac_plan_digest> \
+  --environment target-dev --base-revision <제안 Job이 계획한 커밋 SHA> --repo-root /work/platform \
+  --kubeconfig /private/object-policy.kubeconfig --namespace target-dev \
+  --object-endpoint http://seaweedfs.target-dev.svc.cluster.local:8333 --probe-key <존재하는 객체 키> \
+  --receipts /durable/desired-receipts [--plan-id <계획 id>]
+```
 
 ## 사용
 

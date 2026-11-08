@@ -20,6 +20,7 @@ from bravo_infra_plan.applications import application_name
 from bravo_infra_plan.executor import Executor, StepOutcome
 
 REV = "1" * 40
+PLAN_ID, REQUESTER = "infra-1", "agent-run-1"  # the approved binding besides the digest
 NODE = REQUEST["params"]["node_name"]
 
 
@@ -33,10 +34,27 @@ class FakeCluster:
         self.lock = threading.Lock()
         self.applied, self.helm, self.apps = [], {}, {}
         self.secrets = {key: ("Opaque", {"made": "by the operator"}) for key in self.OPERATOR_SECRETS}
+        # The running Tailscale operator's own state after it logged in (ipn kubestore keys).
+        self.secrets[("tailscale-system", "operator")] = ("Opaque", {"_current-profile": "x", "_machinekey": "x"})
         self.labelled = set()
         self.never_ready = set(never_ready)
         self.diff_calls = 0
         self.annotations, self.images = {}, set()
+        # T44's Application (bravo-iac-target-dev) as its intake reports it, and the public login host.
+        self.iac_status, self.iac_reasons = "SYNC_PAUSED", []
+        self.login_reachable, self.login_admin_open, self.login_issuer = True, False, None
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        assert (environment, cluster_uid, revision) == ("target-dev", "cluster-1", REQUEST["params"]["iac_revision"])
+        return {"status": self.iac_status, "reasons": list(self.iac_reasons)}
+
+    def http(self, url):
+        base = REQUEST["params"]["login_public_url"]
+        if not self.login_reachable:
+            return None, None
+        if url == f"{base}/realms/bravo/.well-known/openid-configuration":
+            return 200, json.dumps({"issuer": self.login_issuer or f"{base}/realms/bravo"}).encode()
+        return (200 if self.login_admin_open else 404), b""
 
     def prepare_node(self):
         """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
@@ -80,6 +98,9 @@ class FakeCluster:
         return (kind, name) not in self.never_ready
 
     def application_status(self, name):
+        if name == "bravo-iac-target-dev":  # T44's own Application: present once turned on
+            on = self.iac_status not in ("NOT_INSTALLED", "BOOTSTRAP_ONLY", "BOOTSTRAP_PENDING")
+            return {"revision": None, "sync": "OutOfSync", "health": "Healthy"} if on else None
         revision = self.apps.get(name)
         return revision and {"revision": revision, "sync": "Synced", "health": "Healthy"}
 
@@ -95,6 +116,10 @@ class FakeCluster:
     seaweedfs_shape = {"bootstrap": ["demo-chat-attachments"], "client": ["demo-chat-attachments"],
                        "anonymous": ["demo-chat-attachments"]}  # T44 target-dev.json is open-demo
 
+    def secret_keys(self, namespace, name):
+        found = self.secrets.get((namespace, name))
+        return None if found is None else sorted(found[1])  # the adapter's contract: a sorted list of key names
+
     def secret_identities(self, namespace, name, key):
         return dict(self.seaweedfs_shape) if (namespace, name) in self.secrets else None
 
@@ -108,20 +133,23 @@ class FakeCluster:
 
 class FakeApprovals:
     def __init__(self):
-        self.approvals, self.claims = {}, {}
+        self.approvals, self.claims, self.claimed_bindings = {}, {}, []
         self.deny_claims = False
 
-    def approve(self, approval_id, digest):
-        self.approvals[approval_id] = {"approval_id": approval_id, "binding": {"plan_digest": digest},
+    def approve(self, approval_id, digest, *, infra_plan_id=PLAN_ID, requested_by=REQUESTER):
+        binding = {"infra_plan_id": infra_plan_id, "plan_digest": digest, "requested_by": requested_by}
+        self.approvals[approval_id] = {"approval_id": approval_id, "binding": binding,
                                        "revoked": False, "claimed_run_id": None, "actor_id": "approver"}
 
     def read(self, plan_id, approval_id):
         return dict(self.approvals[approval_id], claimed_run_id=self.claims.get(approval_id))
 
-    def claim(self, plan_id, approval_id, *, run_id, plan_digest):
+    def claim(self, plan_id, approval_id, *, run_id, binding):
         if self.deny_claims:
             raise StackError("forbidden")
-        assert self.approvals[approval_id]["binding"]["plan_digest"] == plan_digest
+        self.claimed_bindings.append(binding)
+        if self.approvals[approval_id]["binding"] != binding:  # T10 compares the whole binding
+            raise StackError("binding_mismatch")
         assert self.claims.setdefault(approval_id, run_id) == run_id
         return {"approved_by": "approver", "claimed_by": "applier", "claimed_at": "t"}
 
@@ -149,7 +177,7 @@ def world(tmp_path):
         ticks = iter(range(0, 10**9, 5))  # each poll advances 5 s: stable waits pass without real time
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
-                        checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
+                        checks=ClusterChecks(cluster, REPO, http=cluster.http), store=FileRunStore(tmp_path / "runs"),
                         repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
@@ -164,7 +192,8 @@ def world(tmp_path):
 
 def start(world, run_id, approval_id="appr-1", **kw):
     return world["executor"](**kw).start(request=REQUEST, migration_plan_id="plan-demo", approval_id=approval_id,
-                                         run_id=run_id, started_by="applier")
+                                         run_id=run_id, started_by="applier", infra_plan_id=PLAN_ID,
+                                         requested_by=REQUESTER)
 
 
 def test_a_plan_other_than_the_approved_digest_is_refused_before_anything_changes(world):
@@ -174,6 +203,39 @@ def test_a_plan_other_than_the_approved_digest_is_refused_before_anything_change
     assert (run["status"], run["reason"]) == ("REFUSED", "plan_digest_mismatch")
     assert world["approvals"].claims == {} and world["repo"].head() == head
     assert world["cluster"].applied == [] and world["cluster"].helm == {}
+
+
+@pytest.mark.parametrize("field,other", [("infra_plan_id", "infra-2"), ("requested_by", "agent-run-2")])
+def test_an_approval_of_the_same_digest_for_another_plan_or_requester_is_refused(world, field, other):
+    """#603 review: the approved digest alone is not the approval of this plan record."""
+    digest = world["approve"]("appr-1")
+    world["approvals"].approve("appr-1", digest, **{"infra_plan_id": PLAN_ID, "requested_by": REQUESTER,
+                                                    field: other})
+    head = world["repo"].head()
+    run = start(world, "run-1")
+    assert (run["status"], run["reason"]) == ("REFUSED", "binding_mismatch")
+    assert world["approvals"].claims == {} and world["approvals"].claimed_bindings == []
+    assert world["repo"].head() == head and world["cluster"].applied == []
+
+
+def test_start_and_resume_claim_with_the_whole_binding(world):
+    digest = world["approve"]("appr-1")
+    assert start(world, "run-1")["status"] == "WAITING_OPERATOR"
+    world["cluster"].prepare_node()
+    assert world["executor"]().resume("run-1")["status"] == "SUCCEEDED"
+    whole = {"infra_plan_id": PLAN_ID, "plan_digest": digest, "requested_by": REQUESTER}
+    assert world["approvals"].claimed_bindings == [whole, whole]
+
+
+def test_a_run_stored_without_its_binding_holds_on_resume(world):
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    path = world["tmp"] / "runs" / "run-1.json"
+    stored = json.loads(path.read_text())
+    del stored["binding"]
+    path.write_text(json.dumps(stored))
+    run = world["executor"]().resume("run-1")
+    assert (run["status"], run["reason"]) == ("HOLD", "run_binding_missing")
 
 
 def test_parallel_lines_run_until_human_steps_then_confirmations_finish_the_run(world):
@@ -242,7 +304,7 @@ def test_a_wait_that_never_converges_holds_only_its_dependents(world):
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     executor = world["executor"](cluster=cluster, monotonic=lambda: next(ticks))
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
-                         run_id="run-1", started_by="applier")
+                         run_id="run-1", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     cluster.prepare_node()
     run = executor.resume("run-1")
     states = {k: v for k, v in run["steps"].items()}
@@ -379,7 +441,8 @@ def test_an_uncomparable_diff_holds_instead_of_applying(world):
     world["approvals"].approve("appr-1", world["executor"](cluster=cluster).planner.plan(
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = world["executor"](cluster=cluster).start(request=REQUEST, migration_plan_id="plan-demo",
-                                                   approval_id="appr-1", run_id="run-1", started_by="applier")
+                                                   approval_id="appr-1", run_id="run-1", started_by="applier",
+                                                   infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["steps"]["base"]["status"] == "HOLD" and cluster.applied == []
 
 
@@ -427,7 +490,7 @@ def test_runs_are_chained_into_the_t24_ledger_and_resume_after_a_restart(world):
     world["approve"]("appr-1")
     executor = world["executor"](ledger=AuditLedger(str(store_root), runs))
     executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
-                   started_by="applier")
+                   started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     first = read_local_run(store_root, "plan-demo", "run-1")
     assert first.record_count > 3 and {r["source"] for r in first.records} == {"infra"}
     restarted = world["executor"](ledger=AuditLedger(str(store_root), runs))  # a new process
@@ -471,12 +534,80 @@ def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-iso", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-iso",
-                         run_id="run-iso", started_by="applier")
+                         run_id="run-iso", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
     assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {
-        "tailscale-oauth", "tailscale", "tailscale-sync"}
+        "tailscale-oauth", "tailscale", "tailscale-sync", "tailscale-joined", "iac-application", "iac-application-check"}
     assert run["steps"]["verify"]["status"] == "APPLIED"
     assert not any(name.startswith("tailscale/") for name in world["repo"].read_tree(""))
+
+
+def test_a_wif_target_runs_without_an_oauth_secret_and_waits_until_the_operator_logged_in(world):
+    request = json.loads(json.dumps(REQUEST))
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+    cluster, approvals = world["cluster"], world["approvals"]
+    del cluster.secrets[("tailscale-system", "operator-oauth")]  # WIF: no OAuth secret exists anywhere
+    cluster.prepare_node()
+    executor = world["executor"]()
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    approvals.approve("appr-wif", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif",
+                         run_id="run-wif", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
+    assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
+    assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {"tailscale-oauth", "iac-application", "iac-application-check"}
+    assert run["steps"]["tailscale-joined"]["status"] == "APPLIED"
+
+
+def test_synced_tailscale_is_not_a_join_until_the_operator_has_a_profile(world):
+    request = json.loads(json.dumps(REQUEST))
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+    cluster, approvals = world["cluster"], world["approvals"]
+    del cluster.secrets[("tailscale-system", "operator-oauth")]
+    cluster.secrets[("tailscale-system", "operator")] = ("Opaque", {"_machinekey": "x"})  # started, not logged in
+    cluster.prepare_node()
+    executor = world["executor"]()
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    approvals.approve("appr-wif2", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif2",
+                         run_id="run-wif2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
+    assert run["status"] != "SUCCEEDED"
+    assert run["steps"]["tailscale-sync"]["status"] == "APPLIED"
+    assert run["steps"]["tailscale-joined"]["status"] not in ("APPLIED", "SKIPPED")
+    assert run["steps"]["verify"]["status"] not in ("APPLIED", "SKIPPED")
+
+
+def test_the_join_probe_waits_for_a_login_that_comes_after_the_sync(world):
+    """WIF exchanges its token after the operator Deployment is Healthy: the profile can appear a few
+    polls later. The probe keeps reading within its timeout instead of failing the run at once."""
+    request = json.loads(json.dumps(REQUEST))
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+
+    class LateLogin(FakeCluster):
+        reads = 0
+
+        def secret_keys(self, namespace, name):
+            if (namespace, name) == ("tailscale-system", "operator"):
+                LateLogin.reads += 1
+                if LateLogin.reads < 3:
+                    return {"_machinekey"}  # started, not logged in yet
+            return super().secret_keys(namespace, name)
+
+    cluster = LateLogin()
+    del cluster.secrets[("tailscale-system", "operator-oauth")]
+    cluster.prepare_node()
+    executor = world["executor"](cluster=cluster)
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    world["approvals"].approve("appr-late", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-late", run_id="run-late",
+                         started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
+    assert run["steps"]["tailscale-joined"]["status"] == "APPLIED" and LateLogin.reads >= 3
+    assert run["status"] == "SUCCEEDED"
 
 
 def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
@@ -495,7 +626,7 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     world["approvals"].approve("appr-1", executor.planner.plan(
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
-                         run_id="run-1", started_by="applier")
+                         run_id="run-1", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     states = run["steps"]
     # base-sync declares nothing, so Progressing holds it; nothing after base can then start.
     assert (states["base-sync"]["status"], states["base-sync"]["reason"]) == ("HOLD", "sync_timeout")
@@ -508,5 +639,96 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     world["approvals"].approve("appr-2", executor.planner.plan(
         REQUEST, stack_revision=REV, target=healthy_base.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-2",
-                         run_id="run-2", started_by="applier")
+                         run_id="run-2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing
+
+
+def test_the_t44_application_is_turned_on_after_the_tailscale_line_and_checked_with_its_judge(world):
+    """T44 #673: the Application comes after the namespaces and Tailscale CRDs; T44's intake confirms it."""
+    world["cluster"].iac_status = "BOOTSTRAP_ONLY"  # Argo CD installed with application.enabled=false
+    world["cluster"].prepare_node()
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert run["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["tailscale-sync"]["status"] == "APPLIED"
+    assert run["steps"]["iac-application"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["iac-application-check"]["status"] == run["steps"]["verify"]["status"] == "PENDING"
+
+    world["cluster"].iac_status = "SYNC_PAUSED"  # helm upgrade --set application.enabled=true, autoSync off
+    run = world["executor"]().resume("run-1")
+    assert run["status"] == "SUCCEEDED"
+    assert run["steps"]["iac-application"]["status"] == "SKIPPED"  # observed on, no confirmation needed
+    assert run["steps"]["iac-application-check"]["status"] == "APPLIED"
+
+
+@pytest.mark.parametrize("status, reasons, reason", [
+    ("BLOCKED", ["APPLICATION_TARGET_MISMATCH"], "argo_application_target_mismatch"),
+    ("BLOCKED", ["PRUNE_NOT_APPROVED"], "argo_prune_not_approved"),
+    ("SYNC_FAILED", ["OPERATION_FAILED"], "argo_operation_failed"),
+])
+def test_an_application_the_t44_judge_refuses_holds_the_run(world, status, reasons, reason):
+    world["cluster"].iac_status, world["cluster"].iac_reasons = status, reasons
+    world["cluster"].prepare_node()
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert (run["steps"]["iac-application-check"]["status"], run["steps"]["iac-application-check"]["reason"]) == (
+        "HOLD", reason)
+    assert run["steps"]["verify"]["status"] == "PENDING"
+
+
+def test_the_login_host_is_probed_publicly_and_an_open_admin_path_holds(world):
+    cluster = world["cluster"]
+    cluster.prepare_node()
+    cluster.login_reachable = False  # Keycloak is Ready, the Edge route is not there yet
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert run["steps"]["login-sync"]["status"] == "APPLIED"
+    assert run["steps"]["login-edge"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["verify"]["status"] == "PENDING"
+    assert cluster.secret_exists("target-dev", "target-login-admin")
+
+    cluster.login_reachable, cluster.login_admin_open = True, True  # the whole Keycloak exposed on the Edge
+    run = world["executor"]().resume("run-1")
+    assert (run["steps"]["login-edge"]["status"], run["steps"]["login-edge"]["reason"]) == (
+        "HOLD", "login_admin_path_open")
+
+    cluster.login_admin_open = False
+    run = world["executor"]().resume("run-1")
+    assert run["status"] == "SUCCEEDED" and run["steps"]["verify"]["status"] == "APPLIED"
+
+
+def test_a_login_host_with_another_issuer_holds_and_verify_reprobes_it(world):
+    cluster = world["cluster"]
+    checks = ClusterChecks(cluster, REPO, http=cluster.http)
+    plan = world["executor"]().planner.plan(REQUEST, stack_revision=REV, target=cluster.identity(NODE),
+                                            base_commit=world["repo"].head())
+    run = {"plan": plan.document, "stack": load_stack(STACK).document}
+    assert checks.check("login-public", run) is True and checks.check("target-checks", run) is True
+    cluster.login_issuer = "https://elsewhere.example.test/realms/bravo"
+    with pytest.raises(StepOutcome, match="login_issuer_mismatch"):
+        checks.check("target-checks", run)  # the last probe sees the public address again
+
+
+def test_the_public_probe_does_not_follow_redirects_and_reports_unreachable_as_none():
+    import http.server
+
+    from bravo_infra_plan.adapters import public_get
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+    try:
+        assert public_get(f"http://127.0.0.1:{server.server_port}/admin/")[0] == 302
+    finally:
+        thread.join(5)
+        server.server_close()
+    assert public_get("http://127.0.0.1:1/", timeout=2) == (None, None)

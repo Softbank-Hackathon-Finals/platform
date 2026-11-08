@@ -1,0 +1,33 @@
+{
+  "source_revision": "174a039209ce125077e01bab7e4f0c6ca4020d1e",
+  "source_files": [
+    {
+      "path": "services/console/src/bravo_console/kubernetes_workload.py",
+      "sha256": "1606a3be2316e7e5c893fa233e51da9779b39a0b09afeb242d9b219d81c0fb5b"
+    },
+    {
+      "path": "services/console/src/bravo_console/observed_workload.py",
+      "sha256": "1bc015966be8c1a5a2fed9b1a7cd5485b14ee8a4b8988e60e043a0d85f7380a6"
+    },
+    {
+      "path": "services/console/src/bravo_console/retained_controls.py",
+      "sha256": "9ea7085fd1cdfdb267b95b57c4fe188ab1a7136713f6317dd6413d500d2f2713"
+    },
+    {
+      "path": "services/console/src/bravo_console/security_configuration.py",
+      "sha256": "8d69c25ba2b555e01b732282b911f16de2c27a8a64e1447d339485e2d573197e"
+    },
+    {
+      "path": "services/console/src/bravo_console/static/observation-app.js",
+      "sha256": "28b52e955e2d9c657496bca014df71849a4f22fb21a122f6934c59b222499118"
+    },
+    {
+      "path": "services/console/src/bravo_console/static/observation-model.js",
+      "sha256": "bcbd298ec07b28a96377fde45fe34a367cb012409d6961080a5f6387a39423f4"
+    },
+    {
+      "path": "services/console/src/bravo_console/static/observation.css",
+      "sha256": "808dc96aa04f2fce9f9f5bd6e7c0965e37db344b269aab2c05af7f2121f5e589"
+    }
+  ]
+}

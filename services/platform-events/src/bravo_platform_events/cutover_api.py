@@ -11,7 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from .change import ChangeApprovalService
 from .cutover import CutoverService
 from .failback import FailbackService
-from .plan_api import Principal, PrincipalResolver, create_plan_app, unauthenticated
+from .plan_api import (
+    Principal,
+    PrincipalResolver,
+    authorized_plan,
+    create_plan_app,
+    unauthenticated,
+)
 from .rehearsal import RehearsalService
 from .store import EventError
 
@@ -63,15 +69,17 @@ class InfraApprovalInput(BaseModel):
 
 class DelegationInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    gates: list[Literal["change", "shift", "cutover", "failback"]] = Field(min_length=1, max_length=4)
-    bounds: dict[Literal["change", "shift", "cutover", "failback"], dict[str, str]] = Field(default_factory=dict)
+    gates: list[Literal["change", "shift", "cutover", "failback", "rehearsal"]] = Field(min_length=1, max_length=5)
+    bounds: dict[Literal["change", "shift", "cutover", "failback", "rehearsal"], dict[str, str]] = Field(
+        default_factory=dict)
     expires_at: str = Field(min_length=1, max_length=64)
 
 
 class InfraClaimInput(BaseModel):
+    """The executor's whole expected binding: T10 compares every field with the approved one."""
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding: InfraBindingInput
 
 
 class IacPlanInput(BaseModel):
@@ -182,7 +190,7 @@ def create_cutover_app(service: CutoverService, *,
 
     @app.post("/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims")
     async def claim_infra_approval(plan_id: str, approval_id: str, body: InfraClaimInput, request: Request):
-        """The T44 executor claims an approval once for one run, after recomputing its plan digest."""
+        """The executor claims an approval once for one run, with its whole expected binding."""
         receipt = await asyncio.to_thread(infra().claim, principal(request), plan_id, approval_id,
                                          **body.model_dump())
         return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
@@ -196,6 +204,20 @@ def create_cutover_app(service: CutoverService, *,
                                               **body.model_dump(), command_key=idempotency_key)
             fields = ("delegation_id", "approver", "gates", "bounds", "expires_at", "created_at")
             return JSONResponse({k: receipt[k] for k in fields}, status_code=201, headers={"Cache-Control": "no-store"})
+
+        @app.get("/v1/plans/{plan_id}/run-state")
+        async def read_run_state(plan_id: str, request: Request):
+            """RunState of the plan (T49): where it is, who moves it on, which decision is owed and by whom."""
+            from .plan_run_state import run_state
+
+            actor = principal(request)
+
+            def read():
+                with service.store._transaction() as c:
+                    plan = authorized_plan(c, actor, plan_id, service.check_access)
+                    return run_state(c, plan, delegation=delegation_service.live(c, plan_id))
+
+            return JSONResponse(await asyncio.to_thread(read), headers={"Cache-Control": "no-store"})
 
         @app.post("/v1/plans/{plan_id}/delegations:revoke")
         async def revoke_delegation(plan_id: str, request: Request):

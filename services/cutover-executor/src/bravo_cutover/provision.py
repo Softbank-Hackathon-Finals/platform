@@ -96,11 +96,16 @@ COMMIT;
 """
 
 
-def state_runtime_grants_sql() -> str:
-    """Apply after migration; no ownership or DDL grant reaches the API runtime."""
-    return """REVOKE ALL ON SCHEMA executor FROM PUBLIC, cutover_executor_runtime;
-GRANT USAGE ON SCHEMA executor TO cutover_executor_runtime;
-REVOKE ALL ON ALL TABLES IN SCHEMA executor FROM cutover_executor_runtime;
+def state_runtime_grants_sql(role: str = "cutover_executor_runtime") -> str:
+    """Apply after migration; no ownership or DDL grant reaches the API runtime.
+
+    `role` is the runtime login of one Executor instance (deploy.py `--pair`: its own state database and role).
+    """
+    if not re.fullmatch(r"cutover_executor(_[a-z][a-z0-9]{0,15})?_runtime", role):
+        raise ValueError("invalid runtime role")
+    return f"""REVOKE ALL ON SCHEMA executor FROM PUBLIC, {role};
+GRANT USAGE ON SCHEMA executor TO {role};
+REVOKE ALL ON ALL TABLES IN SCHEMA executor FROM {role};
 GRANT SELECT, INSERT, UPDATE ON executor.executions, executor.resource_fences, executor.leases
-    TO cutover_executor_runtime;
+    TO {role};
 """

@@ -84,6 +84,36 @@
                 "port_name": "postgres"
               }
             ]
+          },
+          {
+            "name": "bravo-target-findings",
+            "tag": "tag:bravo-target-findings",
+            "clients": [
+              {
+                "namespace": "bravo-security",
+                "labels": {
+                  "app.kubernetes.io/name": "bravo-findings-agent",
+                  "bravo.dev/findings-client": "agent"
+                }
+              },
+              {
+                "namespace": "falco",
+                "labels": {
+                  "app.kubernetes.io/instance": "falco",
+                  "app.kubernetes.io/name": "falcosidekick"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-findings",
+                "namespace": "bravo-security",
+                "destination": "bravo-findings",
+                "destination_tag": "tag:bravo-findings",
+                "port": 8443,
+                "port_name": "https"
+              }
+            ]
           }
         ]
       }
@@ -126,6 +156,39 @@
                 "target_port": 5432
               }
             ]
+          },
+          {
+            "service": "target-objects-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-objects",
+            "tag": "tag:bravo-target-objects",
+            "selector": {
+              "app.kubernetes.io/name": "target-seaweedfs"
+            },
+            "ports": [
+              {
+                "name": "s3",
+                "port": 8333,
+                "target_port": 8333
+              }
+            ]
+          },
+          {
+            "service": "bravo-target-argocd",
+            "namespace": "bravo-iac-gitops",
+            "hostname": "bravo-target-argocd",
+            "tag": "tag:bravo-target-argocd",
+            "selector": {
+              "app.kubernetes.io/name": "argocd-server",
+              "app.kubernetes.io/instance": "bravo-iac-gitops"
+            },
+            "ports": [
+              {
+                "name": "http",
+                "port": 80,
+                "target_port": 8080
+              }
+            ]
           }
         ]
       }
@@ -151,9 +214,13 @@
             "cluster_role": "cluster-admin",
             "tailnet_groups": [
               "autogroup:admin",
-              "autogroup:owner"
+              "autogroup:owner",
+              "group:bravo-operators"
             ]
           }
+        ],
+        "legacy_reach": [
+          "group:bravo-b-cluster"
         ]
       }
     }

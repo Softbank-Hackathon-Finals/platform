@@ -5,9 +5,9 @@ T45 `target-onprem` 스택을 사람 손 없이 끝까지 돌린다. T45가 사�
 | 단계 | 플랫폼이 하는 일 |
 |---|---|
 | `host-dirs` | 사이트 호스트가 선언된 디렉터리를 만들고 노드에 `bravo.io/host-paths` 주석을 남긴다. 데이터가 있는 디렉터리는 다시 쓰지 않는다 |
-| `openbao-image` · `app-image` | 검사한 OCI 묶음을 태그와 `@sha256` 별칭으로 반입한다 |
+| `openbao-image` · `app-image` | 검사한 OCI 묶음을 태그와 `@sha256` 별칭으로 반입한다. 앱은 `imagePullPolicy: Never`라 amd64도 고정 GHCR index를 그대로 보존한 OCI(`skopeo copy --all`)로 반입한다. 목적지는 GHCR 자격을 갖지 않는다 |
 | `argocd` | T44 고객 Argo CD(`infra/iac/argocd`)를 설치한다(Application 없음) |
-| `config-repo-access` | 목적지 설정 저장소를 읽기 전용으로 등록한다 |
+| `config-repo-access` | 목적지 설정 저장소를 읽기 전용으로 등록한다. GitHub 저장소(ADR-0033: 목적지마다 비공개 저장소 하나)는 플랫폼이 Ed25519 deploy key를 한 번 만들어 보관소에 두고, 공개키만 읽기 전용으로 등록한 뒤 개인키를 Argo CD repository Secret에만 넣는다(`credential: deploy-key`) |
 | `object-secrets` | 계획에 묶인 T44 원하는 상태(`desired`)로 `s3.json`을 렌더해 넣는다 |
 | `openbao-tls` · `openbao-init` | OpenBao CA·leaf, init 1회, unseal, KV v2(CAS), Kubernetes 인증·정책, 출발지 값(CAS 0) |
 | `app-metrics-client` | 목적지 앱 CA로 T37 앱 지표 클라이언트 인증서를 발급한다 |
@@ -23,7 +23,7 @@ T45 `target-onprem` 스택을 사람 손 없이 끝까지 돌린다. T45가 사�
 
 - 11/7 배치 기준: 플랫폼 구성요소는 AWS 플랫폼 RKE2에만 둔다. 이 패키지의 `Destination`은 플랫폼 코드이며, 다음 단계에서 T10 workflow host의 단계로 올린다.
 - `e2e/`는 개발용 격리 하네스다(Mac에서 실제 T10 승인 코드와 로컬 IdP, 로컬 설정 저장소, 같은 클러스터 안의 출발지 대역). 최종 실행에는 쓰지 않는다.
-- 사이트 호스트 어댑터(`host.py`)는 로컬 VM(`infra/envs/onprem/local-vm.sh`)용이다. GCE는 `infra/envs/gcp-rke2/node.sh`가 같은 두 동작을 맡는다.
+- 사이트 호스트 어댑터(`host.py`): `LocalVmHost`(`infra/envs/onprem/local-vm.sh`), `GceRke2Host`(`infra/envs/gcp-rke2/node.sh`, IAP·OS Login). `destination.json`의 `host.kind: gce`로 고른다.
 
 ## 실측 (2026-11-07, 격리 VM, arm64/HVF)
 

@@ -1,0 +1,6 @@
+# 이미지에 필요한 파일만 허용한다
+*
+!pyproject.toml
+!uv.lock
+!src
+**/__pycache__

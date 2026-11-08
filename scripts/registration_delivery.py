@@ -45,6 +45,10 @@ BUILD_INPUTS = (
     "services/edge-control/pyproject.toml",
     "services/iac/src",
     "services/iac/pyproject.toml",
+    "services/control-runner/src",
+    "services/control-runner/pyproject.toml",
+    "services/loadgen/src",
+    "services/loadgen/pyproject.toml",
     # Copied into every image context and run by its build (entry point import closure).
     "scripts/image_import_closure.py",
 )
@@ -92,7 +96,9 @@ PRODUCT_READER = Service("product-reader", "Product Reader")
 REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (
     "operations/kubectl", "services/rehearsal-runner/templates", "infra/envs/rehearsal-access",
     "infra/envs/target-secrets"))
-SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST)}
+SECURITY_REVIEW = Service("security-review", "Security Review", (
+    "services/platform-events/deploy/security-review",))
+SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST, SECURITY_REVIEW)}
 
 
 def run(args, *, check=True):
@@ -301,7 +307,10 @@ def recorded_source(revision, service):
     shown = run(["git", "show", revision + ":" + service.values], check=False)
     if shown.returncode:
         return None
-    return json.loads(shown.stdout).get("sourceRevision")
+    source = json.loads(shown.stdout).get("sourceRevision")
+    if source is None or source == "0" * 40:
+        return None
+    return source_sha(source)
 
 
 def unreleased_inputs(source, revision, service):

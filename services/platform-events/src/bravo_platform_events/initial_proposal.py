@@ -98,6 +98,9 @@ class InitialResult(Contract):
     proposal_digest: Digest
     schema_valid: bool = Field(strict=True)
     lint_passed: bool = Field(strict=True)
+    # T44 iac-plan.v1 documents the model asked for (ADR-0044); T10 decides which one, if any, it binds.
+    # Omitted when empty, so results without plans keep their earlier bytes (and digests).
+    infra_plans: list[dict] = Field(default_factory=list, max_length=8, exclude_if=lambda plans: not plans)
 
 
 class CandidatePublication(Contract):

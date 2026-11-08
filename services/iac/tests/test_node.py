@@ -386,3 +386,33 @@ def test_an_issuer_that_does_not_take_effect_is_rolled_back(tmp_path, monkeypatc
     assert report["reason"] == "service_account_issuer_not_in_effect"
     assert report["rolled_back"] and report["rollback_ready"] and not node.dropin.exists()
     assert node.restarts == ["rke2-server", "rke2-server"] and node.served == IN_CLUSTER
+
+
+def test_a_port_clash_while_rke2_server_restarts_is_not_a_crash(monkeypatch):
+    # bravo-t49, 2026-11-07: the first new API server exited with "address already in use" while the old one
+    # still held :6443; kubelet started it again and it served. Only exits after the old one is gone count.
+    apply = applier()
+    clock = {"ns": 1000}
+    running = iter(["old", "old", None, "new", "new"])
+    containers = [{"id": "old", "state": "CONTAINER_RUNNING", "createdAt": "500"},
+                  {"id": "clash", "state": "CONTAINER_EXITED", "createdAt": "1001"}]
+    restarted = []
+
+    def fake_run(cmd, capture_output=True, text=False, check=False, timeout=None):
+        if cmd[:2] == ["systemctl", "restart"]:
+            restarted.append(cmd[2])
+            clock["ns"] = 1002
+        return __import__("types").SimpleNamespace(stdout=json.dumps({"containers": containers}), returncode=0)
+
+    monkeypatch.setattr(apply.subprocess, "run", fake_run)
+    monkeypatch.setattr(apply, "running_apiserver", lambda: next(running))
+    monkeypatch.setattr(apply, "kubectl", lambda *args: "ok")
+    monkeypatch.setattr(apply.time, "time_ns", lambda: clock["ns"])
+    monkeypatch.setattr(apply.time, "sleep", lambda seconds: clock.__setitem__("ns", clock["ns"] + 1))
+    assert apply.restart_rke2_server() == "new" and restarted == ["rke2-server"]
+    # A new config that really breaks the API server still fails fast once the old one is gone.
+    running = iter(["old", None, None])
+    containers.append({"id": "broken", "state": "CONTAINER_EXITED", "createdAt": "99999"})
+    monkeypatch.setattr(apply, "running_apiserver", lambda: next(running, None))
+    with pytest.raises(apply.Refused, match="api_server_crashed"):
+        apply.restart_rke2_server()

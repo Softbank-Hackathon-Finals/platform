@@ -48,6 +48,8 @@ def main(argv=None):
     parser.add_argument("--config", required=True)
     parser.add_argument("--ports", required=True, help="reviewed module:factory(store)")
     parser.add_argument("action", choices=("register", "sequence", "watch"))
+    parser.add_argument("--hold-at-full", action="store_true",
+                        help="sequence: stop at 100%% for the cutover instead of restoring to 0 (happy path)")
     args = parser.parse_args(argv)
     runtime = None
     try:
@@ -73,7 +75,8 @@ def main(argv=None):
             stop = Event()
             signal.signal(signal.SIGTERM, lambda *_: stop.set())
             signal.signal(signal.SIGINT, lambda *_: stop.set())
-            result = getattr(runtime, args.action)(stop=stop, emit=emit)
+            hold = {"hold_at_full": True} if args.action == "sequence" and args.hold_at_full else {}
+            result = getattr(runtime, args.action)(stop=stop, emit=emit, **hold)
             emit(dict(result=result))
             if (result is None or result.get("status") == "STOPPED"
                     or (result.get("rollback") and result["rollback"]["status"] != "CONFIRMED")):

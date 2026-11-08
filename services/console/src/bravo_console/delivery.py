@@ -79,8 +79,8 @@ def customer_projection(value, target, plan, now):
 
 class PlanDelivery:
     def __init__(self, api, *, authorize, subject, modules=(), targets=(),
-                 load_sync=None, authenticate_sync=None, clock=None):
-        if not callable(authorize) or not callable(subject):
+                 load_sync=None, authenticate_sync=None, clock=None, serves=None):
+        if not callable(authorize) or not callable(subject) or not (serves is None or callable(serves)):
             raise ValueError("delivery_host_authority_required")
         if load_sync is not None and not callable(authenticate_sync):
             raise ValueError("customer_producer_authentication_required")
@@ -112,6 +112,12 @@ class PlanDelivery:
                            for v in (target.reviewed_revision, target.producer_revision))):
                 raise ValueError("invalid_customer_target")
         self.load_sync, self.authenticate_sync = load_sync, authenticate_sync
+        # serves(scope, plan, target): whether a registered target belongs to this plan's tenant at all.
+        # Environment IDs are unique only per tenant, so a target that does not is left out, not shown UNKNOWN.
+        # Required whenever targets are registered: without it a target would be chosen by environment ID alone.
+        if self.targets and serves is None:
+            raise ValueError("customer_target_scope_required")
+        self.serves = serves
         self.clock = clock or (lambda: datetime.now(UTC))
 
     async def read(self, scope, plan_id):
@@ -128,6 +134,8 @@ class PlanDelivery:
         verified = []
         for target in self.targets:
             if target.environment_id not in pair:
+                continue
+            if self.serves is not None and await call(self.serves, scope, before, target) is not True:
                 continue
             result = dict(environment_id=target.environment_id, environment=target.environment,
                           expected_revision=target.reviewed_revision, provenance=target.provenance, status="UNCONFIGURED")

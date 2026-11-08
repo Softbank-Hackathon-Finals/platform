@@ -49,11 +49,12 @@ class World:
     def clock(self):
         return self.now.isoformat()
 
-    def approve(self, digest=None, requested_by="agent-t17"):
+    def approve(self, digest=None, requested_by="agent-t17", infra_plan_id=RUN):
         service = InfraApprovalService(self.store, check_approve=self.access.requires("approve_infra"),
             check_apply=self.access.requires("apply_infra"), check_access=self.access.check_read,
             check_approver=self.access.requires_subject("approve_infra"), clock=self.clock)
-        binding = dict(infra_plan_id=RUN, plan_digest=digest or spec_digest(self.spec), requested_by=requested_by)
+        binding = dict(infra_plan_id=infra_plan_id, plan_digest=digest or spec_digest(self.spec),
+                       requested_by=requested_by)
         return service.approve(self.approver, PLAN, binding=binding, command_key="drill-approval",
                                expires_at=(self.now + timedelta(hours=1)).isoformat())["approval_id"]
 
@@ -133,16 +134,25 @@ def test_the_claim_needs_the_exact_spec_the_human_approved(world):
     assert world.upstream.patches == []
 
 
+def test_an_approval_of_the_same_spec_digest_for_another_plan_id_is_refused(world):
+    """#603 review: T10 compares the whole binding, so the approved plan id must be this drill's run."""
+    approval = world.approve(infra_plan_id="another-run")
+    _, authority = world.host(approval)
+    with pytest.raises(EventError, match="binding_mismatch"):
+        authority.register(world.executor, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
+    assert world.upstream.patches == []
+
+
 def test_no_self_approval_and_no_run_without_apply_infra(world):
     with pytest.raises(EventError, match="self_approval_forbidden"):
         world.approve(requested_by="approver")
     approval = world.approve()
     _, authority = world.host(approval)
-    with pytest.raises(EventError, match="forbidden"):
+    with pytest.raises(EventError, match="forbidden"):  # approve_infra alone does not claim it
         authority.register(world.approver, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
     host = world.register(approval)
     with pytest.raises(EventError, match="forbidden"):
-        host.start(world.approver, PLAN, "stage-10")  # the approver alone cannot move weights
+        host.start(world.approver, PLAN, "stage-10")  # nor move weights
     assert world.upstream.patches == []
 
 
@@ -187,3 +197,16 @@ def test_the_digest_covers_the_decision_only():
     spec = drill_spec(plan_id="p", run_id="r", profile={"x": 1}, lb_binding={"y": 2})
     assert spec_digest(spec) == spec_digest(json.loads(json.dumps(spec)))
     assert len({spec_digest(spec), spec_digest(spec | {"run_id": "s"}), spec_digest(spec | {"profile": {}})}) == 3
+
+
+def test_the_approving_human_who_also_holds_apply_infra_runs_the_drill_the_agent_requested(world):
+    """ADR-0039 amendment (2026-11-08): the agent requests, one present human approves and runs it."""
+    world.access.set_permissions(PLAN, world.approver, permissions=["read", "approve_infra", "apply_infra"],
+        valid_after=START.isoformat(), expires_at=(START + timedelta(hours=2)).isoformat(), expected_revision=1,
+        administration_ref="fixture-human-decision", command_key="grant-approver-apply")
+    host, authority = world.host(world.approve(requested_by="agent-t17"))
+    authority.register(world.approver, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
+    host.start(world.approver, PLAN, "stage-10")
+    assert len(world.upstream.patches) == 1
+    host.restore(world.approver, PLAN, "back-to-0")
+    assert len(world.upstream.patches) == 2

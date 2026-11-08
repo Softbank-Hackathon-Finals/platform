@@ -131,10 +131,21 @@ def restart_apiserver() -> str:
 def restart_rke2_server() -> str:
     """Restart rke2-server so it renders the API server again from its config, then wait for a new ready
     API server exactly as restart_apiserver does (a new container that exits fails at once)."""
-    since_ns = time.time_ns()
     before = running_apiserver()
     subprocess.run(["systemctl", "restart", "rke2-server"], capture_output=True, check=True, timeout=600)
-    return wait_ready(before, since_ns)
+    # The old API server holds :6443 until kubelet stops it, so a new container started before that exits
+    # with "address already in use" and kubelet starts it again. Measured on bravo-t49 (2026-11-07): counting
+    # that exit as a crash rolled back a working config after the new issuer had already signed tokens.
+    # Only containers created after the old one is gone can crash.
+    until = time.monotonic() + READY_TIMEOUT
+    while time.monotonic() < until:
+        try:
+            if running_apiserver() != before:
+                break
+        except subprocess.CalledProcessError:
+            pass  # containerd restarts with rke2-server
+        time.sleep(3)
+    return wait_ready(before, time.time_ns())
 
 
 def restart(target: str) -> str:

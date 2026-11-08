@@ -1,0 +1,64 @@
+{
+  "kind": "console-live-observation-qualification.v1",
+  "source_revision": "b3e43b3e764ce1ec1e733ee83064d505a2087606",
+  "verified_console_files": 70,
+  "observed_environment_statuses": [
+    {
+      "lane": "source",
+      "status": "UNAVAILABLE"
+    },
+    {
+      "lane": "target",
+      "status": "CURRENT"
+    }
+  ],
+  "queried_at": "2026-11-07T15:27:14.465216+00:00",
+  "rendered_revision": "5",
+  "api_revision": 5,
+  "api_nodes": 19,
+  "rendered_nodes": 19,
+  "rendered_links": 19,
+  "http_probe_links": 1,
+  "operational_plan_connected": false,
+  "authorizes_execution": false,
+  "shared_resource_mutations": 0,
+  "cutover_post_status": 405,
+  "registration_post_status": 405,
+  "browser_javascript_errors": 0,
+  "desktop_horizontal_overflow": false,
+  "python_tests": {
+    "passed": 467,
+    "failed": 0
+  },
+  "javascript_tests": {
+    "passed": 305,
+    "failed": 0
+  },
+  "evidence_summary_only": true,
+  "originals": [
+    {
+      "artifact": "browser-document.json",
+      "sha256": "da9f6a48018e833127d383891943189c11d03ac32f075c770a4bb8c1a4942a4d"
+    },
+    {
+      "artifact": "browser-result.json",
+      "sha256": "f6ad5b03748010a948b0300cffad6b6610fa6d50650b400252edfe65082d0da2"
+    },
+    {
+      "artifact": "live-desktop.png",
+      "sha256": "c5b9c7ecebe663ce2916b281b3d65723d9d44639051ceb2ab5dd607e89e92399"
+    },
+    {
+      "artifact": "live-mobile.png",
+      "sha256": "0ac68668a16fcff15c17bab4e5b588ec95141eca7ceb9291b4100a3d3eda674f"
+    },
+    {
+      "artifact": "python-tests-develop-refresh.log",
+      "sha256": "6dd81a996c5b9b5c13939b4e36c94de1d3e562a8d32eea5099ba05e14a2f20bd"
+    },
+    {
+      "artifact": "node-tests-final.log",
+      "sha256": "17246fec6d3badebdfbb9b933b1ffc51554b6c81da169135a59db7c4dac1b86c"
+    }
+  ]
+}

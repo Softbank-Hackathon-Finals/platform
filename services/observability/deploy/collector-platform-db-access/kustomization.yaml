@@ -1,14 +1,9 @@
-# 플랫폼 DB(platform-state) 쪽: platform-telemetry의 Collector가 CNPG Pod를 찾는 읽기 권한과 9187 수신 허용.
+# 플랫폼 DB(platform-state) 쪽: platform-telemetry의 Collector가 9187로 DB 지표를 받는 허용.
 # platform-state는 기본 차단(default-deny)이라 허용 정책이 따로 필요하다. 이 정책은 이미 격리된 DB Pod에 허용만 더한다.
+# CNPG Pod를 찾는 읽기 권한(Role · RoleBinding)은 bootstrap 차트가 둔다(infra/gitops/argocd/templates/observability-rbac.yaml).
+# Argo가 RBAC를 동기화하면 kubectl auth reconcile이 namespace get(클러스터 범위)을 요구하기 때문이다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: platform-state
 resources:
-  - ../collector-db-access
   - metrics-ingress.yaml
-patches:
-  - target: {kind: RoleBinding, name: bravo-collector-db-discovery}
-    patch: |-
-      - op: replace
-        path: /subjects/0/namespace
-        value: platform-telemetry

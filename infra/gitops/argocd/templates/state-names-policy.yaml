@@ -1,4 +1,21 @@
-{{- if or .Values.publicEntry.enabled .Values.observability.enabled }}
+{{- if or .Values.publicEntry.enabled .Values.observability.enabled .Values.securityReview.enabled }}
+{{- $configMaps := list }}
+{{- $networkPolicies := list }}
+{{- $persistentVolumeClaims := list }}
+{{- $externalSecrets := list }}
+{{- if .Values.publicEntry.enabled }}
+{{- $configMaps = append $configMaps "public-entry-spec" }}
+{{- $networkPolicies = append $networkPolicies "public-entry" }}
+{{- $externalSecrets = append $externalSecrets "public-entry-cloudflare" }}
+{{- end }}
+{{- if .Values.observability.enabled }}
+{{- $networkPolicies = append $networkPolicies "bravo-collector-db-metrics" }}
+{{- end }}
+{{- if .Values.securityReview.enabled }}
+{{- $configMaps = append $configMaps "security-review-config" }}
+{{- $networkPolicies = append $networkPolicies "security-review-egress" }}
+{{- $persistentVolumeClaims = append $persistentVolumeClaims "security-review-audit" }}
+{{- end }}
 # platform-state objects the controller may write besides workloads, by name. Other namespaces are not matched here:
 # the observability namespaces are dedicated to that bundle and bounded by their own Role.
 apiVersion: admissionregistration.k8s.io/v1
@@ -9,10 +26,10 @@ spec:
   failurePolicy: Fail
   matchConstraints:
     resourceRules:
-      - apiGroups: ["", networking.k8s.io, external-secrets.io, rbac.authorization.k8s.io]
+      - apiGroups: ["", networking.k8s.io, external-secrets.io]
         apiVersions: ["*"]
         operations: [CREATE, UPDATE, DELETE]
-        resources: [configmaps, networkpolicies, externalsecrets, roles, rolebindings]
+        resources: [configmaps, persistentvolumeclaims, networkpolicies, externalsecrets]
   matchConditions:
     - name: gitops-controller
       expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller'"
@@ -21,25 +38,15 @@ spec:
   validations:
     - expression: >-
         (object != null ? object.metadata.name : oldObject.metadata.name) in
-        (request.resource.resource == 'configmaps' ? [{{ if .Values.publicEntry.enabled }}'public-entry-spec'{{ end }}] :
-         request.resource.resource == 'networkpolicies' ? [{{ if .Values.publicEntry.enabled }}'public-entry', {{ end }}{{ if .Values.observability.enabled }}'bravo-collector-db-metrics'{{ end }}] :
-         request.resource.resource == 'externalsecrets' ? [{{ if .Values.publicEntry.enabled }}'public-entry-cloudflare'{{ end }}] :
-         [{{ if .Values.observability.enabled }}'bravo-collector-db-discovery'{{ end }}])
-      message: In platform-state this controller may write only the named public entry and Collector objects.
+        (request.resource.resource == 'configmaps' ? {{ $configMaps | toJson }} :
+         request.resource.resource == 'persistentvolumeclaims' ? {{ $persistentVolumeClaims | toJson }} :
+         request.resource.resource == 'networkpolicies' ? {{ $networkPolicies | toJson }} :
+         {{ $externalSecrets | toJson }})
+      message: In platform-state this controller may write only explicitly adopted state objects.
     - expression: >-
         object == null || request.resource.resource != 'externalsecrets' ||
         (object.spec.secretStoreRef.name == 'cloudflare-gitops-reader' && object.spec.target.name == 'public-entry-cloudflare')
       message: The public entry may read only the platform Cloudflare GitOps credential.
-    - expression: >-
-        object == null || request.resource.resource != 'rolebindings' ||
-        (object.roleRef.kind == 'Role' && object.roleRef.name == 'bravo-collector-db-discovery' && size(object.subjects) == 1 &&
-         object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == 'bravo-collector' &&
-         object.subjects[0].namespace == 'platform-telemetry')
-      message: The only binding is the platform Collector's Pod discovery.
-    - expression: >-
-        object == null || request.resource.resource != 'roles' ||
-        object.rules.all(r, r.apiGroups == [''] && r.resources == ['pods'] && r.verbs.all(v, v in ['get', 'list', 'watch']))
-      message: The Collector discovery Role may only read Pods.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
