@@ -40,6 +40,8 @@ def test_review_workload_has_only_projected_review_identity_and_read_only_runtim
     documents = render()
     deployment = next(item for item in documents if item["kind"] == "Deployment")
     pod = deployment["spec"]["template"]["spec"]
+    assert deployment["spec"]["selector"]["matchLabels"] == {"app.kubernetes.io/name": "security-review"}
+    assert deployment["spec"]["template"]["metadata"]["labels"]["bravo.dev/db-client"] == "runtime"
     assert pod["automountServiceAccountToken"] is False
     assert pod["serviceAccountName"] == "security-review"
     container, = pod["containers"]

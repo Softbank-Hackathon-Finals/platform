@@ -191,14 +191,22 @@ def create_ports(store, config_file="/workflow/ports.json"):
         background.append(PlatformLoad(store, InClusterKubectl(), delegations, image=image, base_url=spec["base_url"],
                                        source_env=spec["source_env"], target_env=spec["target_env"],
                                        **{k: spec[k] for k in ("write_rps", "read_rps", "duration") if k in spec}).sweep)
-    demo = config.get("demo", {})  # T49 demo: {"skip": ["REHEARSE", "GATE"]} pass those states at once
+    # T49 demo: {"skip": [...], "plans": [...], "change": {"diff_hash", "image_digest"}, "collect": true, "interval": s}
+    demo = config.get("demo", {})
     skip = demo.get("skip", []) if type(demo) is dict else None
-    if skip is None or set(demo) - {"skip"} or type(skip) is not list or set(skip) - {"REHEARSE", "GATE", "WATCH"}:
+    plans = demo.get("plans") if type(demo) is dict else None
+    if (skip is None or set(demo) - {"skip", "plans", "change", "collect", "interval"} or type(skip) is not list
+            or set(skip) - {"ANALYZE", "PROPOSE", "REHEARSE", "GATE", "WATCH"}
+            or (plans is not None and (type(plans) is not list or not all(type(p) is str for p in plans)))
+            or ("change" in demo and set(demo["change"]) != {"diff_hash", "image_digest"})
+            or (demo.get("collect") and plans is None)):
         raise ValueError("workflow_demo_configuration_invalid")
-    from .workflow import demo_reader
+    from .workflow import demo_collector, demo_reader
 
     for state in skip:
         preparers.pop(state, None)  # WATCH: also no watch-fail record, so no delegated failback
-        readers[state] = demo_reader(state)
+        readers[state] = demo_reader(state, change=demo.get("change"), plans=set(plans) if plans else None)
+    if demo.get("collect"):
+        background.append(demo_collector(store, set(plans)))
     return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
-            "background": background, "demo_skip": skip}
+            "background": background, "demo_skip": skip, "demo_interval": demo.get("interval")}

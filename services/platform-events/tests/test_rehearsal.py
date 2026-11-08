@@ -424,3 +424,18 @@ def test_demo_watch_reader_passes_on_the_cutover_run():
     plan = {"plan_id": PLAN.plan_id, "version": 9, "spec_json": '{"plan_digest": "d", "target_environment_id": "t"}'}
     proof = demo_reader("WATCH")(None, plan, previous, None)
     assert proof.result == Watch(Run("c", 2, "e"), "integrity-1", "PASS", "PASS") and proof.version == 9
+
+
+def test_demo_fast_path_reads_analyze_and_propose_for_selected_plans_only():
+    from bravo_platform_events.workflow import Analysis, Change, Proposal, demo_reader
+
+    change = {"diff_hash": "sha256:" + "a" * 64, "image_digest": "sha256:" + "b" * 64}
+    spec = '{"plan_digest": "d", "target_environment_id": "t", "collection_scope_digest": "s"}'
+    plan = {"plan_id": PLAN.plan_id, "version": 2, "spec_json": spec}
+    assert demo_reader("ANALYZE", plans={PLAN.plan_id})(None, plan, None, None).result == Analysis("s", "0" * 64, "0" * 64)
+    proof = demo_reader("PROPOSE", change=change, plans={PLAN.plan_id})(None, plan | {"version": 3}, None, None)
+    assert proof.result == Proposal("0" * 64, "0" * 64, Change(**change), True, True)
+    with pytest.raises(EventError, match="demo_plan_not_selected"):
+        demo_reader("PROPOSE", change=change, plans={"plan-other"})(None, plan, None, None)
+    with pytest.raises(ValueError):
+        demo_reader("PROPOSE")  # PROPOSE needs the proven change
