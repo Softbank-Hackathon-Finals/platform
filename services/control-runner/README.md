@@ -82,7 +82,7 @@ run = Runner(catalog, probes, clock=clock).run(profile_id="full", profile_versio
 | ENC-01.2 | `PoolerTLSProbe` | `PoolerTLSProbe` | `PoolerTLSProbe` |
 | ENC-01.3 | `PoolerTLSProbe` | `PoolerTLSProbe` | `PoolerTLSProbe` |
 | ENC-01.4 | `ReplicationTLSProbe` | `ReplicationTLSProbe` | `ReplicationTLSProbe` |
-| AUD-01.1 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
+| AUD-01.1 | `AuditSearchProbe+CloudWatchAuditSearch/PodLogAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch/PodLogAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch/PodLogAuditSearch` |
 | AUD-01.2 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
 | AUD-01.3 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
 | NET-01.1 | `PublicPortsProbe` | `PublicPortsProbe` | `PublicPortsProbe` |
@@ -96,6 +96,10 @@ run = Runner(catalog, probes, clock=clock).run(profile_id="full", profile_versio
 
 칸별 주의:
 
+- **AUD-01.1 pod log.** T34(ADR-0037)의 CNPG primary 자체 로그 검색(`PodLogAuditSearch`)은 공통 기반(CNPG)이라
+  모든 종류의 AUD-01.1에서 받는다. AUD-01.2 · 01.3은 종류별 검색만 받는다. 운영자 실행기
+  (`operations/controls/run.py`)의 어댑터 표는 종류별(`KIND_ADAPTERS`)이고 aws→onprem 역할에 매핑된다(source=aws,
+  target=onprem). 그 표의 시험은 모두 이 등록부가 그 종류에서 지원한다(`test_operator_run.py`).
 - **객체 대상 일반화.** `ObjectTarget.provider`가 `s3`(aws) · `s3-compatible`(SeaweedFS, `endpoint_url` 필수,
   `ExpectedBucketOwner` 없음, 버전 없는 버킷은 ETag로 고정) · `gcs`(gcp, 프로젝트 ID와 generation)를 고른다.
   `_client`는 `endpoint_url`이 주어지면 클라이언트의 endpoint와 일치를 확인한다. 기존 aws 증거 형식은 바뀌지 않는다.

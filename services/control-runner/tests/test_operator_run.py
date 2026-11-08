@@ -363,3 +363,31 @@ def test_the_pooler_tls_adapter_refuses_a_direct_address_or_unknown_fields(tmp_p
         tool.build_probes(registration({"ENC-01.1": pooler_entry(tmp_path, **changes)}), env, tool.Evidence(tmp_path),
                           environ={"T14_POOLER_PASSWORD": "p"})
 
+
+
+def test_operator_adapters_sit_in_the_kind_registry():
+    # ADR-0034: each role's operator adapters are its kind's cells, and the kind's registry supports them.
+    from bravo_controls import default_registry
+
+    registry = default_registry()
+    assert tool.ADAPTERS == {role: tool.KIND_ADAPTERS[kind] for role, kind in tool.ROLE_KIND.items()}
+    for kind, tests in tool.KIND_ADAPTERS.items():
+        for test_id in tests:
+            assert registry.supports(kind, test_id), (kind, test_id)
+
+
+@pytest.mark.parametrize("kind", ["aws", "onprem", "gcp"])
+def test_the_pod_log_audit_search_is_accepted_for_aud_01_1_on_every_kind(kind):
+    from bravo_controls import default_registry
+    from bravo_controls.audit_probes import AuditSearchProbe
+    from bravo_controls.pod_log_audit import PodLogAuditSearch
+
+    search = PodLogAuditSearch(lambda path: b"{}", namespace="demo", pod="db-1", container="postgres",
+                               source_binding="kubernetes-pod-log:ref:demo/db-1/postgres:uid")
+    environment = Environment("env", "target", "ref", kind)
+    wiring = {"receipt_provider": lambda *_: None, "search": search, "source_binding": search.source_binding,
+              "streams": (search.stream,), "evidence_sink": lambda _data: None}
+    probes = default_registry().probes(environment, ["AUD-01.1"], {"AUD-01.1": wiring})
+    assert isinstance(probes["AUD-01.1"], AuditSearchProbe)
+    with pytest.raises(ValueError, match="does not match environment kind"):
+        default_registry().probes(environment, ["AUD-01.2"], {"AUD-01.2": wiring})
