@@ -248,7 +248,7 @@ class Deploy(Instance):
                       "clusters": [{"name": side, "cluster": {
                           "server": f"https://{side}-{self.pair}-api-for-cutover.{PLATFORM_NS}.svc:443",
                           "tls-server-name": f"{proxy}.{tailnet}"}}
-                          for side, proxy in (("source", "bravo-source-operator"),
+                          for side, proxy in (("source", "bravo-source-api"),  # Executor auth proxy (#978), not the human one
                                               ("target", f"bravo-target-{self.pair}-operator"))],
                       "contexts": [{"name": side, "context": {"cluster": side, "user": "tailnet"}}
                                    for side in ("source", "target")]}
