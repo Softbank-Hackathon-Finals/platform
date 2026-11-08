@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import type { AgentEvent, Settings, TurnOptions } from '../shared/types';
+import type { AgentEvent, EventPush, Settings, TurnOptions } from '../shared/types';
 import { Agents, codexAuth } from './agent';
+import { followPlan } from './events';
 import { codexDefaultModel, codexModels } from './models';
 import { awsProfile } from './accounts';
 import { clearKey, keyStatus, saveKey } from './openai-key';
@@ -40,6 +41,7 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on('did-start-navigation', (d) => { if (d.isMainFrame && !d.isSameDocument) dropStreams(); });
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   else void win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
 }
@@ -47,6 +49,18 @@ function createWindow() {
 // Approval links from the MCP (sova-console://open?plan=..&approve=..) land in the app.
 const deepLink = (url: string) => { if (url.startsWith(`${PROTOCOL}://`)) win?.webContents.send('deeplink', url); };
 app.on('open-url', (e, url) => { e.preventDefault(); deepLink(url); });
+
+// Each dashboard view that follows a plan holds one stream; a page reload drops them all.
+const streams = new Map<string, AbortController>();
+ipcMain.handle('events:watch', (e, id: string, planId: string) => {
+  const ctl = new AbortController();
+  streams.set(id, ctl);
+  const push = (p: EventPush) => { if (!ctl.signal.aborted && !e.sender.isDestroyed()) e.sender.send('events:push', id, p); };
+  void followPlan(planId, (plan, last, signal) => link.openEvents(plan, last, signal), push, ctl.signal)
+    .finally(() => { if (streams.get(id) === ctl) streams.delete(id); });
+});
+ipcMain.handle('events:unwatch', (_e, id: string) => { streams.get(id)?.abort(); streams.delete(id); });
+const dropStreams = () => { for (const c of streams.values()) c.abort(); streams.clear(); };
 
 ipcMain.handle('sova:call', (_e, name: string, args?: Record<string, unknown>) => link.call(name, args));
 ipcMain.handle('sova:status', () => link.status());

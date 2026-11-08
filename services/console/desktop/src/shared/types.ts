@@ -71,4 +71,9 @@ export interface SovaApi {
   agentConfirm(id: string, allow: boolean): Promise<void>;
   onAgent(cb: (e: AgentEvent) => void): () => void;
   onDeepLink(cb: (url: string) => void): () => void;
+  /** Follows one plan's SSE event stream; returns the unsubscribe. */
+  watchEvents(planId: string, cb: (p: EventPush) => void): () => void;
 }
+
+/** live: stream open · retrying: reconnecting (code says why) · unsupported: host has no stream, poll instead. */
+export interface EventPush { mode: 'live' | 'retrying' | 'unsupported'; events?: any[]; reset?: boolean; code?: string }

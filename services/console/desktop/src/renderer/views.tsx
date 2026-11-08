@@ -10,7 +10,7 @@ import { AlertStrip, DataPanels, LiveToolbar, StatePanels, TrafficPanels } from 
 import { MigrationMap } from './migration-map';
 import { GitOpsPanels } from './gitops';
 import { Burst, MAIN_STAGES, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
-import { ago, callTool, explain, planAtom, sova, useTool, viewAtom } from './lib';
+import { ago, callTool, explain, planAtom, sova, SovaError, useTool, viewAtom } from './lib';
 import { useLink } from './shell';
 
 /* ---------- shared bits ---------- */
@@ -68,27 +68,49 @@ function eventLine(e: any) {
   return Object.entries(d).slice(0, 3).map(([k, v]) => `${k}: ${typeof v === 'object' ? '…' : v}`).join(' · ');
 }
 
-/** Follows a plan's event stream by cursor; only new events are fetched after the first read. */
+/** Follows a plan's events over the host's SSE stream; polls by cursor only when the host has no stream.
+ *  A new event also refreshes the plan, execution and comparison reads, so the stage rail moves at once. */
 export function useEvents(plan: string) {
+  const qc = useQueryClient();
   const [events, setEvents] = useState<any[]>([]);
   const [error, setError] = useState<unknown>(null);
+  const [mode, setMode] = useState<'live' | 'retrying' | 'poll'>('retrying');
   useEffect(() => {
     let stop = false, cursor: string | null = null, timer: ReturnType<typeof setTimeout>;
-    setEvents([]); setError(null);
+    setEvents([]); setError(null); setMode('retrying');
+    if (!plan) return;
+    const refresh = () => {
+      for (const key of ['sova_get_plan', 'sova_get_execution', 'sova_compare', 'run-state']) void qc.invalidateQueries({ queryKey: [key] });
+    };
     const tick = async () => {
       try {
         const r = await callTool('sova_get_progress', { plan_id: plan, since: cursor, limit: 200 });
         if (stop) return;
         cursor = r.cursor;
-        if (r.data.events.length) setEvents((all) => [...all, ...r.data.events]);
+        if (r.data.events.length) { setEvents((all) => [...all, ...r.data.events]); refresh(); }
         setError(null);
         timer = setTimeout(tick, r.data.events.length === 200 ? 0 : r.poll_after_ms ?? 15000);
       } catch (e) { if (!stop) { setError(e); timer = setTimeout(tick, 15000); } }
     };
-    if (plan) void tick();
-    return () => { stop = true; clearTimeout(timer); };
-  }, [plan]);
-  return { events, error };
+    const off = sova.watchEvents(plan, (p) => {
+      if (stop) return;
+      if (p.mode === 'unsupported') { setMode('poll'); void tick(); return; }
+      if (p.reset) setEvents([]);
+      if (p.events?.length) { setEvents((all) => [...all, ...p.events!]); refresh(); }
+      if (p.mode === 'live') setError(null);
+      setMode(p.mode);
+      if (p.mode === 'retrying' && p.code && p.code !== 'stream_closed') setError(new SovaError(p.code));
+    });
+    return () => { stop = true; clearTimeout(timer); off(); };
+  }, [plan, qc]);
+  return { events, error, mode };
+}
+
+/** Says how the list stays current: the host's SSE stream, a reconnect in progress, or cursor polling. */
+function StreamBadge({ count, mode }: { count: number; mode: 'live' | 'retrying' | 'poll' }) {
+  const t = useT();
+  const [dot, label] = { live: ['bg-wasabi', t('실시간 SSE')], retrying: ['bg-mustard', t('재연결 중')], poll: ['bg-ink-soft', t('cursor 조회 15초')] }[mode];
+  return <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-soft"><span className={`size-1.5 rounded-full ${dot}${mode === 'live' ? ' animate-pulse' : ''}`} />{count}건 · {label}</span>;
 }
 
 function EventStream({ events, compact = false }: { events: any[]; compact?: boolean }) {
@@ -182,7 +204,7 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
   const planQ = useTool('sova_get_plan', plan ? { plan_id: plan } : null, 10_000);
   const compare = useTool('sova_compare', plan ? { plan_id: plan } : null, 30_000);
   const exec = useTool('sova_get_execution', plan ? { plan_id: plan } : null, 15_000);
-  const { events, error: evError } = useEvents(plan);
+  const { events, error: evError, mode: evMode } = useEvents(plan);
   const p = planQ.data?.data;
   const envs: any[] = ctx.data?.data?.environments ?? [];
   const workloads: any[] = ctx.data?.data?.workloads ?? [];
@@ -219,7 +241,7 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
           </Tile>
         </div>
 
-        <Panel className="col-span-12 h-[380px] @5xl:col-span-7" kicker="EVENT STREAM" title={t('진행 이벤트')} right={<span className="text-[11px] text-ink-soft">{events.length}건 · cursor 추적</span>}>
+        <Panel className="col-span-12 h-[380px] @5xl:col-span-7" kicker="EVENT STREAM" title={t('진행 이벤트')} right={<StreamBadge count={events.length} mode={evMode} />}>
           {evError ? <Problem error={evError} /> : <EventStream events={events} compact />}
         </Panel>
         <Panel className="col-span-12 h-[380px] @5xl:col-span-5" kicker="NEXT ACTIONS" title={t('다음 행동 (서버 계산)')}>

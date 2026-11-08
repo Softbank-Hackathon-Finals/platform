@@ -112,6 +112,19 @@ export class SovaLink {
     }
   }
 
+  /** Opens the plan's SSE event stream on the MCP host with a fresh proof (see events.ts). */
+  async openEvents(planId: string, lastEventId: string | undefined, signal: AbortSignal): Promise<Response> {
+    const s = this.settings();
+    if (!s.mcpUrl) throw new Error('mcp_url_not_set');
+    const url = new URL(`/v1/plans/${encodeURIComponent(planId)}/events`, s.mcpUrl);
+    url.search = this.upstream().search;
+    let token: string;
+    try { token = await this.proof(); } catch { throw new Error('sso_login_required'); }
+    const headers: Record<string, string> = { authorization: `Bearer ${token}`, accept: 'text/event-stream' };
+    if (lastEventId) headers['last-event-id'] = lastEventId;
+    return fetch(url, { headers, redirect: 'manual', signal });
+  }
+
   private async connect() {
     if (this.client) return this.client;
     const client = new Client({ name: 'sova-console', version: '0.1.0' });

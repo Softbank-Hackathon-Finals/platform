@@ -80,7 +80,7 @@ const D: Record<string, [ja: string, en: string]> = {
   '고객 환경의 비신뢰 데이터': ['顧客環境の非信頼データ', 'Untrusted data from customer environments'],
   '실시간 · 관측 API 1m 창': ['リアルタイム · 観測 API 1分窓', 'Live · observability API 1m window'],
   '현재 단계': ['現在の段階', 'Current stage'], '원본 대조 게이트': ['原本照合ゲート', 'Source comparison gate'], '실행 기록': ['実行記録', 'Execution records'],
-  '사람 결정 대기': ['人の判断待ち', 'Waiting for a person'], '진행 이벤트': ['進行イベント', 'Events'], '다음 행동 (서버 계산)': ['次の行動(サーバー算出)', 'Next actions (server)'],
+  '사람 결정 대기': ['人の判断待ち', 'Waiting for a person'], '진행 이벤트': ['進行イベント', 'Events'], '실시간 SSE': ['リアルタイム SSE', 'Live SSE'], '재연결 중': ['再接続中', 'Reconnecting'], 'cursor 조회 15초': ['cursor 取得 15秒', 'cursor poll 15s'], '다음 행동 (서버 계산)': ['次の行動(サーバー算出)', 'Next actions (server)'],
   '환경 관측': ['環境の観測', 'Environment metrics'], '등록된 환경': ['登録環境', 'Registered environments'], '등록된 앱': ['登録アプリ', 'Registered apps'],
   '수집': ['収集', 'Collect'], '분석': ['分析', 'Analyze'], '제안': ['提案', 'Propose'], '리허설': ['リハーサル', 'Rehearse'], '원본 대조': ['原本照合', 'Compare'],
   '승인 대기': ['承認待ち', 'Approval'], '전환': ['切替', 'Shift'], '컷오버': ['カットオーバー', 'Cutover'], '관찰': ['監視', 'Watch'], '완료': ['完了', 'Done'],

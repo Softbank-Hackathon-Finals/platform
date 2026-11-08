@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentEvent, SovaApi } from '../shared/types';
+import type { AgentEvent, EventPush, SovaApi } from '../shared/types';
+
+let watchSeq = 0;
 
 const api: SovaApi = {
   call: (name, args) => ipcRenderer.invoke('sova:call', name, args),
@@ -28,6 +30,13 @@ const api: SovaApi = {
     const h = (_: unknown, url: string) => cb(url);
     ipcRenderer.on('deeplink', h);
     return () => { ipcRenderer.removeListener('deeplink', h); };
+  },
+  watchEvents: (planId, cb) => {
+    const id = `w${++watchSeq}`;
+    const h = (_: unknown, from: string, p: EventPush) => { if (from === id) cb(p); };
+    ipcRenderer.on('events:push', h);
+    void ipcRenderer.invoke('events:watch', id, planId);
+    return () => { ipcRenderer.removeListener('events:push', h); void ipcRenderer.invoke('events:unwatch', id); };
   },
 };
 contextBridge.exposeInMainWorld('sova', api);
