@@ -62,6 +62,7 @@ export interface SovaApi {
   prompts(): Promise<PromptInfo[]>;
   models(): Promise<{ models: ModelInfo[]; defaultModel: string | null }>;
   agentAuth(login: boolean): Promise<{ ok: boolean; message: string }>;
+  argo(side: 'platform' | 'customer'): Promise<any>;
   approval(action: 'run-state' | 'approve-shift', planId: string, expectedVersion?: number): Promise<{ ok: boolean; status: number; body: any }>;
   openaiKey(action: 'status' | 'save' | 'clear', key?: string): Promise<{ ok?: boolean; message?: string; configured: boolean; last4: string | null; encrypted: boolean }>;
   awsProfile(): Promise<{ startUrl?: string; accountId?: string; roleName?: string; region?: string }>;

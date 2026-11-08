@@ -7,6 +7,7 @@ import { codexDefaultModel, codexModels } from './models';
 import { awsProfile } from './accounts';
 import { clearKey, keyStatus, saveKey } from './openai-key';
 import { approval } from './approval';
+import { argoApps, type ArgoSide } from './argo';
 import { loadSettings, saveSettings } from './settings';
 import { SovaLink } from './sova';
 
@@ -68,6 +69,7 @@ ipcMain.handle('agent:send', (_e, conv: string, text: string, opts: TurnOptions)
 ipcMain.handle('sova:prompts', () => link.prompts());
 ipcMain.handle('agent:models', () => ({ models: codexModels(), defaultModel: codexDefaultModel() }));
 ipcMain.handle('agent:auth', (_e, login: boolean) => codexAuth(login));
+ipcMain.handle('argo', (_e, side: ArgoSide) => (side === 'platform' || side === 'customer' ? argoApps(settings, side) : null));
 ipcMain.handle('approval', (_e, action: 'run-state' | 'approve-shift', planId: string, v?: number) => approval(settings, action, planId, v));
 ipcMain.handle('agent:openai-key', async (_e, action: 'status' | 'save' | 'clear', key?: string) => {
   if (action === 'clear') { clearKey(); agents.reset(); }

@@ -13,6 +13,7 @@ const api: SovaApi = {
   models: () => ipcRenderer.invoke('agent:models'),
   agentAuth: (login) => ipcRenderer.invoke('agent:auth', login),
   openaiKey: (action, key) => ipcRenderer.invoke('agent:openai-key', action, key),
+  argo: (side) => ipcRenderer.invoke('argo', side),
   approval: (action, planId, expectedVersion) => ipcRenderer.invoke('approval', action, planId, expectedVersion),
   awsProfile: () => ipcRenderer.invoke('accounts:aws'),
   prompt: (name, args) => ipcRenderer.invoke('sova:prompt', name, args),
