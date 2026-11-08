@@ -41,6 +41,21 @@
 
 각 단계 결과는 `<workdir>/<plan-id>/`에 남는다. 같은 키나 같은 계획으로 다시 실행해도 기존 기록을 읽는다.
 
+## 데모 플레이: 호스트가 직접 수행 (스크립트 없이)
+
+이 경로는 아래 스크립트가 하던 일을 호스트 코드의 데모 모드로 옮긴 것이다. 실행은 `register_plan.py <키>` → `grants.py <plan> --apply`만 한다. 나머지는 두 호스트가 처리한다.
+
+- **workflow host** `ports.json`에 `"demo": {"skip": ["ANALYZE", "PROPOSE", "REHEARSE", "GATE", "WATCH"], "change": {"diff_hash": …, "image_digest": <목적지에서 이미 도는 이미지>}, "collect": true, "interval": 0.5}`를 넣는다.
+  - `plans`가 없으면 새 계획 전부에 적용된다.
+  - COLLECT~GATE와 WATCH를 즉시 넘긴다.
+- **승인 호스트** `operator.json`에 `"demo": true`와 `delegation.auto_approver`를 넣는다. 그러면 위임 SHIFT·컷오버가 다음과 같이 동작한다.
+  - principal은 트랜잭션 밖에서 만든다.
+  - 직전 데모가 100%로 끝났으면 Edge를 0으로 되돌린 뒤 시작한다.
+  - SLI 판정은 PASS로 기록한다.
+  - 컷오버 권한은 SHIFT 승인의 GATE로 만들고, epoch은 승인 시각(초)이라 Executor 펜스를 넘는다.
+
+출발지 복귀(쓰기 주체·정방향 복제)는 여전히 실행 전에 해야 한다. 아래 확인 항목 중 앱 쓰기 차단과 Executor 권한은 그대로 적용된다.
+
 ## 데모 플레이 (CI·이미지 발행·helm 없이, 실측 1분 37초)
 
 11/8 13:05:26 → 13:07:03(plan-fd7b498d…): COLLECT → … → AWAIT_APPROVAL 3초, 자동 SHIFT 승인 8초, SHIFT 0→100% 3초, 컷오버 72초(Executor 9단계 DONE), WATCH → DONE 1초.

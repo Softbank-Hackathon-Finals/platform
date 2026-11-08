@@ -124,6 +124,44 @@ def current_cutover(bindings, *, write_pause_budget_ms=30000):
     return current
 
 
+def demo_cutover(bindings, *, write_pause_budget_ms=30000):
+    """T49 demo: the cutover authority without a T31 application claim or T19 record (both skipped in demo mode).
+
+    The change and gate come from the SHIFT approval (the workflow host's demo GATE checkpoint); the Edge must still
+    be at 100%. The epoch is the SHIFT approval time in seconds, so every demo plan stays above the Executor's
+    resource fences (an earlier demo used a larger epoch than this plan's version) and approve/submit agree.
+    """
+    if not isinstance(bindings, dict) or len(bindings) != 2 or type(write_pause_budget_ms) is not int:
+        raise ValueError("cutover_policy_configuration_invalid")
+
+    def current(c, principal, plan, *, now=None, approved_by=None, approval_id=None, **_selection):
+        from datetime import datetime
+
+        spec = json.loads(plan["spec_json"])
+        shift = _shift_approval(c, plan)
+        if shift is None:
+            raise EventError("authority_unavailable")
+        if not edge_at_full(c, plan):
+            raise EventError("shift_not_at_full")
+        gate, expires = shift["gate"], shift["expires_at"]
+        binding = dict(plan_id=plan["plan_id"], plan_digest=spec["plan_digest"],
+                       diff_hash=gate["change"]["diff_hash"], image_digest=gate["change"]["image_digest"],
+                       target_environment_id=spec["target_environment_id"], gate_id=gate["gate_id"],
+                       context_digest=gate["context_digest"], expires_at=expires)
+        approved = int(datetime.fromisoformat(shift["approved_at"].replace("Z", "+00:00")).timestamp())
+        command = dict(plan_id=plan["plan_id"], epoch=max(plan["version"], approved),
+                       write_pause_budget_ms=write_pause_budget_ms, deadline=expires)
+        for side in ("source", "target"):
+            env = spec[side + "_environment_id"]
+            if env not in bindings:
+                raise EventError("authority_unavailable")
+            command[side] = dict(environment_id=env, connection_ref=bindings[env])
+        revision = "operations-" + hashlib.sha256(json.dumps([binding, command], sort_keys=True).encode()).hexdigest()[:32]
+        return CurrentCutover(binding, command, revision)
+
+    return current
+
+
 def current_failback(bindings, *, write_pause_budget_ms=30000, window_hours=2):
     """T20 upstream: reverse the committed cutover (target -> source), from stored records only.
 
@@ -215,7 +253,8 @@ def create(store, config_file=CONFIG):
     rehearsal = rehearsal_ports(store)
     demo = config.get("demo", False) is True  # T49 demo: the workflow host skipped GATE, so no T19 session here
     upstream = current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000))
-    authority = upstream if demo else records.cutover_authority(upstream=upstream, load_gate=load_gate)
+    authority = (demo_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)) if demo
+                 else records.cutover_authority(upstream=upstream, load_gate=load_gate))
     change_wrapper = None
     if config["security_review"] is not False:  # T49: false = review off (the db16f140 behaviour) until it is switched on
         from . import gate_services

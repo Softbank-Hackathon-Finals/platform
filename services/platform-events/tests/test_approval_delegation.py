@@ -1,5 +1,6 @@
 """Pre-delegated approvals: recorded by the approver once, used by the host per gate, checked like a person."""
 
+import time
 from datetime import datetime, timedelta
 
 import pytest
@@ -181,3 +182,34 @@ def test_a_reissued_grant_keeps_an_earlier_authentication(world):
         plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
         w["access"].require(c, principal, plan, "approve_shift")  # no longer forbidden after the re-issue
     assert principal.subject_id == receipt["approver"]
+
+
+def test_a_delegated_shift_makes_its_principal_outside_the_plan_transaction(world, monkeypatch):
+    import sys
+    import types
+
+    from bravo_platform_events import approval_delegation as ad
+
+    made, inside = [], []
+    delegations = types.SimpleNamespace(principal_for=lambda *a, **k: made.append(1) or types.SimpleNamespace(
+        expires_at=time.time() + 300))
+
+    class Runtime:
+        def __init__(self, host, *, principal, plan_id, run_id):
+            self.principal = principal
+
+        def sequence(self, *, stop, hold_at_full):
+            inside.append(self.principal())  # read again inside ShiftRuntime's transaction
+            return {"status": "AT_FULL"}
+
+    authority = types.SimpleNamespace(register=lambda *a, **k: None)
+    edge = {"bravo_edge_control.runtime": types.SimpleNamespace(ShiftRuntime=Runtime),
+            "bravo_edge_control.authority": types.SimpleNamespace(ShiftAuthority=lambda *a, **k: authority),
+            "bravo_edge_control.host": types.SimpleNamespace(ShiftHost=lambda *a, **k: None),
+            "bravo_edge_control.control": types.SimpleNamespace(_now=lambda: "now")}
+    for name, module in edge.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    shift = ad.DelegatedShift(world["store"], delegations, provider=types.SimpleNamespace(binding=None), journal=None,
+                              profile={}, load_session=None)
+    assert shift.run(SPEC.plan_id, 7) == {"status": "AT_FULL"}
+    assert len(made) == 1 and len(inside) == 1  # made once before the run, reused inside it

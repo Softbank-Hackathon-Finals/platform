@@ -94,3 +94,29 @@ def test_failback_reverses_the_committed_cutover_with_a_higher_epoch(backend):
     assert {k: v for k, v in first.binding.items() if k != "expires_at"} == {k: v for k, v in BINDING.items() if k != "expires_at"}
     assert first.command["epoch"] == 8 and first.command["source"] == COMMAND["source"]
     assert first.command["target"] == COMMAND["target"] and first.command["deadline"] == first.binding["expires_at"]
+
+
+def test_demo_cutover_takes_the_change_from_the_shift_approval_with_a_rising_epoch(backend):
+    from test_failback import NOW, SPEC
+
+    from bravo_platform_events.operator_ports import demo_cutover
+
+    backend.store.register_plan(SPEC, run_id="fixture", occurred_at=NOW)
+    current = demo_cutover({SPEC.source_environment_id: "cutover/source", SPEC.target_environment_id: "cutover/target"})
+    with backend.store._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
+        with pytest.raises(EventError, match="authority_unavailable"):  # no SHIFT approval
+            current(c, None, plan)
+        gate = {"change": {"diff_hash": "sha256:" + "c" * 64, "image_digest": "sha256:" + "d" * 64},
+                "gate_id": "demo-gate-5", "context_digest": "0" * 64, "verdict": "PASS"}
+        shift = {"gate": gate, "approved_at": "2026-11-08T04:05:42Z", "expires_at": "2026-11-08T04:35:42Z"}
+        c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
+                  (plan["plan_id"], f"shift-approval-{plan['version'] - 1}", "{}", json.dumps(shift)))
+        with pytest.raises(EventError, match="shift_not_at_full"):
+            current(c, None, plan)
+        _edge(c, plan, revision=3, weight=100, verdict="PASS")
+        first, again = current(c, None, plan), current(c, None, plan)
+    assert first == again  # approval and submission agree
+    assert first.binding["image_digest"] == gate["change"]["image_digest"] and first.binding["gate_id"] == "demo-gate-5"
+    assert first.command["epoch"] == 1794110742  # the approval second: above any earlier demo plan's fence
+    assert first.command["source"] == {"environment_id": SPEC.source_environment_id, "connection_ref": "cutover/source"}
