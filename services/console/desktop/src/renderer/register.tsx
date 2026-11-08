@@ -116,6 +116,15 @@ function WorkloadForm({ envs, releases }: { envs: any[]; releases: any[] }) {
             {sources.map((e) => <option key={e.environment_id} value={e.environment_id}>{e.name ?? e.environment_id}</option>)}
           </select>
         </Field>
+        {releases.length > 0 && (
+          <div className="col-span-2"><Field label="운영자가 승인한 저장소">
+            <select className={`${input} font-mono`} value={releases.findIndex((x) => x.repo_url === f.repo_url && x.app_path === f.app_path && x.iac_path === f.iac_path)}
+              onChange={(e) => { const x = releases[Number(e.target.value)]; if (x) setF({ ...f, repo_url: x.repo_url, app_path: x.app_path, iac_path: x.iac_path, source_environment_id: x.environment_id }); }}>
+              <option value={-1}>직접 입력</option>
+              {releases.map((x, i) => <option key={i} value={i}>{x.repo_url.replace(/^https:\/\/github\.com\//, '')} · {x.app_path} · {x.environment_id}</option>)}
+            </select>
+          </Field></div>
+        )}
         <div className="col-span-2"><Field label="저장소 (GitHub URL)"><input className={`${input} font-mono`} value={f.repo_url} onChange={set('repo_url')} placeholder="https://github.com/org/app" /></Field></div>
         <Field label="앱 경로"><input className={`${input} font-mono`} value={f.app_path} onChange={set('app_path')} placeholder="app" /></Field>
         <Field label="IaC 경로"><input className={`${input} font-mono`} value={f.iac_path} onChange={set('iac_path')} placeholder="deploy/" /></Field>
