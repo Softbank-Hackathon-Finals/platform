@@ -324,6 +324,11 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
             return code
     if (remaining := budget_remaining(head, wall_clock)) is not None and remaining <= 0:
         # Every step ran but the visible demo took too long: still record the real plan state once.
+        if "demo-budget" in outcomes:  # a re-run neither reads the plan again nor appends another line
+            recorded = outcomes["demo-budget"]
+            print(json.dumps({"result": "failed", **{key: recorded[key] for key in
+                              ("reason", "budget_seconds", "plan_state_at_budget") if key in recorded}}))
+            return FAILED
         detail = {"reason": "demo_budget_exceeded", "budget_seconds": head["demo_budget_seconds"],
                   **budget_snapshot(read_state, args.plan_id)}
         append(path, {"step": "demo-budget", "scene": "-", "status": "failed", "at": now(), **detail})

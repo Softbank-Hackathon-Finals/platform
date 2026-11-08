@@ -170,6 +170,12 @@ class Driver(unittest.TestCase):
                          (1, "demo_budget_exceeded", "DONE_ROLLED_BACK"))
         last = json.loads(self.record.read_text().splitlines()[-1])
         self.assertEqual((last["step"], last["plan_state_at_budget"]), ("demo-budget", "DONE_ROLLED_BACK"))
+        # #958 review 4: running the finished record again does not read again or add another line
+        self.state = "DONE"
+        code, line = self.run_driver(wall_clock=lambda: 400)
+        self.assertEqual((code, line["plan_state_at_budget"]), (1, "DONE_ROLLED_BACK"))
+        lines = [json.loads(x) for x in self.record.read_text().splitlines()]
+        self.assertEqual([x.get("step") for x in lines].count("demo-budget"), 1)
 
     def test_an_unreadable_plan_at_the_budget_is_reported_not_assumed(self):
         def broken(_plan):
@@ -177,6 +183,7 @@ class Driver(unittest.TestCase):
         self.run_driver()
         code, line = self.run_driver(wall_clock=lambda: 271, read_state=broken)
         self.assertEqual((code, line["plan_state_at_budget"]), (1, "unconfirmed"))
+        self.assertEqual(hp.budget_snapshot(None, "plan-1"), {"plan_state_at_budget": "unread"})
 
     def test_cutover_security_is_prepared_before_the_cutover_approval(self):
         # #939 review 2: the cutover authority needs patch/postflight and migration/preflight registrations

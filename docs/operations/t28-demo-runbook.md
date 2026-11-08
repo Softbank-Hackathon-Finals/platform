@@ -64,6 +64,8 @@ python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status 
 ```sh
 python3 scripts/happy_path.py run --plan-id <plan> --record <새 회차.jsonl> \
   --profile real --scenario migration --platform-context <platform> --kubeconfig <target> \
+  --patch-preflight <patch-preflight.json> --patch-postflight <patch-postflight.json> \
+  --migration-preflight <migration-preflight.json> \
   --application-id <T31 id> --receipts <T31 receipts> --initial-args --from <initial.json>
 ```
 
@@ -97,10 +99,19 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 - 버짓을 맞추려고 보안 검사, 사람 승인, T15 검증 또는 실패 대조군을 건너뛰지 않는다. 라이브
   입력이 시간 안에 끝나지 않으면 아래 대체 장면으로 전환하고 범위를 그대로 밝힌다.
 - 버짓을 넘기면(단계 전이든, 모든 단계를 마친 뒤든) 실행기가 plan 상태를 읽기 전용으로 한 번
-  읽어 `plan_state_at_budget`으로 기록에 남긴다. 읽지 못하면 `unconfirmed`이고, 추정하지 않는다.
+  읽어 `plan_state_at_budget`으로 기록에 남긴다. 읽지 못하면 `unconfirmed`, 읽기 명령이 없으면 `unread`이고,
+  어느 쪽도 추정하지 않는다. 모든 단계를 마친 뒤의 버짓 실패는 한 번만 기록한다. 같은 기록으로 다시 `run`해도
+  다시 읽거나 줄을 더하지 않고 처음 기록을 보여 준다.
 - **버짓 실패 뒤에는 같은 plan으로 새 기록을 만들지 않는다.** 마감 시각은 첫 기록에 고정돼 있어서
   `resolve`를 해도 다음 단계가 다시 버짓 실패로 끝난다. 새 기록을 만들면 `s2-ai-start` 같은 명령이
   같은 plan에 다시 실행될 수 있다. 다시 시연하려면 새 plan으로 처음부터 한다.
+
+### 기록과 멈춤
+
+- **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
+- **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.
+- **멈춤:** 결과가 불명(3)이거나 실패한 단계는 다시 돌리지 않는다. 실제 상태를 읽은 뒤 `resolve`로 기록해야 이어 간다. `SAFE_HOLD`·`NEEDS_HUMAN`이면 실패로 멈춘다.
+- **아직 연결하지 않은 단계(`[unwired]`):** `s3-load`(T18), `s3-attachment-copy`·`s3-reverse-replication`(T8), `wrap-map`(T27), 그리고 plan 상태 읽기 명령(T10 `GET /v1/plans/{plan_id}`). 각 담당의 실행 명령이 정해지면 `STEPS`에 넣는다. 연결 전에는 그 단계에서 멈춘다.
 
 ### 선행 조건: 보안 검토가 켜져 있으면 S2 반영 승인이 claim에서 `approval_stale`이 된다(#939 리뷰 1)
 
@@ -115,11 +126,6 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 대조가 늘 달라 claim이 `approval_stale`로 거부되고, application ID가 생기지 않아 `s2-open-writes`에서 멈춘다.
 보안 우회는 아니다(실패 쪽으로 닫힌다). 수정 방법은 T31·T10 담당과 정한다(#958 제안). 그 수정이 develop에 들어가기 전에는
 보안 검토를 켠 실제 환경의 S2 이후를 이 각본으로 인수하지 않는다.
-
-- **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
-- **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.
-- **멈춤:** 결과가 불명(3)이거나 실패한 단계는 다시 돌리지 않는다. 실제 상태를 읽은 뒤 `resolve`로 기록해야 이어 간다. `SAFE_HOLD`·`NEEDS_HUMAN`이면 실패로 멈춘다.
-- **아직 연결하지 않은 단계(`[unwired]`):** `s3-load`(T18), `s3-attachment-copy`·`s3-reverse-replication`(T8), `wrap-map`(T27), 그리고 plan 상태 읽기 명령(T10 `GET /v1/plans/{plan_id}`). 각 담당의 실행 명령이 정해지면 `STEPS`에 넣는다. 연결 전에는 그 단계에서 멈춘다.
 
 ## 중간 통합 점검
 
