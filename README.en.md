@@ -12,6 +12,8 @@ Financial services must be able to leave the cloud for regulatory, cost or contr
 
 This repository holds the **platform code, infrastructure, design documents and task tracking**. The demo application that gets migrated lives in [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat).
 
+**▶ [Open the interactive walkthrough](https://softbank-hackathon-finals.github.io/platform/presentation/sova-final-interactive.html)** · A presentation that lets you click through the platform layout and the seven migration steps (GitHub Pages; source [`docs/presentation/sova-final-interactive.html`](docs/presentation/sova-final-interactive.html)). It shows the designed flow; what was confirmed in the real environment is summarized under "Status and limitations" below.
+
 ## Security comes first
 
 SOVA puts security first. **It does not switch until the same test shows that an access denied at the source is also denied at the destination.** The AI can only propose changes from an isolated environment; judgement and execution belong to deterministic code without an LLM and to human approval. [SECURITY.md](SECURITY.md) (Korean) describes every layer and its implementation status (real environment / tested / design only).

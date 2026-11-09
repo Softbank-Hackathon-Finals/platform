@@ -12,6 +12,8 @@
 
 이 저장소에는 **플랫폼 코드, 인프라, 설계 문서와 작업 관리 기록**이 있습니다. 이전 대상인 데모 앱은 [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat) 저장소에 있습니다.
 
+**▶ [인터랙티브 연출 열기](https://softbank-hackathon-finals.github.io/platform/presentation/sova-final-interactive.html)** · 플랫폼 구성과 7단계 이전 흐름을 클릭하며 따라가는 발표 연출입니다(GitHub Pages, 원본 [`docs/presentation/sova-final-interactive.html`](docs/presentation/sova-final-interactive.html)). 연출은 설계한 흐름을 보여 주며, 실환경에서 확인한 범위는 아래 "현재 상태와 한계"에 정리했습니다.
+
 ## 보안을 먼저 확인합니다
 
 SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 거부되던 접근이 목적지에서도 같은 시험으로 거부된다는 사실을 확인하기 전에는 전환하지 않습니다.** AI는 격리된 환경에서 제안만 할 수 있고, 판정과 실행은 LLM을 사용하지 않는 결정적 코드와 사람의 승인이 맡습니다. 계층별 설계와 구현 상태(실환경 / 시험 / 설계)는 [SECURITY.md](SECURITY.md)에 정리했습니다.

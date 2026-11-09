@@ -12,6 +12,8 @@
 
 このリポジトリには、**プラットフォームのコード、インフラ、設計文書、タスク管理の記録**があります。移行対象のデモアプリは [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat) リポジトリにあります。
 
+**▶ [インタラクティブ解説を開く](https://softbank-hackathon-finals.github.io/platform/presentation/sova-final-interactive.html)** · プラットフォームの構成と 7 段階の移行フローをクリックしながら追える発表用の解説です(GitHub Pages、原本 [`docs/presentation/sova-final-interactive.html`](docs/presentation/sova-final-interactive.html))。設計したフローを示すもので、実環境で確認できた範囲は下記の「現状と限界」にまとめています。
+
 ## セキュリティを最優先に
 
 SOVA はセキュリティを最優先に掲げています。**移行元で拒否されていたアクセスが、移行先でも同じテストで拒否されることを確認するまでは切り替えません。** AI は隔離された環境から提案することしかできず、判定と実行は LLM を使わない決定的なコードと人の承認が担います。各レイヤーの設計と実装状況(実環境 / テスト / 設計)は [SECURITY.md](SECURITY.md)(韓国語)にまとめています。
