@@ -1,0 +1,214 @@
+{
+  "runtime": {
+    "source_commit": "7dcbe6c565b292c81f330a7cd2cf7faed8d441e7",
+    "image_id": "sha256:5bcca642dca65aecbe3816116cfbcb337e1dd7f65caa61a16280176639c4e49a",
+    "image_architecture": "arm64",
+    "image_os": "linux",
+    "image_repo_digests": [
+      "bravo-agent-validation@sha256:5bcca642dca65aecbe3816116cfbcb337e1dd7f65caa61a16280176639c4e49a"
+    ],
+    "wheel": {
+      "name": "bravo_agent_worker-0.1.0-py3-none-any.whl",
+      "sha256": "f15dc79574348635fc5a4618b2bd6394e2f7bef8f56ff7925878357436af2694"
+    },
+    "cases": [
+      {
+        "name": "schema",
+        "exit_code": 0,
+        "stdout": "Strict proposal schema emitted; additionalProperties=false, edits.maxItems=4.",
+        "stderr": "",
+        "runtime_policy": {
+          "user": "10001:10001",
+          "readonly_rootfs": true,
+          "network": "none",
+          "cap_drop": [
+            "ALL"
+          ],
+          "security_options": [
+            "no-new-privileges"
+          ],
+          "pids_limit": 64,
+          "memory_bytes": 536870912,
+          "nano_cpus": 1000000000,
+          "mounts": [
+            {
+              "destination": "/input",
+              "rw": false
+            },
+            {
+              "destination": "/out",
+              "rw": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "boundaries",
+        "exit_code": 0,
+        "stdout": "{\"uid\": 10001, \"write_denials\": {\"/etc/bravo-boundary\": 30, \"/input/source/src/config.py\": 30}, \"network_errno\": 101, \"effective_capabilities\": 0, \"no_new_privileges\": true, \"host_socket\": false, \"k8s_token\": false, \"model_and_cloud_env\": false, \"claude_sdk_in_default_image\": false}\n",
+        "stderr": "",
+        "runtime_policy": {
+          "user": "10001:10001",
+          "readonly_rootfs": true,
+          "network": "none",
+          "cap_drop": [
+            "ALL"
+          ],
+          "security_options": [
+            "no-new-privileges"
+          ],
+          "pids_limit": 64,
+          "memory_bytes": 536870912,
+          "nano_cpus": 1000000000,
+          "mounts": [
+            {
+              "destination": "/input",
+              "rw": false
+            },
+            {
+              "destination": "/out",
+              "rw": true
+            }
+          ]
+        },
+        "observed": {
+          "uid": 10001,
+          "write_denials": {
+            "/etc/bravo-boundary": 30,
+            "/input/source/src/config.py": 30
+          },
+          "network_errno": 101,
+          "effective_capabilities": 0,
+          "no_new_privileges": true,
+          "host_socket": false,
+          "k8s_token": false,
+          "model_and_cloud_env": false,
+          "claude_sdk_in_default_image": false
+        }
+      },
+      {
+        "name": "no-key",
+        "exit_code": 2,
+        "stdout": "state=NEEDS_HUMAN\n",
+        "stderr": "",
+        "runtime_policy": {
+          "user": "10001:10001",
+          "readonly_rootfs": true,
+          "network": "none",
+          "cap_drop": [
+            "ALL"
+          ],
+          "security_options": [
+            "no-new-privileges"
+          ],
+          "pids_limit": 64,
+          "memory_bytes": 536870912,
+          "nano_cpus": 1000000000,
+          "mounts": [
+            {
+              "destination": "/input",
+              "rw": false
+            },
+            {
+              "destination": "/out",
+              "rw": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "existing-output",
+        "exit_code": 2,
+        "stdout": "NEEDS_HUMAN: input, policy, model, or output failure\n",
+        "stderr": "",
+        "runtime_policy": {
+          "user": "10001:10001",
+          "readonly_rootfs": true,
+          "network": "none",
+          "cap_drop": [
+            "ALL"
+          ],
+          "security_options": [
+            "no-new-privileges"
+          ],
+          "pids_limit": 64,
+          "memory_bytes": 536870912,
+          "nano_cpus": 1000000000,
+          "mounts": [
+            {
+              "destination": "/input",
+              "rw": false
+            },
+            {
+              "destination": "/out",
+              "rw": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "invalid-input",
+        "exit_code": 2,
+        "stdout": "NEEDS_HUMAN: input, policy, model, or output failure\n",
+        "stderr": "",
+        "runtime_policy": {
+          "user": "10001:10001",
+          "readonly_rootfs": true,
+          "network": "none",
+          "cap_drop": [
+            "ALL"
+          ],
+          "security_options": [
+            "no-new-privileges"
+          ],
+          "pids_limit": 64,
+          "memory_bytes": 536870912,
+          "nano_cpus": 1000000000,
+          "mounts": [
+            {
+              "destination": "/input",
+              "rw": false
+            },
+            {
+              "destination": "/out",
+              "rw": true
+            }
+          ]
+        }
+      }
+    ],
+    "case_count": 5,
+    "all_expected_results": true,
+    "model_api_called": false,
+    "model_credentials_provided": false,
+    "execution_scope": "Maintained CLI and synthetic fixtures; no agent-authored code or T15 verifier execution."
+  },
+  "base_images": [
+    "#5 [stage-1 1/6] FROM docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+    "#5 resolve docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c 0.0s done",
+    "#5 [stage-1 1/6] FROM docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+    "#7 [uv 1/1] FROM ghcr.io/astral-sh/uv:0.10.2@sha256:94a23af2d50e97b87b522d3cea24aaf8a1faedec1344c952767434f69585cbf9",
+    "#7 resolve ghcr.io/astral-sh/uv:0.10.2@sha256:94a23af2d50e97b87b522d3cea24aaf8a1faedec1344c952767434f69585cbf9 0.0s done",
+    "#5 [stage-1 1/6] FROM docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+    "#5 [stage-1 1/6] FROM docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+    "#7 [uv 1/1] FROM ghcr.io/astral-sh/uv:0.10.2@sha256:94a23af2d50e97b87b522d3cea24aaf8a1faedec1344c952767434f69585cbf9",
+    "#7 [uv 1/1] FROM ghcr.io/astral-sh/uv:0.10.2@sha256:94a23af2d50e97b87b522d3cea24aaf8a1faedec1344c952767434f69585cbf9"
+  ],
+  "docker_version": "29.1.3",
+  "bootstrap_correction": "Regional Ubuntu ARM mirror hostname failed HTTPS certificate verification. Replaced only that mirror with https://ports.ubuntu.com/ubuntu-ports and installed docker.io + docker-buildx; TLS validation remained enabled.",
+  "read_at": "2026-11-03T06:50:06.829968+00:00",
+  "instance_id": "AWS_RESOURCE_001",
+  "region": "ap-northeast-2",
+  "tests_passed": 74,
+  "ruff_passed": true,
+  "ssm_commands": {
+    "tests_and_wheel": "e8ff4f24-42b8-428d-a1a7-8d0547a8a7fc",
+    "container_build": "d8997edb-6dcf-493d-96c1-18e66459f7c0",
+    "container_checks": "0f0a819a-6599-4c32-86d5-14ae1b4de203",
+    "receipt": "4787e61a-e22d-4145-9a8a-f313e2ff84cd"
+  },
+  "current_workspace_differences": [
+    "services/agent-worker/README.md"
+  ],
+  "runtime_source_unchanged": true
+}

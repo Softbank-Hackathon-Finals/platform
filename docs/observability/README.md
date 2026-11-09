@@ -1,0 +1,136 @@
+# 판정용 관측 계약 (T36)
+
+트래픽 전환(SHIFT)과 사후 감시(WATCH)가 쓰는 오류율 · p95의 **측정 위치, 형식, 판정 규칙**을 고정한다. 부하 생성기(T18)가 창 요약을 내고, Edge 전환(T17)과 상태 머신(T10)이 이 규칙으로 판정하며, 콘솔(T21)이 판정과 입력을 그대로 보여 준다. 결정 배경과 대안은 [ADR-0010](../adr/0010-observability-boundary.md).
+
+| 파일 | 내용 |
+|---|---|
+| 이 문서 | 원칙 · 판정 규칙 · 창 요약 생산 규칙 · 보안 규칙 · 접점 |
+| [`sli.schema.json`](sli.schema.json) | 창 요약 `SliWindow` · 판정 기준 `ThresholdProfiles` · 판정 기록 `SliJudgement` (JSON Schema 2020-12) |
+| [`threshold-profiles.json`](threshold-profiles.json) | 판정 기준 `demo-shift` v1 (제안값) |
+| [`contract-cases.json`](contract-cases.json) | 계약 시험: 판정 25건, 스키마 거부 8건 |
+| [`examples/`](examples/) | 10% 단계의 정상 창 |
+| [`services/observability`](../../services/observability/) | 기준 구현 `bravo_observability`: 창 요약 생성(`build_window`) · 수신 시각 덮어쓰기(`receive`) · 판정(`judge`). 계약 시험을 CI에서 돌린다 |
+
+근거: 설계 문서 FR-8(단계마다 오류율 · p95, 넘으면 0), 8.2 SHIFT · WATCH, 8.7, S4 1단계("오류율이 기준을 넘어 알림이 간다"), NFR-3 · NFR-5, 5.3 실증 계약, 10장 데모(가중치 전환 1:30~2:10).
+
+## 1. 원칙
+
+- **판정 입력은 바깥에서 잰다.** 오류율 · p95는 부하 생성기가 Cloudflare Edge를 거쳐 잰 값만 쓴다. 목적지는 평가 대상이므로 목적지가 보낸 서버 지표로 목적지를 합격시키지 않는다. Edge · Tunnel에서 난 오류는 서버 지표에 보이지 않는다는 점도 이유다.
+- **없으면 0이 아니라 UNKNOWN이다.** 창이 안 오거나, 오래됐거나, 표본이 적으면 UNKNOWN이다. T33의 "확인 불가 · 오래됨", T5의 UNKNOWN과 같은 규칙이다.
+- **판정마다 입력을 그대로 남긴다.** `SliJudgement`에 창 원본과 기준 프로필 ID · 버전을 담는다. 데모 뒤 지표 저장소를 지워도(NFR-7) 같은 판정을 다시 계산할 수 있다(NFR-5).
+- **표본 지표와 전수 대조를 섞지 않는다.** 실패 · 유실 · 중복 0건(NFR-2)은 T18의 요청 ID 대조 리포트로, 쓰기 정지 시간(NFR-1)은 Executor 타이머(8.6)로 증명한다. 이 계약은 실시간 판정만 다룬다.
+- **관측 데이터는 게이트 입력이 아니다.** 원본 대조 게이트(T19)는 T14 통제 시험 결과만 쓴다.
+- **판정은 규칙이 한다.** LLM을 쓰지 않는다.
+
+## 2. 무엇을 어디서 보는가
+
+| 신호 | 어디서 | 누가 쓰는가 | 비고 |
+|---|---|---|---|
+| 오류율 · p95 (환경별) | T18 부하 생성기, Edge 경유 | SHIFT · WATCH 판정, 콘솔 | 이 계약 |
+| 쓰기 정지 시간 | Executor 타이머 (8.6) | 영수증, 콘솔 | 공식 수치 |
+| 쓰기 응답 사이 최대 간격 | T18 | 콘솔 교차 확인 | 공식 수치와 나란히 표시 (8절 제안) |
+| 실패 · 유실 · 중복 | T18 요청 ID · 시도 ID 대조 | NFR-2 리포트 | 전수 대조 |
+| 복제 지연 | Executor가 컷오버 직전에 DB에서 직접 읽음 (8.6 1단계) | 컷오버 조건 | 지표 저장소의 사본으로 판정하지 않는다 |
+| 서버 지표 · PgBouncer 상태 | 클러스터별 OTel Collector → 플랫폼 (T37) | 원인 파악, 콘솔 | 판정 입력 아님 |
+| 앱 · 감사 로그 | 각 환경 안 (출발지 CloudWatch Logs, 목적지 클러스터 로그 수집기) | T14 통제 시험 (SEC-01.3, AUD-01) | T34. 플랫폼으로 옮기지 않는다 (ADR-0010) |
+
+## 3. 판정 규칙
+
+판정 한 번의 입력은 기준 프로필, 서버가 정한 현재 계획 `plan_id`, 창 하나(없으면 `null`), 상태(`SHIFT` · `WATCH`), Edge에 설정한 목적지 가중치 `w`(%), `observe_from`(SHIFT는 가중치 변경 시각, WATCH는 WATCH 진입 시각), 판정 시각, 직전까지 연속된 UNKNOWN 수다. 시각 비교는 모두 플랫폼 시계로 한다.
+
+**① 창을 쓸 수 있는가.** 하나라도 걸리면 내용은 보지 않고 UNKNOWN이다.
+
+| 사유 | 조건 |
+|---|---|
+| `MISSING` | 판정할 창이 없음 |
+| `PLAN_MISMATCH` | 창의 `plan_id` ≠ 서버가 정한 현재 계획 |
+| `WINDOW_BEFORE_CHANGE` | `window.start` < `observe_from` (이전 가중치나 컷오버 구간이 섞임) |
+| `WINDOW_MISMATCH` | 창 길이 ≠ `window_seconds` |
+| `CLOCK_SKEW` | `window.end` − `received_at` > `max_clock_skew_seconds` (생산자 시계가 앞섬), 또는 `received_at` > 판정 시각 (수신 시각을 믿을 수 없음) |
+| `STALE` | 판정 시각 − `received_at` > `stale_after_seconds`, 또는 판정 시각 − `window.end` > `stale_after_seconds` + `max_clock_skew_seconds` (늦게 도착한 오래된 창, J21) |
+
+**② 내용 판정.** `total` = 두 환경 요청 + 환경 미확인 요청, `errors` = 두 환경 5xx + 환경 미확인 요청 전부.
+
+| 사유 | 결과 | 조건 |
+|---|---|---|
+| `INTEGRITY_CONFLICT` | FAIL | 409가 1건이라도 있음 (표본 수와 무관) |
+| `ERROR_RATE` | FAIL | 전체: `errors / max(total, min_requests)` > `error_rate_max`, 또는 가중치가 0보다 큰 환경별: `http_5xx / max(requests, min_pool_requests)` > `error_rate_max` |
+| `P95` | FAIL | 가중치가 0보다 큰 환경의 `p95_ms` > `p95_ms_max` (그 환경 표본이 충분할 때만) |
+| `INSUFFICIENT_SAMPLES` | UNKNOWN | `total` < `min_requests`, 또는 가중치가 0보다 큰 환경의 요청 < `min_pool_requests` |
+| `NOT_APPLIED` | UNKNOWN | 실제 목적지 비율(환경 확인된 응답 기준)이 `w`와 `share_tolerance`보다 더 차이 남 (가중치 반영 전이거나 분배 이상) |
+
+- 오류율은 전체와 환경별을 모두 본다. 10% 단계에서 목적지만 실패하면 전체 오류율은 희석된다(목적지 19/200 = 9.5%가 전체로는 0.95%). 평가 대상인 목적지의 오류가 출발지 정상 요청에 묻히지 않게 환경별로도 판정한다(J24). 환경을 알 수 없는 오류는 전체 오류율에만 들어간다.
+- 오류율 분모를 `max(total, min_requests)`(환경별은 `max(requests, min_pool_requests)`)로 둔다. 시간 초과가 많으면 창 안의 요청 수 자체가 줄어 장애가 UNKNOWN으로 숨는다. 이 분모면 표본이 적어도 오류가 충분히 많을 때 FAIL이 나온다(J14).
+- 가중치가 0인 환경은 표본 · p95를 요구하지 않는다(J16).
+- 결과는 FAIL > UNKNOWN > PASS 순이다. 사유는 해당하는 것을 모두 이름순으로 담는다.
+
+**③ 조치.**
+
+| 판정 | SHIFT | WATCH |
+|---|---|---|
+| PASS | `ADVANCE_ALLOWED` 다음 단계 가능 | `NONE` |
+| FAIL | `SET_WEIGHT_0` 즉시 가중치 0 | `ALERT_FAILBACK_PROPOSAL` 알림과 되돌리기 제안. 되돌리기 실행은 사람 승인 뒤(S4 2단계) |
+| UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0` | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
+
+연속 UNKNOWN 수(`prior_unknown`)는 같은 `observe_from` 안에서만 센다. PASS나 FAIL이 나오거나 가중치를 바꿔 `observe_from`이 바뀌면 0부터 다시 센다. 앞 단계의 UNKNOWN이 다음 단계로 넘어오지 않는다. 판정은 창 하나마다(`window_seconds`마다) 한 번 한다.
+
+SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 모두 출발지 DB에 쓴다(8.6 "전환 전 쓰기 경로"). 가중치 0은 쓰기를 받는 DB를 바꾸지 않으므로 항상 안전한 방향이다. 실패한 환경이 출발지여도 조치는 같다(FR-8). 어느 환경이 원인인지는 판정 기록의 창에서 읽는다. WATCH는 컷오버 뒤라 되돌리기가 데이터 경로를 바꾸므로 자동으로 하지 않는다.
+
+**판정하지 않는 구간.** CUTOVER · FAILBACK 중에는 이 규칙을 쓰지 않는다. 쓰기 정지 중 503 + `Retry-After`는 설계된 동작이고, 그 구간은 Executor 결과와 T18 전수 대조로 본다. WATCH의 `observe_from`이 컷오버 구간의 창을 걸러 낸다(J20).
+
+**소비자가 확인할 것 (스키마가 강제하지 못함).**
+
+- `received_at`은 플랫폼이 받은 순간 덮어쓴다. 생산자 값은 버린다.
+- 판정의 `plan_id` · `state` · `weight_target` · `observe_from`은 요청이나 창에서 가져오지 않고, 인증된 현재 계획과 상태 머신이 기록한 현재 단계(상태 DB)에서 가져온다. 다른 계획의 창은 `PLAN_MISMATCH`로 판정에 쓰지 않는다(J23). 판정 기록의 값이 현재 계획 · 단계와 다르면 그 판정의 조치를 실행하지 않는다.
+- 같은 `(plan_id, window.start)`의 창은 한 번만 받는다. 판정은 `window.end`가 가장 늦은 창으로 하고, 이미 판정한 창보다 이른 창은 쓰지 않는다. 오래된 정상 창을 다시 보내 장애를 가리지 못하게 한다.
+- 창 수신 경로는 부하 생성기 주체만 쓸 수 있다(6절).
+- 판정 기록의 `profile`이 가리키는 기준 프로필을 실제로 적용했는지, 판정을 다시 계산해 같은지 확인한다.
+
+## 4. 창 요약 생산 규칙 (T18)
+
+- 모든 요청은 Edge 주소로 보낸다. 출발지 · 목적지 주소로 직접 보내지 않는다.
+- 응답 헤더 `X-Bravo-Env`로 처리한 환경을 센다. 값은 데모 앱의 `APP_ENV`이고, 어느 값이 출발지 · 목적지인지는 계획에 등록한 환경으로 정한다. 데모 앱은 지금 `/api/info`로만 환경을 알려 주므로 헤더 추가가 필요하다(8절 제안). 등록되지 않은 값은 `unattributed.other`다.
+- 분류:
+  - 헤더가 있는 응답: 해당 환경의 `requests`. 그중 5xx는 `http_5xx`, 409는 `integrity_conflict`. 409를 뺀 4xx는 클라이언트 쪽 문제라 오류로 세지 않는다.
+  - 헤더가 없는 응답(Edge 오류 페이지 등)은 `unattributed.other`, 클라이언트 시간 초과는 `unattributed.timeout`, 연결 실패는 `unattributed.connect`. 모두 오류다. 헤더 없는 정상 응답도 환경을 증명하지 못하므로 오류로 센다.
+- `p95_ms`는 그 환경 응답 전체(5xx 포함)의 지연이다. 계산은 nearest-rank: 오름차순 정렬에서 ⌈0.95 × n⌉번째 값(보간하지 않음). 요청이 0건이면 `null`.
+- 창은 `window_seconds` 길이로 겹치지 않게 이어서 낸다. 창 경계는 생산자의 단조 시계로 자르고 RFC 3339로 적는다.
+- 요청 ID · 채팅 본문 · 사용자 값은 창 요약에 넣지 않는다. 개별 기록은 T18의 대조 리포트에만 둔다.
+- 요청은 응답을 받은 시각의 창에 센다. 보낸 시각으로 세면 시간 초과가 끝날 때까지 창을 닫지 못한다. 재시도는 시도마다 한 건이다.
+- 비어 있는 창도 내고, 끝나지 않은 마지막 창은 내지 않는다. 창 경계와 전달은 [`services/loadgen`](../../services/loadgen/README.md)이, 창 내용은 `build_window`가 맡는다.
+
+## 5. 기준 프로필
+
+`demo-shift` v1의 값과 근거는 [`threshold-profiles.json`](threshold-profiles.json)의 `basis`에 있다. `status: proposed`는 실측 전 제안값이라는 뜻이다. 특히 `p95_ms_max`는 8.6에 따라 T8의 클라우드 간 지연 실측으로 정한다. 값을 바꾸면 `version`을 올리고, 판정 기록은 자기가 쓴 버전을 담는다. 실측으로 확정하면 `status: measured`와 실측 기록 위치를 `basis`에 적는다.
+
+## 6. 관측 데이터의 보안 규칙
+
+- **수신 경로를 좁힌다.** 창 요약과 OTLP 수신은 플랫폼에서 Tailscale ACL로 부하 생성기 · Collector 태그만 허용한다.
+- **환경 이름은 앱이 아니라 수집 경로가 붙인다.** 서버 지표의 환경 속성은 각 클러스터 Collector 설정이 덮어쓴다(T37). 앱이 다른 환경을 사칭할 수 없게 한다.
+- **비밀 · 개인정보를 넣지 않는다.** 심사위원이 쓴 채팅 본문, `Authorization` 헤더, 관리 토큰, SQL 파라미터는 지표 · 로그 · 트레이스 속성에 넣지 않는다. Collector에서 허용 목록 방식으로 걸러 내고, SEC-01.3의 카나리 검색이 관측 저장소에서도 0건인지 확인한다.
+- **리허설 네임스페이스에는 관측용 송신 예외를 열지 않는다**(ADR-0002). 리허설 결과는 지금처럼 플랫폼이 수거한다.
+
+## 7. 콘솔 표시 규칙 (T21에 제안)
+
+- 숫자마다 수집 시각을 붙이고, `STALE` · `MISSING`이면 숫자 대신 "확인 불가"로 표시한다.
+- 판정은 `SliJudgement` 그대로 보여 준다: 판정, 사유, 조치, 쓴 창, 기준 프로필 버전.
+- 미리 실행한 기록을 보여 줄 때는 "기록" 표시를 붙여 실시간 값과 구분한다(킥오프 자료 p.35: 목업은 목업임을 알 수 있게 발표).
+- 쓰기 공백은 Executor의 `write_pause_ms`(공식)와 T18의 쓰기 응답 최대 간격(체감)을 나란히 보인다.
+
+## 8. 접점과 협의할 것
+
+이 문서는 T36의 계약이다. 다른 작업의 구현이나 문서는 바꾸지 않았고, 아래는 각 담당과 협의할 제안이다.
+
+| 상대 | 제안 |
+|---|---|
+| T18 부하 생성기 (김태현) | 4절 규칙으로 `SliWindow`를 10초마다 플랫폼에 보낸다. 쓰기 응답 최대 간격을 실행 요약에 추가한다 |
+| T17 Edge (류지환) | "단계 판정"에 기준 구현 `bravo_observability.judge`를 그대로 쓴다(판정 코드를 한 벌로 유지). 따로 구현하면 `contract-cases.json`을 단위 시험으로 쓴다. 측정한 가중치 반영 시간으로 `unknown_limit`을 확정한다 |
+| T10 상태 머신 (류지환) | 판정마다 `SliJudgement`를 상태 DB와 감사 로그(T24)에 저장한다. 이벤트 계약 v1의 5종에 판정 · 알림을 담을 종류가 없으므로 `observation.judged` 추가를 제안한다 |
+| T21 콘솔 | 7절 |
+| T22 데모 앱 v1 | 모든 HTTP 응답에 `X-Bravo-Env` 헤더 |
+| T8 복제 경로 (김태현) | 클라우드 간 쓰기 지연 실측값으로 `p95_ms_max` 확정 |
+| T34 감사 로그 수집 | 목적지에 Collector를 하나만 둔다: 로그 파이프라인(T34)과 지표 파이프라인(T37)을 같은 DaemonSet에 둘지 결정 |
+
+## 9. 검증
+
+기준 구현 [`services/observability`](../../services/observability/)의 시험이 계약 시험 전체(판정 25건, 스키마 거부 8건)와 창 요약 생성 규칙을 돌린다. 이 디렉터리의 계약 파일이 바뀌면 CI가 전체 검사를 선택하므로 사례와 규칙이 어긋나면 PR에서 실패한다. 판정 규칙 두 개(늦게 도착한 창 거부, 환경별 오류율)를 일부러 빼면 J21 · J24가 실패하는 것을 확인했다. 판정을 구현하는 쪽(T17)이 기준 구현을 쓰거나 이 사례들을 통과하는 것이 완료 확인이다.

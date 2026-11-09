@@ -1,0 +1,114 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-sink-down-cd4e2a",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-03T16:57:43.536905+00:00",
+  "target": "http://127.0.0.1:50734",
+  "measurement": {
+    "path": "local-direct",
+    "edge_measured": false
+  },
+  "journal_sha256": "3eed27e628415fca3269097e59325b63e448baddd8ad5b6eb553a8acbd9e0b8c",
+  "verdict": "PASS",
+  "reasons": [],
+  "warnings": [
+    "NOT_EDGE_MEASURED",
+    "ENV_HEADER_MISSING",
+    "WINDOW_DELIVERY_FAILED"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 12.0,
+    "target_write_rps": 10.0,
+    "target_read_rps": 10.0,
+    "achieved_write_rps": 10.0,
+    "achieved_read_rps": 10.0,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 60,
+    "scheduler_lag_ms": {
+      "p95": 2.726,
+      "max": 27.675
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 120,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 7.913
+    },
+    "read": {
+      "attempts": 120,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 6.43
+    }
+  },
+  "http_error_rate": 0.0,
+  "contract_error_rate": 1.0,
+  "p95_ms": 7.795,
+  "env_header": {
+    "responses": 240,
+    "responses_without_header": 240,
+    "registered_values": {},
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "PASS",
+    "reasons": [],
+    "nfr2": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 120,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 0,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 120,
+      "attempts": 120,
+      "retried": 0,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 1,
+    "samples": {}
+  },
+  "write_gap": {
+    "max_ms": 127.772,
+    "from_s": 4.10827,
+    "to_s": 4.236042,
+    "position": "between",
+    "acks": 120
+  },
+  "lock_probe": null,
+  "windows": {
+    "emitted": 1,
+    "requests_in_windows": 200,
+    "tail_requests_not_in_a_window": 40,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 1,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 0,
+      "target": 0
+    },
+    "unattributed_total": {
+      "timeout": 0,
+      "connect": 0,
+      "other": 200
+    }
+  }
+}

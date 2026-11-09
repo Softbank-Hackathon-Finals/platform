@@ -1,0 +1,8 @@
+{
+  "run_id": "synthetic-ci-example",
+  "source_sha": "1111111111111111111111111111111111111111",
+  "failure_code": "DB_CONNECTION_FAILED",
+  "summary": "Synthetic example: destination DB host must come from the injected DB_HOST environment variable. If DB_HOST is absent, fail closed instead of using a localhost or other default.",
+  "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "stage": "REHEARSE"
+}

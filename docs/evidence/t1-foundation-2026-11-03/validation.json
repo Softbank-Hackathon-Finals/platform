@@ -1,0 +1,50 @@
+{
+  "implementation_commit": "e8f534d27e46380e9029718dda2f8497284c78c2",
+  "terraform": "1.16.5",
+  "aws_provider": "6.71.0",
+  "local": {
+    "terraform_fmt": "PASS",
+    "terraform_validate": "PASS (both roots)",
+    "terraform_tests": {
+      "passed": 6,
+      "failed": 0
+    },
+    "ruff": "PASS",
+    "actionlint": "PASS (1.7.7)",
+    "gitleaks": "PASS (8.24.3, full history)",
+    "trivy_config": "PASS (HIGH/CRITICAL)"
+  },
+  "live": {
+    "temporary_network_cycles": [
+      {
+        "state": "local",
+        "created": 32,
+        "destroyed": 32
+      },
+      {
+        "state": "S3",
+        "created": 32,
+        "destroyed": 32
+      }
+    ],
+    "pilot_network": {
+      "created": 32,
+      "readback_checks": 25,
+      "drift_plan_exit": 0,
+      "retained_for_owner": true
+    },
+    "state_backend": {
+      "created": 7,
+      "retained_for_owner": true
+    },
+    "concurrent_state_access": "second plan rejected while first apply held lock; first apply cancelled before execution"
+  },
+  "not_claimed": [
+    "packet forwarding tests",
+    "Flow Logs event delivery",
+    "EKS or RKE2 workload",
+    "application E2E",
+    "GCP integration",
+    "team member login or delivery"
+  ]
+}

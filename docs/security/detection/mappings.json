@@ -501,7 +501,8 @@
       }
     ]
   },
-  "falco_resolve": {
-    "silent_hours": 24
+  "falco_lifecycle": {
+    "automatic_silence_resolution": false,
+    "closure_requires": "verified remediation or separately authorized incident closure; not implemented by T33"
   }
 }

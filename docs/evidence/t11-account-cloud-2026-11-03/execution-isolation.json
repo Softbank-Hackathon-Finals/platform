@@ -1,0 +1,21 @@
+{
+  "ssm_command_id_sha256": "c662be8f89908f7c8c3b406fa5e67513cda0fa334d38c6433d10bc6c757739d6",
+  "observed_at": "2026-11-03T08:39:09.567Z",
+  "properties": {
+    "RuntimeMaxUSec": "15min",
+    "Result": "exit-code",
+    "CPUQuotaPerSecUSec": "1s",
+    "MemoryMax": "1073741824",
+    "DynamicUser": "yes",
+    "PrivateTmp": "yes",
+    "PrivateDevices": "yes",
+    "ProtectHome": "yes",
+    "ProtectSystem": "strict",
+    "NoNewPrivileges": "yes",
+    "KillMode": "control-group",
+    "ActiveState": "failed"
+  },
+  "auth_file_count_in_run_directory": 0,
+  "auth_file_absence_during_process": true,
+  "observed_by": "worker assertion and host readback"
+}

@@ -20,6 +20,11 @@ out/
 *.tfstate
 *.tfstate.*
 *.tfplan
+backend.local.tf
+*.backend.json
+*.tfbackend
+*.backend.hcl
+evidence.local.json
 crash.log
 
 # Helm
@@ -36,5 +41,23 @@ charts/*/charts/
 .env.*
 !.env.example
 # 로컬 전용 변수 (계정 ID · 이메일 등). 예시 파일만 커밋한다
-*.auto.tfvars
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
 !*.auto.tfvars.example
+# 검토된 팀 예산 정책: 비밀값 없이 금액·환율 기준만 포함한다.
+!/infra/envs/cost-aws/policy.auto.tfvars.json
+
+# 운영자 인증과 비공개 협업 자료. 공통 설정·공개 증빙은 계속 추적한다.
+.aws/
+.kube/
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+!kubeconfig.example
+!*.kubeconfig.example
+.codex/auth.json
+.claude/.credentials.json
+/.bravo/
+/.collab/

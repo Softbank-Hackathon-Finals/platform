@@ -1,0 +1,130 @@
+{
+  "note": "SSM times identify operator execution or receipt retrieval, not Job benchmark duration. Source hashes explicitly preserve executed variants. cleanup later gained terminal-condition guarding covered by local tests; it does not retroactively change its cloud receipt.",
+  "operations": [
+    {
+      "operation": "mount2",
+      "source_file": "infra/envs/platform-data/mount_volume.py",
+      "executed_source_sha256": "7531e2f9ad090907928e8bd0c9143e5e47b371cc198701c5918e235a8adc977c",
+      "final_source_sha256": "7531e2f9ad090907928e8bd0c9143e5e47b371cc198701c5918e235a8adc977c",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T10:54:44.084Z",
+      "ssm_execution_finished_at": "2026-11-03T10:54:45.084Z",
+      "private_output_sha256": "4d410119620b45a0d66740f2ab9f4c765d92c0a3fb9a321c67c4068bc927153e"
+    },
+    {
+      "operation": "operator",
+      "source_file": "infra/envs/platform-data/apply_host.py",
+      "executed_source_sha256": "d4dc2bb96a364ff0cf5deafbd355b18c5e7d954fb7dc858d9b689d9b1338aae0",
+      "final_source_sha256": "fdc873f60356dda332267dea87c41cd7abeb0afd820f9a1ad85fdba6b3ef6662",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T10:55:07.505Z",
+      "ssm_execution_finished_at": "2026-11-03T10:55:08.505Z",
+      "private_output_sha256": "99de114f823912c55b5eff134c98d351647a96a7a2197b9c24d928ce69411a1d"
+    },
+    {
+      "operation": "database",
+      "source_file": "infra/envs/platform-data/apply_host.py",
+      "executed_source_sha256": "fdc873f60356dda332267dea87c41cd7abeb0afd820f9a1ad85fdba6b3ef6662",
+      "final_source_sha256": "fdc873f60356dda332267dea87c41cd7abeb0afd820f9a1ad85fdba6b3ef6662",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T10:56:38.442Z",
+      "ssm_execution_finished_at": "2026-11-03T10:56:41.442Z",
+      "private_output_sha256": "dcf67ccf0c42fe442e3f07575c836a3c10f076fc20930719d69a9be933949964"
+    },
+    {
+      "operation": "database-final",
+      "source_file": "infra/envs/platform-data/apply_host.py",
+      "executed_source_sha256": "fdc873f60356dda332267dea87c41cd7abeb0afd820f9a1ad85fdba6b3ef6662",
+      "final_source_sha256": "fdc873f60356dda332267dea87c41cd7abeb0afd820f9a1ad85fdba6b3ef6662",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T11:08:29.949Z",
+      "ssm_execution_finished_at": "2026-11-03T11:08:31.949Z",
+      "private_output_sha256": "dcf67ccf0c42fe442e3f07575c836a3c10f076fc20930719d69a9be933949964",
+      "payload_sha256": "550191776126a08413fbdab8bc16df1904776bdfc019c84bfb541ec9d32a0ca6"
+    },
+    {
+      "operation": "read-initial",
+      "source_file": "infra/envs/platform-data/run_probe_host.py",
+      "executed_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "final_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T10:58:58.140Z",
+      "ssm_execution_finished_at": "2026-11-03T10:58:58.140Z",
+      "private_output_sha256": "a962becef91f1fe86a5a6f66fdef64aa9e9e3f64fc26b770c776b00b1fa886c7"
+    },
+    {
+      "operation": "restart",
+      "source_file": "infra/envs/platform-data/run_probe_host.py",
+      "executed_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "final_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T10:59:51.555Z",
+      "ssm_execution_finished_at": "2026-11-03T11:00:06.555Z",
+      "private_output_sha256": "b9416e05aa92b065d81d5aee3de4f634e6a2f921e6910d94eb9b99b4d68ef5fd"
+    },
+    {
+      "operation": "recovery-read",
+      "source_file": "infra/envs/platform-data/run_probe_host.py",
+      "executed_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "final_source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T11:01:31.955Z",
+      "ssm_execution_finished_at": "2026-11-03T11:01:31.955Z",
+      "private_output_sha256": "557189163a39c8d9092e7caa901288ae495c9c4c1c43437db977e2602bc903cc",
+      "payload_sha256": "7ad559a496b9664e60d822f6aaf74aa710cb1173d50a73a2ef6d67b17c06d05f"
+    },
+    {
+      "operation": "platform-isolation",
+      "source_file": "infra/envs/platform-data/verify_platform_host.py",
+      "executed_source_sha256": "30340ac9a66448cf628478e337ce57427b45c102a0073eee0c8fa434c16c4e44",
+      "final_source_sha256": "30340ac9a66448cf628478e337ce57427b45c102a0073eee0c8fa434c16c4e44",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T11:01:33.760Z",
+      "ssm_execution_finished_at": "2026-11-03T11:01:55.760Z",
+      "private_output_sha256": "19a4215c3766d22cb4cdad6c2513ac76a21236c0c4de0d1c5558f37822a32d57",
+      "payload_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "operation": "cleanup",
+      "source_file": "infra/envs/platform-data/cleanup_probes.py",
+      "executed_source_sha256": "9ae0e9d973c6b8c1fd64d5a9353dc95ed6e4aad1d025143b20b0e7f2aa5091c2",
+      "final_source_sha256": "d23ed2cabafa8387acaf77ca3298fdc95ef2ccbbc905c060db49aa872ea6f7ce",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T11:17:14.867Z",
+      "ssm_execution_finished_at": "2026-11-03T11:17:14.867Z",
+      "private_output_sha256": "bacc1830ccff80f421ba1a99934d4a166f209f4423ea2e3d8ab697bf9cb5b6db",
+      "payload_sha256": "0853a6d510b337456c7911bbee935ef0b38cd0fc56d1fd30e95e07dcfc6b15e8"
+    },
+    {
+      "operation": "permanent-path",
+      "source_file": "infra/envs/platform-data/verify_runtime_path.py",
+      "executed_source_sha256": "4875045fcce37f0050683c1ebf54aa4b574581096b3a910ed2ba7207b8b73b1b",
+      "final_source_sha256": "4875045fcce37f0050683c1ebf54aa4b574581096b3a910ed2ba7207b8b73b1b",
+      "submitted_source_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "ssm_execution_started_at": "2026-11-03T11:18:11.366Z",
+      "ssm_execution_finished_at": "2026-11-03T11:18:16.366Z",
+      "private_output_sha256": "3ad2b22dc896047a25a53cee95c3b2eff7d7199baa5a2eb48922ee859926b44b",
+      "payload_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ]
+}

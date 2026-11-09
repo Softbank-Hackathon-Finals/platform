@@ -1,0 +1,162 @@
+{
+  "at": "2026-11-03T04:36:58.387026+00:00",
+  "account": "REDACTED-1953",
+  "region": "ap-northeast-2",
+  "name": "bravo-foundation",
+  "checks": [
+    {
+      "check": "two available VPCs",
+      "passed": true
+    },
+    {
+      "check": "peering active",
+      "passed": true
+    },
+    {
+      "check": "DNS resolution both directions",
+      "passed": true
+    },
+    {
+      "check": "four private subnets",
+      "passed": true
+    },
+    {
+      "check": "platform has two AZs",
+      "passed": true
+    },
+    {
+      "check": "platform peer route only",
+      "passed": true
+    },
+    {
+      "check": "platform all subnets use peer route table",
+      "passed": true
+    },
+    {
+      "check": "platform default SG closed",
+      "passed": true
+    },
+    {
+      "check": "source has two AZs",
+      "passed": true
+    },
+    {
+      "check": "source peer route only",
+      "passed": true
+    },
+    {
+      "check": "source all subnets use peer route table",
+      "passed": true
+    },
+    {
+      "check": "source default SG closed",
+      "passed": true
+    },
+    {
+      "check": "source_api ingress from platform only",
+      "passed": true
+    },
+    {
+      "check": "source_api cannot initiate outbound traffic",
+      "passed": true
+    },
+    {
+      "check": "source_db ingress from platform only",
+      "passed": true
+    },
+    {
+      "check": "source_db cannot initiate outbound traffic",
+      "passed": true
+    },
+    {
+      "check": "platform denies inbound and only reaches two source ports",
+      "passed": true
+    },
+    {
+      "check": "flow logs active for both VPCs",
+      "passed": true
+    },
+    {
+      "check": "EC2 resources carry component tags",
+      "passed": true
+    },
+    {
+      "check": "RESOURCE_NAME_001 retention and encryption",
+      "passed": true
+    },
+    {
+      "check": "RESOURCE_NAME_001 component tag",
+      "passed": true
+    },
+    {
+      "check": "RESOURCE_NAME_002 retention and encryption",
+      "passed": true
+    },
+    {
+      "check": "RESOURCE_NAME_002 component tag",
+      "passed": true
+    },
+    {
+      "check": "log role component tag",
+      "passed": true
+    },
+    {
+      "check": "log key component tag",
+      "passed": true
+    }
+  ],
+  "resources": {
+    "account_id": "REDACTED-1953",
+    "flow_log_ids": [
+      "fl-02bcac2cc1b75d518",
+      "fl-0e0a12a489e02a47f"
+    ],
+    "log_groups": [
+      "RESOURCE_NAME_001",
+      "RESOURCE_NAME_002"
+    ],
+    "log_kms_key_id": "REDACTED_KMS_RESOURCE_ID",
+    "name": "bravo-foundation",
+    "peering_id": "AWS_RESOURCE_001",
+    "region": "ap-northeast-2",
+    "route_tables": {
+      "platform": "AWS_RESOURCE_002",
+      "source": "AWS_RESOURCE_003"
+    },
+    "security_groups": {
+      "platform_control": "verified-resource-id-omitted",
+      "source_api": "verified-resource-id-omitted",
+      "source_db": "verified-resource-id-omitted"
+    },
+    "subnets": {
+      "platform-0": {
+        "az": "ap-northeast-2a",
+        "id": "AWS_RESOURCE_005"
+      },
+      "platform-1": {
+        "az": "ap-northeast-2c",
+        "id": "AWS_RESOURCE_007"
+      },
+      "source-0": {
+        "az": "ap-northeast-2a",
+        "id": "AWS_RESOURCE_004"
+      },
+      "source-1": {
+        "az": "ap-northeast-2c",
+        "id": "AWS_RESOURCE_006"
+      }
+    },
+    "vpcs": {
+      "platform": {
+        "cidr": "10.81.0.0/16",
+        "id": "AWS_RESOURCE_008"
+      },
+      "source": {
+        "cidr": "10.80.0.0/16",
+        "id": "AWS_RESOURCE_009"
+      }
+    }
+  },
+  "scope": "AWS configuration readback after real Terraform apply; no app, packet, EKS or GCP integration claim",
+  "implementation_commit": "e8f534d27e46380e9029718dda2f8497284c78c2"
+}

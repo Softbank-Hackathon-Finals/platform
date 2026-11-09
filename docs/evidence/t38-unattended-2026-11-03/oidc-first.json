@@ -1,0 +1,224 @@
+{
+  "denied": {
+    "arbitrary_shell": true,
+    "secret_inventory": true
+  },
+  "runs": [
+    {
+      "state": "PROPOSAL_READY",
+      "exit_code": 0,
+      "result": {
+        "run_id": "synthetic-ci-example",
+        "source_sha": "1111111111111111111111111111111111111111",
+        "attempt": 1,
+        "state": "PROPOSAL_READY",
+        "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host should come from the injected environment.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+        "proposal": {
+          "schema_version": 1,
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "rationale": "The approved snapshot hardcodes DB_HOST to localhost, ignoring the injected destination DB host described in the failure. Read DB_HOST from the environment, retaining localhost as the existing default when the variable is absent. This correction is limited to src/config.py; it has not been executed or verified.",
+          "risk": "low",
+          "edits": [
+            {
+              "path": "src/config.py",
+              "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+              "replacement": "import os\n\nDB_HOST = os.environ.get(\"DB_HOST\", \"localhost\")\n"
+            }
+          ]
+        },
+        "proposal_digest": "501033b2d2554244d4e3eb38fee4cc87676e84904ff2e4520846c77fd3b80415",
+        "attempts": [
+          {
+            "attempt": 1,
+            "input": {
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "failure_code": "DB_CONNECTION_FAILED",
+              "summary": "Synthetic example: destination DB host should come from the injected environment.",
+              "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "stage": "REHEARSE"
+            },
+            "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+            "state": "PROPOSAL_READY",
+            "model_usage": {
+              "provider": "chatgpt_plan",
+              "model": "gpt-6.1-sol",
+              "requests": 2,
+              "total_tokens": 1573
+            },
+            "audit_event_count": 3,
+            "audit_truncated": false,
+            "proposal": {
+              "schema_version": 1,
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "rationale": "The approved snapshot hardcodes DB_HOST to localhost, ignoring the injected destination DB host described in the failure. Read DB_HOST from the environment, retaining localhost as the existing default when the variable is absent. This correction is limited to src/config.py; it has not been executed or verified.",
+              "risk": "low",
+              "edits": [
+                {
+                  "path": "src/config.py",
+                  "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+                  "replacement": "import os\n\nDB_HOST = os.environ.get(\"DB_HOST\", \"localhost\")\n"
+                }
+              ]
+            },
+            "proposal_digest": "501033b2d2554244d4e3eb38fee4cc87676e84904ff2e4520846c77fd3b80415"
+          }
+        ],
+        "audit": [
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "repo.read",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "path": "src/config.py",
+            "content_digest": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "plan.propose",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "proposal_digest": "501033b2d2554244d4e3eb38fee4cc87676e84904ff2e4520846c77fd3b80415"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "model",
+            "outcome": "COMPLETED",
+            "reason": "PROPOSAL_COLLECTED"
+          }
+        ]
+      },
+      "runtime_source_sha": "f8d75ce228dcabddf59ad1f31b70e509d33af9ad",
+      "credential_rotated": false,
+      "access_rotated": false,
+      "refresh_rotated": false,
+      "registration_reused": true,
+      "subject_reused": true,
+      "active_after": true,
+      "uid_nonroot": true,
+      "expires_at_increased": false
+    },
+    {
+      "state": "PROPOSAL_READY",
+      "exit_code": 0,
+      "result": {
+        "run_id": "synthetic-ci-example",
+        "source_sha": "1111111111111111111111111111111111111111",
+        "attempt": 1,
+        "state": "PROPOSAL_READY",
+        "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host should come from the injected environment.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+        "proposal": {
+          "schema_version": 1,
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "rationale": "The approved snapshot hardcodes DB_HOST to localhost, whereas the failure summary states the destination host must come from the injected environment. Read DB_HOST from the environment and require it to be present, avoiding an unintended localhost fallback. This proposal has not been executed or verified; independent T15 verification and human approval are required.",
+          "risk": "low",
+          "edits": [
+            {
+              "path": "src/config.py",
+              "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+              "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+            }
+          ]
+        },
+        "proposal_digest": "d9d45b76e6eee27242f77cf97a2ddf082d70fce10a4586209bd035fd7044f730",
+        "attempts": [
+          {
+            "attempt": 1,
+            "input": {
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "failure_code": "DB_CONNECTION_FAILED",
+              "summary": "Synthetic example: destination DB host should come from the injected environment.",
+              "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "stage": "REHEARSE"
+            },
+            "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+            "state": "PROPOSAL_READY",
+            "model_usage": {
+              "provider": "chatgpt_plan",
+              "model": "gpt-6.1-sol",
+              "requests": 2,
+              "total_tokens": 1504
+            },
+            "audit_event_count": 3,
+            "audit_truncated": false,
+            "proposal": {
+              "schema_version": 1,
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "rationale": "The approved snapshot hardcodes DB_HOST to localhost, whereas the failure summary states the destination host must come from the injected environment. Read DB_HOST from the environment and require it to be present, avoiding an unintended localhost fallback. This proposal has not been executed or verified; independent T15 verification and human approval are required.",
+              "risk": "low",
+              "edits": [
+                {
+                  "path": "src/config.py",
+                  "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+                  "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+                }
+              ]
+            },
+            "proposal_digest": "d9d45b76e6eee27242f77cf97a2ddf082d70fce10a4586209bd035fd7044f730"
+          }
+        ],
+        "audit": [
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "repo.read",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "path": "src/config.py",
+            "content_digest": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "plan.propose",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "proposal_digest": "d9d45b76e6eee27242f77cf97a2ddf082d70fce10a4586209bd035fd7044f730"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "model",
+            "outcome": "COMPLETED",
+            "reason": "PROPOSAL_COLLECTED"
+          }
+        ]
+      },
+      "runtime_source_sha": "f8d75ce228dcabddf59ad1f31b70e509d33af9ad",
+      "credential_rotated": false,
+      "access_rotated": false,
+      "refresh_rotated": false,
+      "registration_reused": true,
+      "subject_reused": true,
+      "active_after": true,
+      "uid_nonroot": true,
+      "expires_at_increased": false
+    }
+  ]
+}

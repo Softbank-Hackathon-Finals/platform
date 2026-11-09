@@ -1,0 +1,22 @@
+{
+  "implementation_commit": "d0a9165fe4ae0b1acc6e9b8042cdf95a951c6658",
+  "terraform": "1.16.5",
+  "aws_provider": "6.71.0",
+  "local": {
+    "fmt": "PASS",
+    "validate_roots_and_module": 3,
+    "module_tests_passed": 6,
+    "module_tests_failed": 0,
+    "ruff": "PASS",
+    "trivy_HIGH_CRITICAL": "PASS"
+  },
+  "aws": {
+    "state_addresses_moved": 32,
+    "resource_creates": 0,
+    "resource_updates": 0,
+    "resource_deletes": 0,
+    "readback_checks": 25,
+    "drift_exit": 0
+  },
+  "historical_source": "source-sha256.json"
+}

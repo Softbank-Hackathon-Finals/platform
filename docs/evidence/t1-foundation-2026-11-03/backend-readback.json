@@ -1,0 +1,13 @@
+{
+  "implementation_commit": "e8f534d27e46380e9029718dda2f8497284c78c2",
+  "bucket_versioning": "Enabled",
+  "public_access_block": {
+    "BlockPublicAcls": true,
+    "IgnorePublicAcls": true,
+    "BlockPublicPolicy": true,
+    "RestrictPublicBuckets": true
+  },
+  "bootstrap_state_encryption": "aws:kms",
+  "bootstrap_state_version_exists": true,
+  "bucket_component": "state"
+}

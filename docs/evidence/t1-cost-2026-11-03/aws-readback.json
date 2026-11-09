@@ -1,0 +1,185 @@
+{
+  "date": "2026-11-03",
+  "budget": {
+    "verified_at": "2026-11-03T05:40:05.114186+00:00",
+    "checks_passed": [
+      "monthly USD funding",
+      "account-wide guard",
+      "unblended net costs",
+      "three thresholds",
+      "ACTUAL 100.0 comparison",
+      "ACTUAL 100.0 owner recipient",
+      "ACTUAL 80.0 comparison",
+      "ACTUAL 80.0 owner recipient",
+      "FORECASTED 100.0 comparison",
+      "FORECASTED 100.0 owner recipient",
+      "component allocation active"
+    ],
+    "budget_name": "bravo-platform-monthly-guard",
+    "limit_usd": "372.32",
+    "monthly_budget_krw": 500000,
+    "fx_date": "2026-11-02",
+    "scope": "account",
+    "cost_allocation_tags": {
+      "component": "Active"
+    },
+    "recipient_status": "active",
+    "notification_delivery_tested": false
+  },
+  "foundation": {
+    "checked_at": "2026-11-03T05:33:58.694503+00:00",
+    "checks": [
+      {
+        "check": "two available VPCs",
+        "passed": true
+      },
+      {
+        "check": "peering active",
+        "passed": true
+      },
+      {
+        "check": "DNS resolution both directions",
+        "passed": true
+      },
+      {
+        "check": "four private subnets",
+        "passed": true
+      },
+      {
+        "check": "platform has two AZs",
+        "passed": true
+      },
+      {
+        "check": "platform peer route only",
+        "passed": true
+      },
+      {
+        "check": "platform all subnets use peer route table",
+        "passed": true
+      },
+      {
+        "check": "platform default SG closed",
+        "passed": true
+      },
+      {
+        "check": "source has two AZs",
+        "passed": true
+      },
+      {
+        "check": "source peer route only",
+        "passed": true
+      },
+      {
+        "check": "source all subnets use peer route table",
+        "passed": true
+      },
+      {
+        "check": "source default SG closed",
+        "passed": true
+      },
+      {
+        "check": "source_api ingress from platform only",
+        "passed": true
+      },
+      {
+        "check": "source_api cannot initiate outbound traffic",
+        "passed": true
+      },
+      {
+        "check": "source_db ingress from platform only",
+        "passed": true
+      },
+      {
+        "check": "source_db cannot initiate outbound traffic",
+        "passed": true
+      },
+      {
+        "check": "platform denies inbound and only reaches two source ports",
+        "passed": true
+      },
+      {
+        "check": "flow logs active for both VPCs",
+        "passed": true
+      },
+      {
+        "check": "EC2 resources carry contract component and project tags",
+        "passed": true
+      },
+      {
+        "check": "/bravo/bravo-foundation/platform/vpc retention and encryption",
+        "passed": true
+      },
+      {
+        "check": "/bravo/bravo-foundation/platform/vpc component tag",
+        "passed": true
+      },
+      {
+        "check": "/bravo/bravo-foundation/source/vpc retention and encryption",
+        "passed": true
+      },
+      {
+        "check": "/bravo/bravo-foundation/source/vpc component tag",
+        "passed": true
+      },
+      {
+        "check": "log role component tag",
+        "passed": true
+      },
+      {
+        "check": "log key component tag",
+        "passed": true
+      }
+    ],
+    "tag_only_updates": 24
+  },
+  "state": {
+    "checks_passed": [
+      "state bucket component/project tags",
+      "state key component/project tags"
+    ],
+    "at": "2026-11-03T05:37:05.397626+00:00",
+    "tag_only_updates": 2
+  },
+  "drift": {
+    "cost-aws": 0,
+    "aws-foundation": 0,
+    "state-backend": 0
+  },
+  "cost_report": {
+    "period": {
+      "start_inclusive": "2026-11-01",
+      "end_exclusive": "2026-11-03"
+    },
+    "tag_status": {
+      "project": "NOT_AVAILABLE",
+      "component": "Active"
+    },
+    "estimated": true,
+    "attribution_complete": false,
+    "component_observed": {
+      "source": false,
+      "platform": false,
+      "target": false
+    },
+    "account_component_observed": {
+      "source": false,
+      "platform": false,
+      "target": false
+    },
+    "account_costs_omitted": true
+  },
+  "validation": {
+    "python_unittest": 15,
+    "terraform_network_mock_runs": 6,
+    "terraform_cost_mock_runs": 6,
+    "terraform_validate_roots": 3,
+    "trivy_high_critical_findings": 0
+  },
+  "receipt_sha256": {
+    "budget-verify.json": "5342e43744937d8ced92559569cd9acac7649671ca81ed610ea4e66bc932f973",
+    "foundation-verify.json": "3ac353c90d955a5dd781da1eeb7ecc74ad5c8e574b96a74704f334c48f4d0741",
+    "state-verify.json": "af7e845f242526ec88252ab31eb2eaa980e624fb7ce5a7bd7a75325576aebca3",
+    "cost-report-after.json": "b837bfb0efbc0935241638b2ba1beb10d1618a37c2500bd7966f5d0834362c43",
+    "ecb.xml": "5cc7cae84d633364ebbf287abfcf6dba938ace162bf17005b9dcebe7eaab7087"
+  }
+}

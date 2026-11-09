@@ -53,7 +53,7 @@
  │  커서(마지막 갱신 시각) · 페이지 · 재시도 · 수집 상태 기록                                         │
  └───────────────────────────────────────────────┬──────────────────────────────────────────────────┘
                                                  ▼
-                         정규화기 (결정적, LLM 미사용)  ── 원본은 마스킹 후 따로 보관
+                         정규화기 (결정적, LLM 미사용)  ── 허용 필드만 최소화·마스킹 후 보관
                                                  ▼
                          저장 (탐지 결과 · 수집 상태 · 탐지 능력)  ── 출처 + 환경 + 원본 ID로 upsert
                                                  ▼
@@ -86,7 +86,7 @@
 | 필드 | 내용 |
 |---|---|
 | `class_uid`, `severity_id`, `status_id`, `time` | OCSF 공통. 심각도 · 상태는 아래 매핑 표로 정한다 |
-| `finding_info.uid` | 출처의 원본 ID. `(source, environment_id, uid)`가 upsert 키. 실행마다 바뀌지 않아야 한다(T5 결과는 `환경/시험 ID`) |
+| `finding_info.uid` | 마스킹 전 출처·환경·원본 ID의 해시. `normalizer_version=2`. 실행마다 바뀌지 않는 ID를 사용한다 |
 | `finding_info.title`, `finding_info.types[]`, `first_seen_time`, `last_seen_time` | 원본에서 그대로 |
 | `resources[]` | 대상 자원(유형 · ID · 이름). 계정 ID 등은 마스킹 규칙(7절) 적용 |
 | `cloud.provider`, `cloud.region`, `cloud.account.uid` | 출처 환경 |
@@ -96,7 +96,7 @@
 | `bravo.category` | 한 화면의 범주: `IAM` 권한 · `ENCRYPTION` 암호화 · `AUDIT` 감사 로그 · `EXPOSURE` 네트워크 노출 · `POLICY` 정책 위반 · `THREAT` 위협 · `VULNERABILITY` 취약점 |
 | `bravo.control_ids[]` | 관련 통제 ID (T5의 SEC-01 등). 없으면 빈 배열 |
 | `bravo.native_url` | 원본 콘솔에서 보는 링크 |
-| `bravo.raw_sha256` | 마스킹한 원본의 해시 (원본 대조용) |
+| `bravo.raw_sha256` | 최소화·마스킹된 출처 투영본의 해시. 원문·서명·출처 진위를 증명하지 않음 |
 
 ### 심각도 매핑 (`severity_id`)
 
@@ -119,7 +119,7 @@ OCSF: 1 New · 2 In Progress · 3 Suppressed · 4 Resolved.
 |---|---|
 | Security Hub | `RecordState` ARCHIVED → 4. 아니면 `Workflow.Status`: NEW 1 · NOTIFIED 2 · SUPPRESSED 3 · RESOLVED 4 |
 | SCC | `state` INACTIVE → 4. ACTIVE이면서 `mute` MUTED → 3, 아니면 1 |
-| Falco | 이벤트라 상태가 없다 → 1. 같은 규칙 · 같은 대상이 정해진 시간(기본 24시간) 다시 안 나오면 4 |
+| Falco | 이벤트라 상태가 없다 → 1. 침묵으로 해결 처리하지 않음. 별도 해결 증거·승인 경로 필요 |
 | Kyverno | 결과 `fail` · `warn` → 1(유지되면 그대로), 같은 정책 · 대상이 `pass`로 바뀌면 4. `skip`은 버리고, `error`는 수집 문제로 본다(7절) |
 | T5 | FAIL · UNKNOWN → 1, 다음 실행에서 PASS → 4 |
 
@@ -171,6 +171,8 @@ Google Cloud     …
 
 ## 7. 프로덕션 요건
 
+구현 보강 계약은 [T33 보안 경계와 운영 인수 조건](detection-hardening.md)을 따른다. 정규화 실패는 영속 보류이며 heartbeat로 해제하지 않는다. 운영 인수 전 미연결 항목도 해당 문서에서 구분한다.
+
 **수집 실패는 "0건"이 아니다.** T5의 UNKNOWN 원칙과 같다.
 
 | 상황 | 화면 표시 |
@@ -183,11 +185,11 @@ Google Cloud     …
 | 영역 | 요건 |
 |---|---|
 | 권한 | 출처마다 읽기 전용 최소 권한. AWS `securityhub:GetFindings`(대체 경로는 `guardduty:ListDetectors` · `ListFindings` · `GetFindings`), Google Cloud SCC 결과 조회 전용 역할, K8s는 `policyreports` · `clusterpolicyreports`의 `get` · `list`만. 플랫폼 장기 키를 두지 않는다(AWS는 역할 위임, Google Cloud는 Workload Identity 연동) |
-| 멱등 · 중복 | `(source, environment_id, finding_info.uid)`로 upsert. 같은 시험을 출발지 · 목적지에서 돌려도 서로 덮어쓰지 않는다. 같은 탐지의 갱신은 덮어쓰고 `last_seen_time`만 늘린다. 환경마다 집계 출처가 하나라 출처 간 중복이 없다 |
+| 멱등 · 중복 | `(source, environment_id, finding_info.uid)`로 upsert. 같은 시험을 출발지 · 목적지에서 돌려도 서로 덮어쓰지 않는다. 오래된 갱신은 무시하고 동일 시각 충돌은 격리·보류한다. 환경마다 집계 출처가 하나라 출처 간 중복이 없다 |
 | 증분 수집 | 출처별 커서(마지막 갱신 시각)를 저장하고 그 이후만 가져온다. 페이지를 끝까지 돈다. 커서는 한 번의 수집이 끝까지 성공했을 때만 전진 |
 | 재시도 | 출처 API의 속도 제한 응답에는 지수 백오프. 실패는 수집 상태에 기록하고 화면에 보인다 |
-| 원본 보관 | 원본은 마스킹한 뒤 별도 테이블에 보관하고 `raw_sha256`으로 잇는다. 접근 키 ID · 토큰 · IP는 일부만 남긴다. 비밀 원문은 저장하지 않는다 |
-| 웹훅 인증 | Falco(falcosidekick) · 온프렘 에이전트 → 플랫폼은 Tailscale 경로 + 환경별 토큰(회전 가능). **미인증 요청은 401이고 화면 상태를 바꾸지 않는다**(로그만). 그렇지 않으면 토큰 없이 칸을 "확인 불가"로 바꿀 수 있다. 진짜 수신이 끊기면 기준 시간 뒤 "오래됨"으로 드러난다 |
+| 원본 보관 | 허용 필드의 투영본만 보관. 자유 서술·명령행·excerpt 제외, 알려진 비밀 패턴 제거. 임의 필드의 모든 비밀 제거를 보장하지 않음 |
+| API 인증 | 모든 데이터 API에 환경·권한·출처·기간 제한 자격 적용. 조회와 수집 분리. 미인증 401, 범위 초과 403. Tailscale만으로 권한 부여하지 않음 |
 | 결정적 처리 | 정규화 · 범주 · 심각도는 규칙 표로만 정한다. LLM은 쓰지 않는다. 요약 · 설명이 필요하면 에이전트 제안 경로(T11)로 따로 붙인다 |
 | 시간 | 모든 시각은 UTC. 출처 시각과 수집 시각을 따로 저장한다 |
 

@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "pytest_exit_code": 0,
+  "tests_passed": 89,
+  "python_version": "3.12.3",
+  "nonroot_verified": true,
+  "source_sha256": {
+    "src/bravo_platform_events/__init__.py": "b8cac0fc14f60759a2637ed97e2d00ae463d1192b267d470afb8b06fd4b4e68b",
+    "src/bravo_platform_events/contract.py": "121ca19facf8aa39ed727caf41267f090ee8b5c6289976171e74c761805508ce",
+    "src/bravo_platform_events/executor.py": "b4af9eb1b4fd3b7c6160afc29bb8ce55f7203921ee8533ae7c332e250c9b287b",
+    "src/bravo_platform_events/schemas/event.schema.json": "d72975b750439b449449e3150dcd59e038f972418c00fe93420644ea0c4290a4",
+    "tests/test_executor.py": "8119c6a7b23d01a5458ef7fc63d30a7b0dd464e6d487004adf91adb9610de73e"
+  },
+  "scope": "existing EC2; isolated non-root process; loopback HTTP fixture",
+  "actual_executor_deployed": false,
+  "operational_database_accessed": false,
+  "kubernetes_resources_changed": false,
+  "cutover_performed": false,
+  "temporary_directory_removed": true,
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "observed_start": "2026-11-03T12:27:56.130Z",
+  "observed_end": "2026-11-03T12:28:04.130Z",
+  "account_boundary_matches": true,
+  "target_owner_boundary_matches": true
+}

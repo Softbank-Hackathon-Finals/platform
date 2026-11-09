@@ -1,21 +1,38 @@
 name: sync-tasks
 
 # 진행 상황의 기준은 보드(이슈)다.
-# - tasks.md가 main에 들어오면(push): 계획(작업 · 할 일 문장 · 우선순위)을 이슈에 반영. 체크 상태는 이슈 것을 유지
-# - 이슈가 바뀌면(issues): 체크 상태로 보드를 옮기고, 체크 · 담당을 tasks.md에 반영하는 PR을 자동 머지
+# - tasks.md가 develop에 들어오면(push): 계획(작업 · 할 일 문장 · 우선순위)을 이슈에 반영. 체크 상태는 이슈 것을 유지
+# - 이슈가 바뀌면(issues): 체크 상태로 보드를 옮기고, 체크 · 담당을 tasks.md에 반영하는 PR을 만들고 리뷰 대기
 # 보드를 옮기면 Slack 채널에 알린다(SLACK_BOT_TOKEN, SLACK_CHANNEL_ID가 있을 때).
 on:
   push:
-    branches: [main]
+    branches: [develop]
     paths: [docs/tasks.md, scripts/sync_tasks.py]
   issues:
     types: [edited, closed, reopened, assigned, unassigned]
+  pull_request_target:
+    branches: [develop]
+    types: [opened, reopened, closed, ready_for_review, converted_to_draft, synchronize, edited, review_requested, review_request_removed]
+  workflow_run:
+    workflows: [pr-review-signal]
+    types: [completed]
+  schedule:
+    - cron: '17,47 * * * *'
   workflow_dispatch:
     inputs:
       command:
         type: choice
-        options: [pull, push]
+        options: [pull, push, status, start, activity, prs, reconcile]
         default: pull
+      task:
+        description: start/activity 명령의 작업 번호 (예 T23). 다른 명령은 비워 둡니다.
+        type: string
+        default: ''
+      activity:
+        description: activity 명령 전용. active는 실제 작업 진행, auto는 PR 기반 상태로 복귀.
+        type: choice
+        options: [active, auto]
+        default: active
       dry-run:
         type: boolean
         default: false
@@ -37,37 +54,59 @@ env:
 
 jobs:
   sync:
+    # Review workflows run from a PR merge commit. Only the default-branch
+    # workflow consumes their completion signal; no PR code or artifacts cross over.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'pull_request_review' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.PROJECT_TOKEN }}
+          # Keep the workflow and script at the same immutable revision.
+          # Automatic events use trusted code; manual dispatch uses the selected revision.
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
       - name: 동기화
         id: sync
         shell: bash  # pipefail: 스크립트가 실패하면 tee 뒤에서도 job이 실패한다
         env:
-          COMMAND: ${{ github.event_name == 'push' && 'push' || inputs.command || 'pull' }}
+          COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'workflow_run') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
+          TASK: ${{ inputs.task || '' }}
+          ACTIVITY: ${{ inputs.activity || 'active' }}
         run: |
-          python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          args=("$COMMAND")
+          if [ "$COMMAND" = start ] || [ "$COMMAND" = activity ]; then
+            if [[ ! "$TASK" =~ ^T[0-9]+$ ]]; then echo "start/activity에는 T번호가 필요합니다" >&2; exit 2; fi
+            args+=("$TASK")
+            if [ "$COMMAND" = activity ]; then
+              if [[ ! "$ACTIVITY" =~ ^(active|auto)$ ]]; then echo "activity는 active/auto만 허용합니다" >&2; exit 2; fi
+              args+=("$ACTIVITY")
+            fi
+          elif [ -n "$TASK" ]; then
+            echo "task 입력은 start/activity에서만 사용합니다" >&2; exit 2
+          fi
+          if [ -n "$DRY" ]; then args+=("$DRY"); fi
+          python3 scripts/sync_tasks.py "${args[@]}" --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -z "$DRY" ] && ! git diff --quiet docs/tasks.md; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
-      - name: tasks.md 반영 PR (자동 머지)
+      - name: tasks.md 반영 PR (리뷰 대기)
         if: steps.sync.outputs.changed == 'true'
         run: |
+          gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c bot/sync-tasks
           git commit -qam "[sync] 보드의 체크 · 담당을 tasks.md에 반영"
           git push -qf origin bot/sync-tasks
           gh pr view bot/sync-tasks --json state -q .state 2>/dev/null | grep -q OPEN \
-            || gh pr create --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
+            || gh pr create --base develop --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
                  --body "이슈의 할 일 체크와 담당을 tasks.md에 반영한다. sync-tasks 워크플로가 만들었다."
-          gh pr merge bot/sync-tasks --auto --squash
+          echo "봇 tasks.md 전용 PR은 현재 보호 규칙과 필수 CI 확인 후 팀원이 머지 버튼으로 반영한다. docs/development.md 참조."
       - name: Slack 테스트 메시지
         if: inputs.slack-test
         run: echo "Slack 연결 테스트 (보드 동기화 알림이 이 채널로 온다)" >> moves.txt
       - name: Slack 알림
-        if: hashFiles('moves.txt') != ''
+        if: hashFiles('moves.txt') != '' && !inputs.dry-run
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           CHANNEL: ${{ vars.SLACK_CHANNEL_ID }}

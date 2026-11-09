@@ -1,0 +1,24 @@
+{
+  "format_version": 1,
+  "source_commit": "e6c06320b07ffaeeb0549803709d97355d37aee6",
+  "files": {
+    "services/platform-events/src/bravo_platform_events/runtime_probe.py": "e8a326fb7205fe57c3e8b9c73a657321443bfb1e74c0d2356b277189095f528a",
+    "services/platform-events/src/bravo_platform_events/postgres.py": "6a19ba6aaacce5b9feaed209192ee0484490d636aa979ebfb586a1e91fe72955",
+    "services/platform-events/src/bravo_platform_events/plans.py": "71ca10540ad76ea87d445db931226df610be901dca216a2ff6beb18f71868a62",
+    "services/platform-events/src/bravo_platform_events/store.py": "9d31d95f7d8d6e8dc3d350cfb3c00e0a0b2d3b9461699b69da98789884fb8550",
+    "services/platform-events/src/bravo_platform_events/contract.py": "121ca19facf8aa39ed727caf41267f090ee8b5c6289976171e74c761805508ce",
+    "services/platform-events/src/bravo_platform_events/schemas/event.schema.json": "d72975b750439b449449e3150dcd59e038f972418c00fe93420644ea0c4290a4",
+    "services/platform-events/uv.lock": "340b14816b7dfa94fc005af4317929cb093c7593db21a565d7190cf892b1ee12",
+    "services/platform-events/sql/bootstrap_roles.sql": "f474e0b4cdb3e618d71e6ad0accd7df4337ee70ed0b5ded90424b499369149ce",
+    "services/platform-events/sql/0001_state_event.sql": "26d2d4291df7e342e6b17110d6f85e998c22aa1f4005ed036baece612fe084a2"
+  },
+  "python_image": "docker.io/library/python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337",
+  "bundle_sha256": "1ff2fdb5ded67265a1eb3a201a74381f369629f04ef858493198cb8787e3261c",
+  "locked_requirements_sha256": "c58c8da1a32127a1340d19be2a59813a70ec85bbe4566c96c4cd71229f29998a",
+  "wrapper_source_sha256": "4c434a0db3b5d32bd7f1c7df67c3ba6a3f7f319c24fbc7ae31c088ef22e11e7a",
+  "host_operator_source_sha256": "c3347c11651d4e6a548e294d2bc077512133a038f4e12cece7d73f70612bf00c",
+  "local_submitter_source_sha256": "4c5150f7ba2154d8673f2c37f6367e96840effd7a63996096444d7422d7d7486",
+  "manifest_builder_source_sha256": "31f1ff419da004b3027e6d8040f6cd60d02b5850ab86b944e82891a18e16ca50",
+  "database_restart_performed": false,
+  "ddl_performed": false
+}

@@ -1,0 +1,22 @@
+{
+  "source_tag": "v1.35.2",
+  "source_commit": "1c494fbc3edacf55e2a1e06df21858c03ff9c457",
+  "source_archive_url": "https://codeload.github.com/kubernetes/cloud-provider-aws/tar.gz/1c494fbc3edacf55e2a1e06df21858c03ff9c457",
+  "source_archive_sha256": "b91b1788104cfc02527f175c519843ee825d2e022aeb6b8dc39074e3df77143a",
+  "go_version": "go1.26.10",
+  "go_linux_amd64_url": "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz",
+  "go_linux_amd64_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+  "target": "linux/amd64",
+  "CGO_ENABLED": "0",
+  "GOAMD64": "v1",
+  "buildvcs": false,
+  "trimpath": true,
+  "dependency_overrides": {
+    "golang.org/x/net": "v0.60.0",
+    "golang.org/x/text": "v0.42.0"
+  },
+  "go_mod_sha256": "9a0081ed5b108989b6c58a2cead2b038c75895a19e6a7bc10bedae7d80fafcf3",
+  "go_sum_sha256": "05246487131e44c34233a9b22509c776e3d3995b56d33ed7c297a715300dd3a7",
+  "binary_sha256": "83c7897cc39d94502189e5412f70f79fa0dbe64cb7b05b74d10bf955b6930f4a",
+  "ldflags": "-w -s -X k8s.io/component-base/version.gitVersion=v1.35.2-bravo.1 -X main.gitVersion=v1.35.2-bravo.1"
+}

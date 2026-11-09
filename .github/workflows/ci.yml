@@ -1,22 +1,53 @@
 name: ci
 
-# PR · main push마다 도는 검사. job 이름(secrets · infra · platform)은 main ruleset의 필수 검사라 바꾸지 않는다.
-# 경로 필터를 두지 않는다. 워크플로가 건너뛰어지면 필수 검사 결과가 오지 않아 머지가 막힌다.
-# 검사할 대상이 없으면 그 단계만 건너뛰고 job은 통과한다.
-# 예외는 레포 루트의 .gitleaks.toml · .trivyignore에 사유 주석과 함께 적는다.
+# Required gates always report. Scope chooses work inside them, never skips the workflow.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   TF_VERSION: "1.16.5"
-# 대상 파일은 git ls-files로 찾는다. 커밋된 파일만 보므로 node_modules · .venv · .terraform은 저절로 빠진다.
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      infra: ${{ steps.plan.outputs.infra }}
+      scripts: ${{ steps.plan.outputs.scripts }}
+      projects: ${{ steps.plan.outputs.projects }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scope regression tests
+        run: python3 -m unittest discover -s scripts/tests -p test_ci_scope.py -v
+      - name: Plan affected checks
+        id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            python3 scripts/ci_scope.py --base "$BASE" > ci-plan.json
+          else
+            python3 scripts/ci_scope.py --full > ci-plan.json
+          fi
+          cat ci-plan.json >> "$GITHUB_STEP_SUMMARY"
+
   secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -37,34 +68,43 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
             detect --source /repo --redact --verbose
+      - name: 공개 파일 개인정보·운영 식별자 검사
+        run: python3 scripts/public_evidence.py check
 
   infra:
+    needs: scope
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require valid scope
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+        run: test "$SCOPE_RESULT" = success
       - uses: actions/checkout@v7
-      - name: 워크플로 문법 (actionlint)
+        if: needs.scope.outputs.infra == 'true'
+      - name: Workflow syntax
+        if: needs.scope.outputs.infra == 'true'
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
-      - name: Dockerfile (hadolint)
+      - name: Dockerfiles
+        if: needs.scope.outputs.infra == 'true'
         run: |
-          mapfile -t files < <(git ls-files ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
-          [ ${#files[@]} -gt 0 ] || { echo "Dockerfile 없음, 건너뜀"; exit 0; }
-          for f in "${files[@]}"; do
-            echo "::group::$f"
-            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f"
-            echo "::endgroup::"
-          done
-      - name: Terraform 파일 확인
+          while IFS= read -r -d '' file; do
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
+          done < <(git ls-files -z ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
+      - name: Terraform directories
         id: tf
+        if: needs.scope.outputs.infra == 'true'
         run: |
           dirs=$(git ls-files ':(glob)**/*.tf' | xargs -r -n1 dirname | sort -u)
-          if [ -z "$dirs" ]; then echo "Terraform 없음, 건너뜀"; exit 0; fi
-          { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          if [ -n "$dirs" ]; then
+            { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          fi
       - if: steps.tf.outputs.dirs != ''
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      - name: Terraform fmt · validate
+      - name: Terraform fmt, validate and mock tests
         if: steps.tf.outputs.dirs != ''
         env:
           DIRS: ${{ steps.tf.outputs.dirs }}
@@ -74,93 +114,90 @@ jobs:
             echo "::group::$d"
             terraform -chdir="$d" init -backend=false -input=false >/dev/null
             terraform -chdir="$d" validate
+            terraform -chdir="$d" test -no-color
             echo "::endgroup::"
           done <<< "$DIRS"
-      - name: IaC 설정 검사 (Trivy config)
+      - name: IaC security
+        if: needs.scope.outputs.infra == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
           severity: HIGH,CRITICAL
           exit-code: "1"
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
+      - name: Unaffected infrastructure
+        if: needs.scope.outputs.infra == 'false'
+        run: echo 'No infrastructure change; scope was validated.'
 
-  platform:
+  project-checks:
+    needs: scope
+    if: needs.scope.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
-      # 프로젝트 파일(pyproject.toml · package.json · go.mod)이 있는 폴더마다 해당 언어 검사를 돌린다.
-      # 새 언어를 쓰게 되면 여기에 감지 규칙을 한 줄 추가한다. 필수 검사 이름은 그대로 둔다.
-      - name: 프로젝트 감지
-        id: detect
-        run: |
-          find_dirs() { git ls-files ":(glob)**/$1" | xargs -r -n1 dirname | sort -u; }
-          for kind in python:pyproject.toml node:package.json go:go.mod; do
-            dirs=$(find_dirs "${kind#*:}")
-            echo "${kind%%:*}: ${dirs:-없음}" | tr '\n' ' '; echo
-            { echo "${kind%%:*}<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
-          done
-
-      - if: steps.detect.outputs.python != ''
+      - if: matrix.kind == 'python'
         uses: astral-sh/setup-uv@v10.2.0
-      - name: Python (ruff · pytest)
-        if: steps.detect.outputs.python != ''
-        env:
-          DIRS: ${{ steps.detect.outputs.python }}
-        run: |
-          while read -r d; do
-            echo "::group::$d"
-            (
-              cd "$d"
-              if [ -f uv.lock ]; then uv sync --frozen; else uv sync; fi
-              uvx ruff check .
-              # 테스트 파일이 있을 때만 (없으면 pytest가 실패 코드 5를 낸다)
-              if git ls-files ':(glob)**/test_*.py' ':(glob)**/*_test.py' | grep -q .; then
-                uv run --with pytest pytest
-              fi
-            )
-            echo "::endgroup::"
-          done <<< "$DIRS"
-
-      - if: steps.detect.outputs.node != ''
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.path }}/uv.lock
+      - if: matrix.kind == 'node'
         uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Node (lint · test · build)
-        if: steps.detect.outputs.node != ''
-        env:
-          DIRS: ${{ steps.detect.outputs.node }}
-        run: |
-          corepack enable
-          while read -r d; do
-            echo "::group::$d"
-            (
-              cd "$d"
-              if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
-              pnpm run --if-present lint
-              pnpm run --if-present test
-              pnpm run --if-present build
-            )
-            echo "::endgroup::"
-          done <<< "$DIRS"
-
-      - if: steps.detect.outputs.go != ''
+      - if: matrix.kind == 'node'
+        run: corepack enable
+      - if: matrix.kind == 'go'
         uses: actions/setup-go@v6
         with:
           go-version: stable
-      - name: Go (vet · test)
-        if: steps.detect.outputs.go != ''
+      - name: Check project
         env:
-          DIRS: ${{ steps.detect.outputs.go }}
-        run: |
-          while read -r d; do
-            echo "::group::$d"
-            (cd "$d" && go vet ./... && go test ./...)
-            echo "::endgroup::"
-          done <<< "$DIRS"
+          PROJECT_PATH: ${{ matrix.path }}
+          PROJECT_KIND: ${{ matrix.kind }}
+        run: python3 scripts/ci_project.py "$PROJECT_PATH" "$PROJECT_KIND"
+      - name: Project dependencies
+        if: needs.scope.outputs.full != 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ matrix.path }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
 
-      - name: 오픈소스 취약점 검사 (Trivy fs)
+  platform:
+    needs: [scope, project-checks]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require all selected projects to succeed
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          PROJECT_RESULT: ${{ needs.project-checks.result }}
+          PROJECTS: ${{ needs.scope.outputs.projects }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          if [ "$PROJECTS" = '[]' ]; then
+            test "$PROJECT_RESULT" = skipped
+          else
+            test "$PROJECT_RESULT" = success
+          fi
+      - uses: actions/checkout@v7
+        if: needs.scope.outputs.scripts == 'true' || needs.scope.outputs.full == 'true'
+      - name: Repository tools
+        if: needs.scope.outputs.scripts == 'true'
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Repository-wide dependency scan (full runs)
+        if: needs.scope.outputs.full == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -169,7 +206,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
 
   # 필수 검사가 아니다. 경고만 남기고 머지를 막지 않는다(오타 · 실측값 수정은 버전을 올리지 않는 게 맞다).
   design-doc:

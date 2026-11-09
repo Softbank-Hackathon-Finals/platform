@@ -7,7 +7,7 @@
   "status_id": 1,
   "time": 1793784600000,
   "finding_info": {
-    "uid": "demo-chat/Pod/violating-pod/require-run-as-nonroot/run-as-non-root",
+    "uid": "sha256:be6f15bcdea8e9618aef1ae2e5827dbf2e9b26ffb104f49c8698b46c7fd49a6e",
     "title": "require-run-as-nonroot: run-as-non-root"
   },
   "metadata": {
@@ -24,6 +24,7 @@
     "status": "Fail"
   },
   "bravo": {
+    "normalizer_version": "2",
     "source": "kyverno",
     "environment_id": "env-onprem",
     "category": "POLICY",
