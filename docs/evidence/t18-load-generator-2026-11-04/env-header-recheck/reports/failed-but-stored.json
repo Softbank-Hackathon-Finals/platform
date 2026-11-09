@@ -1,0 +1,140 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-failed-but-stored-85e309",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-04T05:39:20.418491+00:00",
+  "target": "http://127.0.0.1:54289",
+  "measurement": {
+    "path": "local-direct",
+    "edge_measured": false
+  },
+  "journal_sha256": "433d37b30174c20f75a2608ac3709fc86978638b702da5f79d70c1f8b4803c62",
+  "verdict": "FAIL",
+  "reasons": [
+    "FAILED"
+  ],
+  "warnings": [
+    "NOT_EDGE_MEASURED",
+    "HTTP_ERRORS"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 11.0,
+    "target_write_rps": 10.0,
+    "target_read_rps": 0.0,
+    "achieved_write_rps": 10.0,
+    "achieved_read_rps": 0.0,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 1.2,
+    "scheduler_lag_ms": {
+      "p95": 1.373,
+      "max": 3.36
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 220,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 220,
+      "p95_ms": 11.014
+    },
+    "read": {
+      "attempts": 0,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": null
+    }
+  },
+  "http_error_rate": 1.0,
+  "contract_error_rate": 1.0,
+  "p95_ms": 11.014,
+  "env_header": {
+    "responses": 0,
+    "responses_without_header": 0,
+    "registered_values": {},
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "FAIL",
+    "reasons": [
+      "FAILED"
+    ],
+    "nfr2": {
+      "failed": 110,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 0,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 110,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 110,
+      "attempts": 220,
+      "retried": 110,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 2,
+    "samples": {
+      "failed_but_stored": [
+        "9ead3a7c-fba8-4b51-901d-3027f341e81c",
+        "a7e52937-2381-400c-aa32-5235e997e4a3",
+        "07cdad8f-eb67-4631-9e39-eac32ec97ffa",
+        "e56e5a86-7729-43ce-8c2d-904068a85785",
+        "fe139733-7af7-4421-8022-1661206db4a3",
+        "fc377590-ad28-448c-a501-353320a948e9",
+        "bd7998f5-64c9-4ba3-966e-3c65a80f4939",
+        "2b984ce3-c511-4380-b3b0-3b016a2b70df",
+        "d269576c-b74e-4c41-a19c-3d280dac8828",
+        "0a6f7976-bafc-4197-b3e3-9dce42a6c945",
+        "2d5c0921-228e-4dfa-a4d8-24616316751c",
+        "9be5d713-52b8-4ad4-aa51-f8e187de0d58",
+        "1d3df5f4-5a31-4256-8f22-86333f63bdba",
+        "a6f73c9b-810e-4fdc-8c45-d4e129195795",
+        "34ad80d9-3b34-41b5-aed7-e196b5905318",
+        "3d7f3e37-545e-4ed1-8ff8-b0f878c7b43d",
+        "a56a84e6-e813-48ab-8bdc-d6ec656286ed",
+        "71cf99ad-7d24-41ed-bd1f-4768cd02bf0c",
+        "1456125b-225a-4f94-9f25-c64252b61e8b",
+        "754b32da-9bce-460d-a698-0c7d80b8bb38"
+      ]
+    }
+  },
+  "write_gap": {
+    "max_ms": 11000.0,
+    "from_s": 0.0,
+    "to_s": 11.0,
+    "position": "no_ack",
+    "acks": 0
+  },
+  "lock_probe": null,
+  "windows": {
+    "emitted": 1,
+    "requests_in_windows": 195,
+    "tail_requests_not_in_a_window": 25,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 0,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 0,
+      "target": 0
+    },
+    "unattributed_total": {
+      "timeout": 0,
+      "connect": 195,
+      "other": 0
+    }
+  }
+}

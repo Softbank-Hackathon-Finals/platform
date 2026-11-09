@@ -13,6 +13,52 @@ from pathlib import Path
 NAMESPACE = "target-dev"
 POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
 LABELS = {"app.kubernetes.io/part-of": "bravo-target", "component": "target"}
+SUBSCRIPTION_METRICS = "target-subscription-metrics"
+# CNPG's default is 5 s. On the relayed tailnet path a few seconds of congestion ended the forward connection on
+# both ends at once (2026-11-06). Each cluster sends one direction and receives the other, so both carry both
+# values; source-workloads/render.py must say the same. Both settings take effect on reload, without a restart.
+REPLICATION_TIMEOUTS = {"wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"}
+# CNPG's exporter turns each column into cnpg_pg_subscription_<column> and caches results for 30 seconds. It runs
+# as cnpg_metrics_exporter, which may read every pg_subscription column named here but not subconninfo. A worker
+# that is still connecting already counts in apply_workers, so 1 does not prove rows are flowing; the source
+# slot's lag answers that.
+SUBSCRIPTION_QUERIES = {"pg_subscription": {
+    "primary": True,
+    "query": ("SELECT s.subname, s.subenabled::int AS enabled, e.apply_error_count, "
+              "(SELECT count(*) FROM pg_catalog.pg_stat_subscription AS w "
+              "WHERE w.subid = s.oid AND w.worker_type = 'apply') AS apply_workers "
+              "FROM pg_catalog.pg_subscription AS s "
+              "JOIN pg_catalog.pg_stat_subscription_stats AS e ON e.subid = s.oid"),
+    "metrics": [
+        {"subname": {"usage": "LABEL", "description": "Subscription name"}},
+        {"enabled": {"usage": "GAUGE", "description": "1 if the subscription is enabled"}},
+        {"apply_error_count": {"usage": "COUNTER", "description": "Errors the apply worker hit, connection failures included"}},
+        {"apply_workers": {"usage": "GAUGE", "description": "Apply workers that exist, connected or not"}},
+    ],
+}}
+
+# T8 forward replication source, declared by this render so target-db has one owner (T45's first build syncs
+# it); the migration stack only checks it against the same dict (bravo_infra_plan/replication.py DECLARATION). The host is
+# T44's egress Service (infra/iac/environments/target-dev.json), resolved by kube DNS instead of an observed IP;
+# the source certificate carries this name for verify-full. Until T8 makes the two Secrets, nothing uses it;
+# they need the label cnpg.io/reload=true, or CNPG never loads Secrets made after this Cluster.
+# On a destination already replicating, reissue the source certificate with this name before rendering this.
+SOURCE_REPLICATION = {
+    "name": "t8-source",
+    "connectionParameters": {
+        "host": "source-db-for-replication.target-dev.svc", "port": "5432", "dbname": "chat",
+        "user": "chat_replicator", "sslmode": "verify-full", "connect_timeout": "10",
+        "application_name": "bravo_t8_target_subscriber",
+    },
+    "password": {"name": "t8-source-replication", "key": "password"},
+    "sslRootCert": {"name": "t8-source-ca", "key": "ca.crt"},
+}
+
+# One account per T30 workload, each without a role or a token: none of these Pods calls the Kubernetes API.
+# kube-bench (CIS 5.1.5, 5.1.6) counts a Pod on the namespace's default account, or on an account that leaves
+# the token unset, as a finding even when the Pod turns the token off itself.
+ACCOUNTS = ("demo-chat", "target-pgbouncer", "target-seaweedfs", "target-chat-schema", "target-probe",
+            "attachment-copy", "target-login")
 
 
 def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
@@ -25,6 +71,13 @@ def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
     return result
 
 
+def subscription_metrics():
+    # JSON is a subset of YAML, the format CNPG reads this key as. The label makes instances pick up changes.
+    config = resource("v1", "ConfigMap", SUBSCRIPTION_METRICS, data={"queries": json.dumps(SUBSCRIPTION_QUERIES, indent=2)})
+    config["metadata"]["labels"]["cnpg.io/reload"] = "true"
+    return config
+
+
 def database(node_name):
     if not isinstance(node_name, str) or not re.fullmatch(
         r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", node_name
@@ -34,6 +87,8 @@ def database(node_name):
     namespace["metadata"]["labels"].update({
         "pod-security.kubernetes.io/enforce": "restricted",
         "pod-security.kubernetes.io/enforce-version": "v1.35",
+        # T37: the Collector accepts app metrics only from namespaces with this label.
+        "bravo.observability/send": "true",
     })
     storage = resource(
         "storage.k8s.io/v1", "StorageClass", "bravo-target-local", namespaced=False,
@@ -62,24 +117,41 @@ def database(node_name):
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",
                            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off",
-                           "log_statement": "none"},
+                           "log_statement": "none", **REPLICATION_TIMEOUTS,
+                           # A disabled reverse slot must not retain WAL without a limit. Crossing it can
+                           # invalidate the slot; that needs an explicit resync, never skipped data.
+                           "max_slot_wal_keep_size": "1GB"},
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_owner all scram-sha-256",
                        "hostssl chat chat_app all scram-sha-256",
                        "hostssl chat chat_replicator all scram-sha-256",
+                       "hostssl chat cutover_control all scram-sha-256",
                        "host all all all reject"],
         },
-        "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner"}},
+        "monitoring": {"customQueriesConfigMap": [{"name": SUBSCRIPTION_METRICS, "key": "queries"}]},
+        "externalClusters": [SOURCE_REPLICATION],
+        # chat_app is created once here and never managed: the Cutover Executor fences and opens it with
+        # NOLOGIN/LOGIN, which CNPG's managed roles would reset (T12 platform integration contract). It starts
+        # NOLOGIN (the target takes no writes before cutover); its password is set from target-app-db at
+        # cutover readiness. cutover_control is the Executor's control login (fixed functions only).
+        "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner",
+                                 "postInitSQL": ["CREATE ROLE chat_app NOLOGIN"]}},
         "managed": {"roles": [
-            {"name": "chat_app", "ensure": "present", "login": False,
-             "superuser": False, "createdb": False, "createrole": False,
-             "passwordSecret": {"name": "target-app-db"}},
+            {"name": "cutover_control", "ensure": "present", "login": True,
+             "superuser": False, "createdb": False, "createrole": False, "inRoles": ["pg_read_all_stats"],
+             "passwordSecret": {"name": "cutover-db-control"}},
             {"name": "chat_replicator", "ensure": "present", "login": True,
              "replication": True, "superuser": False, "createdb": False, "createrole": False,
              "passwordSecret": {"name": "target-replication"}},
         ]},
     })
-    return [namespace, storage, volume, cluster]
+    return [namespace, storage, volume, subscription_metrics(), cluster]
+
+
+def accounts():
+    """Apply after the namespace and before any workload: a Pod whose account is missing is never created."""
+    return [resource("v1", "ServiceAccount", name, automountServiceAccountToken=False)
+            for name in ("default", *ACCOUNTS)]
 
 
 def migration():
@@ -91,6 +163,7 @@ def migration():
         "backoffLimit": 0, "activeDeadlineSeconds": 300,
         "template": {"metadata": {"labels": LABELS.copy()}, "spec": {
             "restartPolicy": "Never", "automountServiceAccountToken": False,
+            "serviceAccountName": "target-chat-schema",
             "securityContext": {"runAsNonRoot": True, "runAsUser": 26, "runAsGroup": 26,
                                 "fsGroup": 26, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{"name": "migration", "image": POSTGRES_IMAGE,
@@ -122,10 +195,10 @@ def migration():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["database", "migration"])
+    parser.add_argument("stage", choices=["database", "accounts", "migration"])
     parser.add_argument("--node-name")
     args = parser.parse_args()
-    objects = database(args.node_name) if args.stage == "database" else migration()
+    objects = {"database": lambda: database(args.node_name), "accounts": accounts, "migration": migration}[args.stage]()
     print(json.dumps({"apiVersion": "v1", "kind": "List", "items": objects}, indent=2))
 
 

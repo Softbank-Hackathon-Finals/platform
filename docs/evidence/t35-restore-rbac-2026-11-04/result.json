@@ -1,0 +1,66 @@
+{
+  "scope": "owned local kind/CNPG; Kubernetes authorization only",
+  "production_qualification": false,
+  "cloud_resources_changed": false,
+  "checks": {
+    "restore": {
+      "scope": "real Kubernetes RBAC; restore mode validates object identity, not SQL or AWS",
+      "mode": "restore",
+      "named_gets_and_bound_identity_readback": true,
+      "denied": {
+        "list_clusters": true,
+        "list_backups": true,
+        "other_backup": true,
+        "secret": true,
+        "pods": true,
+        "other_namespace": true,
+        "create_backup_dry_run": true,
+        "delete_backup_dry_run": true,
+        "patch_cluster_dry_run": true,
+        "source_cluster": true,
+        "any_backup": true,
+        "writer_store": true,
+        "delete_restore_dry_run": true
+      },
+      "revoked_binding_cannot_produce_receipt": true,
+      "permission_restored_positive_control": true,
+      "status": "PASS",
+      "own_rbac_resources_cleaned": true
+    },
+    "backup": {
+      "scope": "real Kubernetes RBAC; restore mode validates object identity, not SQL or AWS",
+      "mode": "backup",
+      "named_gets_and_bound_identity_readback": true,
+      "denied": {
+        "list_clusters": true,
+        "list_backups": true,
+        "other_backup": true,
+        "secret": true,
+        "pods": true,
+        "other_namespace": true,
+        "create_backup_dry_run": true,
+        "delete_backup_dry_run": true,
+        "patch_cluster_dry_run": true
+      },
+      "revoked_binding_cannot_produce_receipt": true,
+      "permission_restored_positive_control": true,
+      "status": "PASS",
+      "own_rbac_resources_cleaned": true
+    }
+  },
+  "sources": [
+    {
+      "path": "services/control-runner/src/bravo_controls/backup_rbac.py",
+      "sha256": "92d29f766d9926cb523670857fce6b20162233700ac3bf15e20bdb041dc3042b"
+    },
+    {
+      "path": "services/control-runner/tests/integration/verify_backup_readback_rbac.py",
+      "sha256": "7502dfbf77271dbc9e155ee2434f9af72b1bf137a72f1a863e4ff4ae629ea846"
+    }
+  ],
+  "unit_tests": {
+    "passed": 486,
+    "skipped": 4,
+    "subtests_passed": 58
+  }
+}

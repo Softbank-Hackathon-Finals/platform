@@ -1,0 +1,91 @@
+{{- if .Values.rehearsalHost.enabled }}
+{{- range $key, $_ := .Values.rehearsalHost.runtime }}
+{{- if not (has $key (list "configuration" "reader" "recordsClaim" "secrets" "hostAliases")) }}
+{{- fail "runtime input may contain only configuration, reader, recordsClaim, secrets and hostAliases" }}
+{{- end }}
+{{- end }}
+{{- if not .Values.rehearsalHost.runtime.configuration }}
+{{- fail "protected rehearsal host configuration is required" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-rehearsal-host
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-rehearsal-host
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/charts/rehearsal-host
+    helm:
+      releaseName: rehearsal-host
+      valueFiles:
+        - ../../gitops/environments/development/rehearsal-host-image.json
+      valuesObject:
+        {{- toYaml .Values.rehearsalHost.runtime | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-rehearsal-host
+spec:
+  description: T15 rehearsal host Deployment, Service and token-only ServiceAccount
+  sourceRepos:
+    - https://github.com/Softbank-Hackathon-Finals/platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: platform-state
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-rehearsal-host
+  namespace: platform-state
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [t15-rehearsal-host]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts]
+    resourceNames: [t15-rehearsal-host]
+    verbs: [update, patch, delete]
+  # Create comes from the registration Role; its name policy admits only this name.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-rehearsal-host
+  namespace: platform-state
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-gitops-rehearsal-host
+subjects:
+  - kind: ServiceAccount
+    name: bravo-gitops-application-controller
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -208,8 +208,8 @@ def write_sites() -> None:
         }
         for ns, s in SITES.items()
     }
-    # 모의 환경에는 T13 비교가 없어 임시 비교(UNVERIFIED)를 통과로 본다(spec D11).
-    config = {"settings": {"allow_unverified_compare": True}, "sites": sites}
+    # 원래 출발지(이전 전 주본). 되돌리기 영수증의 방향을 정한다(T20).
+    config = {"settings": {}, "origin": SITES["src"]["environment_id"], "sites": sites}
     SITES_FILE.write_text(json.dumps(config, indent=2))
     SITES_FILE.chmod(0o600)
 

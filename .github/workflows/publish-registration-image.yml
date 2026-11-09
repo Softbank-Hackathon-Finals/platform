@@ -1,0 +1,142 @@
+name: publish-registration-image
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - services/platform-events/**
+      - services/agent-worker/src/**
+      - services/agent-worker/pyproject.toml
+      - services/rehearsal-runner/src/**
+      - services/rehearsal-runner/pyproject.toml
+      - services/inventory/src/**
+      - services/inventory/pyproject.toml
+      - services/control-gate/src/**
+      - services/control-gate/pyproject.toml
+      - services/apply-path/src/**
+      - services/apply-path/pyproject.toml
+      - services/edge-control/src/**
+      - services/loadgen/src/**
+      - services/loadgen/pyproject.toml
+      - services/edge-control/pyproject.toml
+      - services/iac/src/**
+      - services/iac/pyproject.toml
+      - services/control-runner/src/**
+      - services/control-runner/pyproject.toml
+      - scripts/image_import_closure.py
+      - operations/kubectl/**
+      - infra/envs/rehearsal-access/credentials.py
+      - scripts/registration_delivery.py
+      - scripts/image_delivery/**
+      - .github/workflows/publish-registration-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registration-image-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SOURCE_SHA: ${{ github.workflow_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      # prepare_gitops.py compiles the pinned, patched kubectl (T31 apply); build.py fixes GOTOOLCHAIN.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Prepare committed registration source
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          DELIVERY_ROOT="$RUNNER_TEMP/registration-delivery"
+          echo "DELIVERY_ROOT=$DELIVERY_ROOT" >> "$GITHUB_ENV"
+          mkdir "$DELIVERY_ROOT"
+          uv run --python 3.12 --no-project python services/platform-events/deploy/registration/prepare_gitops.py \
+            --output "$DELIVERY_ROOT/source" --receipt "$DELIVERY_ROOT/source-manifest.json"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the OCI artifact once
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/registration-delivery/source
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/registration-delivery/image-layout,tar=false
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/Softbank-Hackathon-Finals/platform
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          tags: platform-registration:sha-${{ env.SOURCE_SHA }}
+      - name: Scan before registry login
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          input: ${{ runner.temp }}/registration-delivery/image-layout
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: json
+          output: ${{ runner.temp }}/registration-delivery/image-scan.json
+          timeout: 10m
+      - name: Verify source, OCI bytes, attestations and scan identity
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: python3 scripts/registration_delivery.py verify --root "$DELIVERY_ROOT"
+      - name: Install registry copy tool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish scanned bytes and read back private visibility
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: python3 scripts/registration_delivery.py publish --root "$DELIVERY_ROOT"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: registration-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/registration-delivery/registration-publication.json
+          if-no-files-found: error
+          retention-days: 14
+
+  propose:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.PROJECT_TOKEN }}
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: registration-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/registration-delivery
+      - name: Propose the immutable digest through the normal PR process
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          git config user.name 'bravo-board'
+          git config user.email 'bravo-board@users.noreply.github.com'
+          python3 scripts/registration_delivery.py propose --root "$RUNNER_TEMP/registration-delivery"

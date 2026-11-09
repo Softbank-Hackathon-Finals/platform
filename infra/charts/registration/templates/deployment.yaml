@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: t10-registration
+  labels:
+    app.kubernetes.io/name: t10-registration
+    component: platform
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: t10-registration
+      component: platform
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: t10-registration
+        component: platform
+        bravo.dev/db-client: runtime
+        bravo.dev/target-api-client: collector
+      annotations:
+        bravo.dev/source-revision: {{ .Values.sourceRevision | quote }}
+        bravo.dev/config-sha256: {{ .Values.configuration.sha256 | quote }}
+    spec:
+      serviceAccountName: t10-registration
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 25
+      imagePullSecrets:
+        - name: {{ .Values.secrets.registry }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: approved-source
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: Always
+          command: [python, /app/registration-checkout.py]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: checkout
+              mountPath: /checkout
+            - name: checkout-catalog
+              mountPath: /registration
+              readOnly: true
+      containers:
+        - name: registration
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: Always
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - name: https
+              containerPort: 8443
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+          volumeMounts:
+            - {name: credential, mountPath: /credential, readOnly: true}
+            - {name: ca, mountPath: /ca, readOnly: true}
+            - {name: registration, mountPath: /registration, readOnly: true}
+            - {name: collectors, mountPath: /collectors, readOnly: true}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: checkout, mountPath: /checkout, readOnly: true}
+      volumes:
+        - name: credential
+          secret:
+            secretName: {{ .Values.secrets.database }}
+            defaultMode: 0440
+            items:
+              - {key: username, path: username}
+              - {key: password, path: password}
+        - name: ca
+          secret:
+            secretName: {{ .Values.secrets.databaseCA }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+        # The whole reviewed ConfigMap, as the canonical renderer mounts it: gate-grants.json
+        # (T5 gate:record/gate:read) is present only when the catalog enables gate_records.
+        - name: registration
+          configMap:
+            name: {{ .Values.configuration.existingConfigMap }}
+            defaultMode: 0444
+        - name: checkout-catalog
+          configMap:
+            name: {{ .Values.configuration.existingConfigMap }}
+            defaultMode: 0444
+            items:
+              - {key: catalog.json, path: catalog.json}
+        - name: collectors
+          secret:
+            secretName: {{ .Values.secrets.collectors }}
+            defaultMode: 0440
+            items:
+              - {key: source-token, path: source-token}
+              - {key: target-token, path: target-token}
+              - {key: source-ca.crt, path: source-ca.crt}
+              - {key: target-ca.crt, path: target-ca.crt}
+        - name: tls
+          secret:
+            secretName: {{ .Values.secrets.tls }}
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+        - name: checkout
+          emptyDir:
+            sizeLimit: 64Mi

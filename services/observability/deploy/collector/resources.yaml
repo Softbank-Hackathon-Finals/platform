@@ -1,0 +1,167 @@
+# T37 클러스터별 Collector. 출발지 · 목적지 클러스터에 하나씩 둔다.
+# 배포 전에 클러스터마다 아래 둘을 만든다(값은 git에 두지 않는다).
+#   Secret    bravo-collector-tls : ca.crt · tls.crt · tls.key (플랫폼 CA가 발급, 이름은 collector-<환경>)
+#   ConfigMap bravo-collector-env : BRAVO_ENV, PLATFORM_OTLP_ENDPOINT, (tailnet 경로면) PLATFORM_TLS_SERVER_NAME
+# 앱 네임스페이스에 bravo.observability/send=true 라벨을 붙여야 그 앱이 Collector로 보낼 수 있다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bravo-observability
+  # 라벨 체계(tier · role · domain)는 eco2-team/backend workloads/namespaces와 같다. domain은 platform | customer
+  labels:
+    component: platform
+    tier: observability
+    role: collector
+    domain: customer
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+  labels:
+    app: bravo-collector
+    component: platform
+spec:
+  replicas: 1
+  # 디스크 큐 디렉터리를 두 Pod가 함께 쓰지 않게 한다
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bravo-collector
+  template:
+    metadata:
+      labels:
+        app: bravo-collector
+        component: platform
+        tier: observability
+        role: collector
+        domain: customer
+    spec:
+      serviceAccountName: bravo-collector
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+          # 0.164.0에서 disable_keep_alives가 적용되게 한다(collector.yaml 주석)
+          args: ["--config=/etc/otelcol/collector.yaml", "--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive"]
+          env:
+            - name: BRAVO_ENV
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: BRAVO_ENV}
+            - name: PLATFORM_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: PLATFORM_OTLP_ENDPOINT}
+            - name: PLATFORM_TLS_SERVER_NAME
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: PLATFORM_TLS_SERVER_NAME, optional: true}
+            # 지표에 붙는 수신 구분(platform | customer). 플랫폼 overlay가 platform으로 바꾼다
+            - name: BRAVO_DOMAIN
+              value: customer
+            # 메모리 상한(limits)보다 낮게 두어 GC가 먼저 돈다
+            - name: GOMEMLIMIT
+              value: 200MiB
+          ports:
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+            - {name: health, containerPort: 13133}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 10
+          # 실측(2026-11-04, k3s, 앱 지표 약 2000건/초 = 데모 예상의 약 10배): 최대 메모리 107MiB, 평균 CPU 33m, 최대 92m.
+          # 평상시 63MiB · 9m. limit은 최대치의 약 2.4배. 실제 환경에서 다시 잰다(testing/k8s.sh, BRAVO_K8S_CAPACITY=1)
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+            - {name: tls, mountPath: /etc/bravo-tls, readOnly: true}
+            - {name: queue, mountPath: /var/lib/otelcol/queue}
+      volumes:
+        - name: config
+          configMap:
+            name: bravo-collector-config
+        - name: tls
+          secret:
+            secretName: bravo-collector-tls
+            defaultMode: 0440
+        # 컨테이너가 재시작해도 남는다. Pod가 다른 노드로 옮겨지면 잃는다(저장소 클래스가 정해지면 PVC로 바꾼다).
+        - name: queue
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  selector:
+    app: bravo-collector
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-collector
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 앱 지표: 라벨을 붙인 네임스페이스에서만
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              bravo.observability/send: "true"
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+    # 상태 확인(kubelet probe). 응답에 데이터가 없다
+    - ports:
+        - {port: 13133, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # 같은 클러스터의 지표 저장소(시험 · 플랫폼 배치)만. 다른 클러스터의 저장소로는
+    # infra/envs/collector-network가 만드는 bravo-collector-tailnet 정책(이 쪽 egress proxy Pod)으로만 나간다
+    - to:
+        - podSelector:
+            matchLabels:
+              app: bravo-prometheus
+      ports:
+        - {port: 9090, protocol: TCP}

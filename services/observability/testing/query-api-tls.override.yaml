@@ -1,0 +1,12 @@
+# compose.yaml 위에 적용하는 로컬 TLS 인수 전용. 운영 Secret을 사용하지 않는다.
+services:
+  api:
+    image: ${QUERY_API_IMAGE:?verified local image ID required}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      BRAVO_API_SERVER_TLS_DIR: /etc/bravo-api-server-tls
+      BRAVO_API_SERVER_NAME: localhost
+    volumes:
+      - ${CERT_DIR}/api-server:/etc/bravo-api-server-tls:ro

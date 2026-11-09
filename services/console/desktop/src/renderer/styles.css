@@ -1,0 +1,179 @@
+@import "tailwindcss";
+@import "@fontsource/dela-gothic-one/400.css";
+@import "@fontsource/black-han-sans/400.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/700.css";
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+/* Colors sampled from the SOVA key visual (ひやしそば poster). */
+@theme {
+  --color-red: #d42a1e;
+  --color-red-deep: #a61f15;
+  --color-ray: #e8432f;
+  --color-cream: #fff3dc;
+  --color-paper: #fbe9c4;
+  --color-ink: #1b1b1b;
+  --color-ink-soft: #4a3f36;
+  --color-mustard: #ffd23f;
+  --color-cold: #1e88d9;
+  --color-soba: #7a6450;
+  --color-tray: #5a231a;
+  --color-wood: #d6a46a;
+  --color-wasabi: #8cc152;
+
+  --font-display: "Dela Gothic One", "Black Han Sans", sans-serif;
+  --font-kdisplay: "Black Han Sans", "Dela Gothic One", sans-serif;
+  /* REA (Codex, Grafana, Netdata): one UI sans per script, system CJK fallbacks, mono for ids. */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --shadow-pop: 3px 3px 0 #1b1b1b;
+  --shadow-pop-sm: 2px 2px 0 #1b1b1b;
+  --shadow-pop-lg: 6px 6px 0 #1b1b1b;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+  user-select: none;
+  /* Korean/Japanese: break between words, never inside one; long ids may still break anywhere. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+/* In the base layer so utilities (whitespace-nowrap, truncate) still win. */
+@layer base {
+  /* Codex :lang() stacks. Pretendard has no kana/kanji and Black Han Sans is Korean-only. */
+  :lang(ja) {
+    --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Pretendard Variable", -apple-system, system-ui, "Noto Sans JP", sans-serif;
+    --font-kdisplay: "Dela Gothic One", "Hiragino Sans", sans-serif;
+    line-break: strict;
+  }
+  p, li, dd, figcaption { text-wrap: pretty; }
+  h1, h2, h3, h4 { text-wrap: balance; }
+}
+/* Netdata/Grafana: live numbers keep their width so legends and tiles do not jitter. */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+@keyframes live-dot { 0%, 100% { box-shadow: 0 0 0 0 rgba(140, 193, 82, .8); } 60% { box-shadow: 0 0 0 5px rgba(140, 193, 82, 0); } }
+.live-dot { animation: live-dot 1.6s ease-out infinite; }
+/* Migration map: dots run along an edge; speed is set per edge from the observed rate. */
+@keyframes flow-dash { to { stroke-dashoffset: -18; } }
+.flow-dash { animation: flow-dash 1s linear infinite; }
+input, textarea, [data-selectable] { user-select: text; }
+::selection { background: var(--color-mustard); color: var(--color-ink); }
+
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+/* Comic panel: cream paper, ink outline, hard offset shadow. */
+.panel {
+  background: #fffaf0;
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+}
+.panel-flat { background: #fffaf0; border: 2px solid var(--color-ink); border-radius: 12px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  border: 2px solid var(--color-ink); border-radius: 10px;
+  padding: 5px 11px; font-weight: 700; background: #fffaf0;
+  box-shadow: var(--shadow-pop-sm);
+  transition: transform 80ms ease, box-shadow 80ms ease;
+}
+.btn:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--color-ink); }
+.btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--color-ink); }
+.btn:disabled { opacity: .5; transform: none; box-shadow: var(--shadow-pop-sm); }
+.btn-red { background: var(--color-red); color: var(--color-cream); }
+.btn-mustard { background: var(--color-mustard); }
+.btn-ink { background: var(--color-ink); color: var(--color-cream); box-shadow: 2px 2px 0 var(--color-red); }
+
+/* SOVA wordmark: cream letters, thick ink stroke and drop. */
+.wordmark {
+  font-family: var(--font-display);
+  color: var(--color-cream);
+  -webkit-text-stroke: 3px var(--color-ink);
+  paint-order: stroke fill;
+  text-shadow: 3px 3px 0 var(--color-ink);
+  letter-spacing: .01em;
+  line-height: 1;
+}
+
+/* Poster sunburst. */
+.sunburst {
+  background:
+    radial-gradient(circle at 70% 40%, rgba(255, 213, 160, .55), transparent 55%),
+    repeating-conic-gradient(from 0deg at 70% 40%, var(--color-red) 0deg 9deg, var(--color-ray) 9deg 18deg);
+}
+.sunburst-soft {
+  background:
+    radial-gradient(circle at 50% 120%, rgba(255, 213, 160, .5), transparent 60%),
+    repeating-conic-gradient(from 0deg at 50% 120%, var(--color-red) 0deg 7deg, var(--color-ray) 7deg 14deg);
+}
+
+/* 無停止移行 badge. */
+.starburst {
+  clip-path: polygon(50% 0%, 58% 12%, 72% 4%, 74% 19%, 89% 16%, 85% 31%, 100% 35%, 90% 47%, 100% 59%, 86% 65%, 92% 80%, 76% 80%, 74% 95%, 61% 87%, 50% 100%, 39% 87%, 26% 95%, 24% 80%, 8% 80%, 14% 65%, 0% 59%, 10% 47%, 0% 35%, 15% 31%, 11% 16%, 26% 19%, 28% 4%, 42% 12%);
+}
+
+/* 冷 stamp. */
+.stamp {
+  border-radius: 999px; background: var(--color-cold); color: #fff;
+  border: 2px solid var(--color-ink);
+  box-shadow: inset 0 0 0 3px var(--color-cold), inset 0 0 0 4.5px rgba(255, 255, 255, .9);
+  font-family: var(--font-kdisplay);
+}
+
+.halftone { background-image: radial-gradient(rgba(27, 27, 27, .13) 1px, transparent 1.4px); background-size: 7px 7px; }
+.mat {
+  background-color: var(--color-paper);
+  background-image: repeating-linear-gradient(90deg, rgba(122, 100, 80, .09) 0 2px, transparent 2px 9px);
+}
+
+.kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-ink-soft); }
+.num { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: rgba(27, 27, 27, .25); border-radius: 8px; }
+
+/* Codex-style working shimmer, in soba colors. */
+.shimmer-text {
+  background: linear-gradient(90deg, var(--color-ink) 0%, var(--color-ink) 40%, var(--color-red) 50%, var(--color-ink) 60%, var(--color-ink) 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer { 0% { background-position: 120% 0; } 100% { background-position: -120% 0; } }
+
+/* A noodle runs around the composer while the guide works (Codex: composer-navigation-snake). */
+@property --snake { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.snake {
+  border-color: transparent !important;
+  background:
+    linear-gradient(var(--color-cream), var(--color-cream)) padding-box,
+    conic-gradient(from var(--snake), var(--color-ink) 0 62%, var(--color-soba) 70%, var(--color-mustard) 78%, var(--color-red) 84%, var(--color-ink) 92%) border-box;
+  animation: snake 2.2s linear infinite;
+}
+@keyframes snake { to { --snake: 360deg; } }
+.edge-fade { mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%); }
+@keyframes pop-in { 0% { transform: scale(.6); opacity: 0; } 70% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
+.pop-in { animation: pop-in 260ms cubic-bezier(.2, .9, .3, 1.3) both; }
+mark { background: var(--color-mustard); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+@keyframes wobble { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@keyframes dip { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(140, 193, 82, .7); } 100% { box-shadow: 0 0 0 7px rgba(140, 193, 82, 0); } }
+.live-dot { animation: pulse-ring 1.6s ease-out infinite; }
+.wobble { animation: wobble 2.4s ease-in-out infinite; }
+.dip { animation: dip 1.2s ease-in-out infinite; }
+:root[data-reduced-motion=true] *, :root[data-reduced-motion=true] *::before { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .live-dot, .flow-dash, .wobble, .dip, .shimmer-text, .snake, .pop-in { animation: none; } }
+
+/* In the base layer so a component's own outline-none (the composer, whose border shows focus) can turn it off. */
+@layer base { :focus-visible { outline: 3px solid var(--color-cold); outline-offset: 2px; } }

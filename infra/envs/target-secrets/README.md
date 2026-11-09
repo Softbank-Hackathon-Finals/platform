@@ -54,11 +54,23 @@ standard library and performs no cluster or cloud API calls.
    memory/stdin. `ca.crt` is public; private keys and init responses are not files.
    Check the complete CA/leaf chain with the consumer's default strict TLS
    verification, including hostname and certificate extensions, before handoff.
+   The leaf must carry at least the SANs from `render.py server-cert-sans`
+   (`DNS:target-openbao.bravo-secrets.svc` for every client, `IP:127.0.0.1` for
+   the chart's readiness probe); see "T14 SEC-01.1 roles and the server name".
 5. Render `bao-values` with Helm `--skip-tests --kube-version <actual version>`.
    Pass its parsed JSON objects through `finalize-bao` before deployment. This
    validates the namespace, image, retained-volume selection and service
    selectors, and replaces the chart's default skip-verification readiness
    command with verified TLS. Do not apply the unprocessed Helm output.
+   `bao-values` also sets the readiness probe to timeout 10 s, period 10 s and
+   failure threshold 3 (chart 0.30.6 defaults: 3 s, 5 s, 2). The TLS-verified
+   `bao status -format=json` took longer than 3 s on the target and Ready
+   flapped. `finalize-bao` refuses a StatefulSet with any other timing, so a
+   render without `bao-values` fails instead of shipping the defaults.
+   The server requests 250m CPU with a 1-core limit (memory 128Mi/512Mi). At
+   the earlier 50m/500m the target's `bao status` median was 4.38 s; after the
+   increase it was 1.73 s with no memory pressure. `finalize-bao` refuses any
+   other resources block the same way.
 6. Render `eso-values`, establish its CRDs, then install its controllers. Create
    OpenBao (`network`) and ESO (`eso-network`) NetworkPolicies using both the
    actual API Service address and its endpoint address. The policy accommodates
@@ -67,7 +79,9 @@ standard library and performs no cluster or cloud API calls.
 7. Initialize OpenBao once; immediately preserve the complete response in the
    credential store before parsing individual fields. Reuse that recovery
    material on restart. Never repeat init or recreate storage to mask an error.
-8. Enable KV v2 with CAS required, configure Kubernetes auth and `policy()`.
+8. Enable KV v2 with CAS required, configure Kubernetes auth and `policy()`, then
+   the rehearsal policies ("Operator install of the rehearsal policies" below; it needs the
+   Kubernetes auth mount accessor, which exists only after `auth enable`).
    Read the exact source Secrets Manager `VersionId` together with `AWSCURRENT`,
    then write KV with CAS 0. A version/stage drift stops the operation. Neither
    source credentials nor AWS workload permissions are changed.
@@ -138,14 +152,320 @@ unseal, off-host backup or a production availability claim. The initial leaf
 certificate is valid for 30 days and CA for 90 days; renew them before expiry.
 The OpenBao UI/injector/CSI/dev mode are disabled.
 
+## Rehearsal subtree for T15 (design 8.4)
+
+T15 applies an AI credential-migration candidate inside an isolated `rehearsal-<id>`
+namespace (label `app.kubernetes.io/part-of: bravo-rehearsal`). The candidate image reads the
+same `/run/bravo/database/credentials.json`, so the rehearsal needs synthetic credentials
+delivered the same way but from a path the application identity can never read.
+
+Since 2026-11-06 (ADR-0029 A안) the KV path and the reader role are keyed by the **rehearsal
+namespace**, not a run id, and the only reader policy is one operator-owned templated policy.
+
+| Stage | Produces | Scope |
+| --- | --- | --- |
+| `rehearsal-reader-policy --kubernetes-accessor <accessor>` | HCL for policy `rehearsal-app-reader` | Written **once by the T9 operator** at install. Identity-templated: a token reads only `secret/data/bravo/rehearsal/<its own ServiceAccount namespace>/*`. No other namespace's path, no `bravo/target/*`, no writes, no token creation |
+| `rehearsal-auth-role --namespace rehearsal-<id>` | Body for `auth/kubernetes/role/rehearsal-app-reader-<namespace>` | ServiceAccount `rehearsal-eso-reader` in **exactly that namespace** (explicit binding, so OpenBao needs no `namespaces get` RBAC); policy exactly `rehearsal-app-reader`; audience `openbao`; TTL 300/900 s |
+| `rehearsal-delivery --namespace rehearsal-<id>` | ServiceAccount + SecretStore + ExternalSecret projecting `bravo/rehearsal/<namespace>/database` into Secret **`target-app-credentials`** (same name as `target-dev`) | One namespace per attempt; `deletionPolicy: Delete` so the Secret goes with the namespace |
+| `rehearsal-init-container --namespace rehearsal-<id>` | An init container that logs in with role `rehearsal-app-reader-<namespace>` and writes `credentials.json` itself | Works while ESO stays scoped (below) |
+| `rehearsal-writer-policy` | HCL for policy `rehearsal-openbao-writer` (T15 prep Job) | See "Rehearsal writer" below |
+| `rehearsal-writer-auth-role` | Body for `auth/kubernetes/role/rehearsal-openbao-writer` | SA `rehearsal-openbao-writer` in exactly `bravo-rehearsal-control`; audience `openbao`; writer policy only; TTL 300/900 s; no default policy |
+| `rehearsal-writer-identity` (optional) | Namespace `bravo-rehearsal-control` (PSS restricted) + ServiceAccount `rehearsal-openbao-writer` (no automount) | Apply only if T15/T30 agree T9 owns them; see below |
+| `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side is role `demo-chat` (next row) |
+| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side; collected from the operator machine with `kubectl create token --audience openbao`, never minted in-cluster) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
+
+The earlier `rehearsal-policy --run-id <run>` stage (one writer-written policy per run) and the
+`--run-id` flag are removed; the renderer refuses them.
+
+`rehearsal-auth-role` emits scalar strings (`"bound_service_account_namespaces":
+"rehearsal-<id>"`), not lists, because the writer's parameter constraints only match
+strings. Send the JSON on stdin (`bao write auth/kubernetes/role/<name> - < role.json`) so the
+boolean stays a boolean; `key=value` arguments send `"true"` and are refused.
+The management namespace `bravo-rehearsal-control` cannot match `rehearsal-*`. Its earlier name
+`rehearsal-control` does match, so `rehearsal-control*` stays rejected as a reader namespace
+(renderer and writer ACL), in case a namespace with that name exists or is created later.
+
+### Operator install of the rehearsal policies
+
+The templated path needs the Kubernetes auth **mount accessor**, which exists only after
+`bao auth enable kubernetes` (step 8). Run this once after step 8, with an operator token,
+from the repository root (same `RENDER_PYTHON`/`OUTPUT_DIR` as above):
+
+```sh
+ACCESSOR=$(bao read -field=accessor sys/auth/kubernetes)   # auth_kubernetes_<8 hex>; not a secret
+"$RENDER_PYTHON" "$renderer" rehearsal-reader-policy --kubernetes-accessor "$ACCESSOR" > "$OUTPUT_DIR/rehearsal-app-reader.hcl"
+bao policy write rehearsal-app-reader "$OUTPUT_DIR/rehearsal-app-reader.hcl"
+"$RENDER_PYTHON" "$renderer" rehearsal-writer-policy > "$OUTPUT_DIR/rehearsal-openbao-writer.hcl"
+bao policy write rehearsal-openbao-writer "$OUTPUT_DIR/rehearsal-openbao-writer.hcl"
+"$RENDER_PYTHON" "$renderer" rehearsal-writer-auth-role | bao write auth/kubernetes/role/rehearsal-openbao-writer -
+bao policy read rehearsal-app-reader   # must equal the rendered file
+```
+
+Cross-check `ACCESSOR` against `bao auth list` (`kubernetes/` row). The renderer accepts only
+`auth_kubernetes_` followed by 8 lowercase hex digits. OpenBao 2.7.2's built-in Kubernetes auth
+(`internal/builtin/credential/kubernetes/path_login.go`) records `service_account_namespace`
+as entity alias metadata after TokenReview has confirmed the JWT's name, UID and namespace, and
+`sdk/helper/identitytpl` resolves `identity.entity.aliases.<accessor>.metadata.<key>` in ACL
+paths. If the accessor is wrong or stale, the template does not resolve and OpenBao skips the
+rule, so readers are **denied** (verified locally), never widened. Disabling and re-enabling
+`auth/kubernetes` creates a new accessor: re-render and rewrite `rehearsal-app-reader`.
+
+### T14 SEC-01.1 roles and the server name (operator)
+
+T14's destination SEC-01.1 compares two Kubernetes auth roles on mount `kubernetes`. Both are
+renderer stages (#707, #741) and were applied to the target on 2026-11-07 by the T14 side;
+SEC-01.1 passed at 22:55 and 23:21 KST
+([evidence](../../../docs/evidence/t14-target-demo-gate-2026-11-07/README.md)).
+
+| Role | ServiceAccount | Policy | Reads the app DB path |
+| --- | --- | --- | --- |
+| `demo-chat` | `target-dev/demo-chat` | `demo-chat-db-reader` only (no default) | yes, `secret/data/bravo/target/precutover/database` only |
+| `t14-other` | `target-dev/t14-other` (T30 #666) | `default` only | no (403 after a successful login) |
+
+Both use audience `openbao` and TTL 300/900 s. The KV is v2 on mount `secret`; the app DB
+credential is key `bravo/target/precutover/database` (API path
+`secret/data/bravo/target/precutover/database`, field `credentials_json`). Its current version
+exists only in the cluster; read it from metadata, never from the value.
+
+Apply or re-apply (the same body is idempotent), with an operator token, from the repository
+root (same `RENDER_PYTHON`/`OUTPUT_DIR`/`renderer` as above):
+
+```sh
+"$RENDER_PYTHON" "$renderer" app-db-policy > "$OUTPUT_DIR/demo-chat-db-reader.hcl"
+bao policy write demo-chat-db-reader "$OUTPUT_DIR/demo-chat-db-reader.hcl"
+"$RENDER_PYTHON" "$renderer" app-auth-role | bao write auth/kubernetes/role/demo-chat -
+"$RENDER_PYTHON" "$renderer" t14-other-auth-role | bao write auth/kubernetes/role/t14-other -
+```
+
+Read back (no secret values):
+
+```sh
+for role in demo-chat t14-other; do
+  bao read -format=json "auth/kubernetes/role/$role" | jq '.data | {bound_service_account_names,
+    bound_service_account_namespaces, audience, token_policies, token_no_default_policy, token_ttl, token_max_ttl}'
+done   # TTLs read back as 300/900 (seconds)
+bao policy read demo-chat-db-reader          # must equal the rendered file
+bao policy read default | grep -c 'secret/'  # 0: default grants nothing under the KV mount
+bao kv metadata get -mount=secret -format=json bravo/target/precutover/database | jq '.data.current_version'
+```
+
+Login and denial from the operator Mac over a port-forward. TLS is verified against the CA
+ConfigMap and the service name, as the T14 collector does. The JWT and OpenBao token go through
+stdin, never argv; only HTTP status codes are printed.
+
+```sh
+kubectl -n bravo-secrets port-forward svc/target-openbao 18200:8200 & PF=$!
+kubectl -n target-dev get configmap target-openbao-ca -o jsonpath='{.data.ca\.crt}' > "$OUTPUT_DIR/ca.crt"
+BAO=https://target-openbao.bravo-secrets.svc:18200
+tls() { curl -sS --resolve target-openbao.bravo-secrets.svc:18200:127.0.0.1 --cacert "$OUTPUT_DIR/ca.crt" "$@"; }
+login() {  # $1 = ServiceAccount = role name
+  kubectl -n target-dev create token "$1" --audience openbao --duration 10m \
+    | jq -R --arg role "$1" '{role: $role, jwt: .}' \
+    | tls -f -X POST --data @- "$BAO/v1/auth/kubernetes/login" | jq -r .auth.client_token
+}
+status() { printf 'X-Vault-Token: %s\n' "$1" | tls -H @- -o /dev/null -w '%{http_code}\n' "${@:2}"; }
+tls -o /dev/null -w '%{http_code}\n' "$BAO/v1/sys/health"                          # 200: chain + hostname OK
+TOKEN=$(login t14-other)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/precutover/database"             # 403 (permission denied)
+status "$TOKEN" -X POST "$BAO/v1/auth/token/revoke-self"                            # 204
+TOKEN=$(login demo-chat)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/precutover/database"             # 200 (body discarded)
+status "$TOKEN" "$BAO/v1/secret/data/bravo/target/objects"                         # 403
+status "$TOKEN" -X POST "$BAO/v1/auth/token/revoke-self"                            # 204
+unset TOKEN; kill "$PF"
+```
+
+A failed login (empty token) is not a denial: T14 records that as UNKNOWN. OpenBao 2.x returns
+the 403 body as `1 error occurred:\n\t* permission denied\n\n` (#742).
+
+**Server certificate SANs.** No repository code issues the leaf; the operator creates it in
+memory (step 4). `render.py server-cert-sans` is the required minimum, and the tests tie it to
+every `https://` address the renderer emits and to the pinned chart's `BAO_ADDR`. Check the live
+leaf through a port-forward as above (OpenSSL 1.1.1+ for `-ext`):
+
+```sh
+"$RENDER_PYTHON" "$renderer" server-cert-sans | jq -r .subject_alt_name
+openssl s_client -connect 127.0.0.1:18200 -servername target-openbao.bravo-secrets.svc \
+  -CAfile "$OUTPUT_DIR/ca.crt" -verify_hostname target-openbao.bravo-secrets.svc -verify_return_error \
+  </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName -enddate
+```
+
+Every rendered name must appear in the `X509v3 Subject Alternative Name` line, and `s_client`
+must not fail verification.
+
+Observed on the current target (T14 owner, 2026-11-07 23:59 KST, with the check above):
+
+| Field | Current leaf |
+| --- | --- |
+| Key | EC P-256 |
+| SAN | `DNS:localhost`, `DNS:target-openbao`, `DNS:target-openbao.bravo-secrets`, `DNS:target-openbao.bravo-secrets.svc`, `DNS:target-openbao.bravo-secrets.svc.cluster.local`, `IP:127.0.0.1` |
+| KeyUsage | `digitalSignature` (critical) |
+| Extended key usage | `serverAuth` |
+| BasicConstraints | `CA:FALSE` (critical) |
+| SKI / AKI | present |
+| `notAfter` | 2026-12-03 14:24 UTC |
+
+Both rendered SANs are present, so no reissue is needed for SEC-01.1. This matches the indirect
+evidence: the T14 collector's TLS check with `server_hostname` `target-openbao.bravo-secrets.svc`
+succeeded (SEC-01.1 PASS), ESO's SecretStores verify the same name, and the Pod's TLS-verified
+readiness probe on `127.0.0.1` is Ready.
+
+Reissue only if a name is missing or before `notAfter` (the leaf is issued for 30 days):
+
+1. Keep the CA key and certificate, so `target-dev/target-openbao-ca`,
+   `bravo-rehearsal-control/target-openbao-ca` and the T14 registration CA stay valid. A new CA
+   means updating every copy and comparing SHA-256 again.
+2. Generate a new EC P-256 leaf key in memory. Keep the current leaf's profile: every SAN of
+   the current leaf plus the rendered `subject_alt_name`, KeyUsage `digitalSignature` (critical)
+   only, EKU `serverAuth`, BasicConstraints `CA:FALSE` (critical), SKI and AKI. Do not add
+   `keyEncipherment`: it does not apply to an EC key (RFC 5480 section 3). The 2026-11-04 Python
+   consumer refused a leaf without AKI.
+3. Replace Secret `bravo-secrets/target-openbao-tls` from stdin (server-side apply), never from
+   key files. Wait until `/openbao/tls/tls.crt` in the Pod shows the new fingerprint.
+4. Reload the listener with `SIGHUP` to the `bao` process. Restarting the Pod also works but
+   OpenBao comes back **sealed** and needs the step 7 unseal from the credential store. The
+   SIGHUP reload has not yet been exercised on this target; if the old certificate is still
+   served afterwards, fall back to the restart.
+5. Re-run the `openssl` and `curl .../sys/health` checks above, then the ESO readiness and T14
+   SEC-01.1.
+
+### Rehearsal prep flow (T15)
+
+The T15 runner's prep Job, with the writer identity below, writes the synthetic values to
+`bravo/rehearsal/<namespace>/database` (key `credentials_json`, CAS 0) and creates role
+`rehearsal-app-reader-<namespace>` from `rehearsal-auth-role --namespace <namespace>` before
+the attempt, and deletes the role and the KV metadata afterwards. It never touches a policy.
+This renderer never carries a value. Isolation verified locally (see evidence): a token from
+namespace A reads A's path, and is refused on B's path, on the prefix sibling `<A>b`, and on
+every `bravo/target/*` path. The role *name* carries no authority: a role with another name but
+the same constraints still scopes the token to its own namespace.
+
+### Rehearsal writer (agreed with T15, 2026-11-06; reduced by ADR-0029 A안)
+
+The T15 prep Job runs in the platform management namespace `bravo-rehearsal-control` (renamed
+from `rehearsal-control` with the T15 owner, 2026-11-06 03:19, to match the platform-events
+configuration) as ServiceAccount
+`rehearsal-openbao-writer` and logs in with a projected token of audience `openbao`. Its Pod
+template **must** carry `app.kubernetes.io/component: rehearsal-openbao-writer`: the OpenBao
+`network` policy admits 8200/TCP from `bravo-rehearsal-control` only for Pods with that label (namespace
+*and* label in one peer). The existing ESO and `target-dev` probe peers are unchanged.
+
+Policy `rehearsal-openbao-writer` grants only:
+
+| Path | Capabilities | Constraint |
+| --- | --- | --- |
+| `secret/data/bravo/rehearsal/*`, `secret/metadata/bravo/rehearsal/*` | create, read, update, delete | Trailing `*` is a prefix glob: `bravo/rehearsal-x` and `bravo/target/*` do not match. No list, destroy or undelete |
+| `auth/kubernetes/role/rehearsal-app-reader-*` | create, update, delete | `required_parameters` = all seven role fields; `allowed_parameters`: SA `rehearsal-eso-reader`, namespace `rehearsal-*`, audience `openbao`, policy exactly `rehearsal-app-reader`, TTL `300s`/`900s`, `token_no_default_policy` `true`; `denied_parameters`: namespace `rehearsal-control*` (legacy management name) and any namespace value containing `,`, `*` or a space |
+| `auth/token/lookup-self` / `renew-self` / `revoke-self` | read / update / update | |
+
+There is **no** `sys/policies/*` (or `sys/policy`, `identity/*`, `sys/auth*`) path. The single
+allowed `token_policies` value contains no `*`, so OpenBao compares it for equality:
+`rehearsal-app-reader-evil`, `rehearsal-app-reader*`, `rehearsal-app-reader,default`, a trailing
+space and the JSON list `["rehearsal-app-reader"]` are all refused (verified).
+
+Why the namespace denials: OpenBao checks the raw request string, but Kubernetes auth then splits
+a comma string into a list, trims it and treats `*` as a glob at login, so `"rehearsal-a,target-dev"`,
+`"rehearsal-*"` or `"rehearsal-control "` would otherwise pass a `rehearsal-*` check. Any other
+parameter (deprecated `policies`, `token_period`, `token_bound_cidrs`, `alias_name_source`, a
+namespace selector, …) is refused because it is not allowed. OpenBao 2.7.2 also applies
+`required_parameters` to reads (`internal/vault/policy/acl.go`), so the role path grants no
+`read`; existence is proved by the reader login instead. The writer's own role name falls
+outside `rehearsal-app-reader-*` and it has no policy access, so it cannot widen or rebind itself.
+
+**Writer residual risk (after A안).** The escalation recorded in the first local check (writer
+writes a `rehearsal-app-reader-*` policy body granting `bravo/target/*` and binds it to a reader
+SA) is **closed**: replayed on 2026-11-06, the policy write, the role binding to any other policy
+and the login all fail ([evidence](../../../docs/evidence/t9-openbao-writer-2026-11-06/README.md#a안-재실측)).
+What remains, by design or outside the ACL's reach:
+
+- A stolen writer token can read, overwrite or delete synthetic values under `bravo/rehearsal/*`
+  for **every** rehearsal namespace (tamper with or break another attempt's inputs). Never store
+  real credentials under `bravo/rehearsal`.
+- It can create or rebind `rehearsal-app-reader-*` roles for any `rehearsal-*` namespace except
+  `rehearsal-control*` (the ACL cannot see namespace labels; `bravo-rehearsal-control` never matches). Such a role still grants only
+  `rehearsal-app-reader`, so the bound SA reads only its own namespace's path, i.e. values the
+  writer could already read. Overwriting another namespace's role is a denial of service, not a
+  read path.
+- Whoever can obtain a `rehearsal-eso-reader` token in an attempt namespace reads that
+  namespace's synthetic credentials. Give the T15 runner's Kubernetes identity no broader
+  `serviceaccounts/token` or Pod-create rights in rehearsal namespaces than the attempt needs.
+- The reader policy's integrity rests on the operator (root/admin) and the correct accessor.
+  Audit `sys/policies/acl/rehearsal-app-reader` writes with an OpenBao audit device and compare
+  with the rendered file after any auth remount.
+- Keep the writer token short-lived (300/900 s) and revoke it at the end of each prep Job.
+
+The fixed-slot alternative (operator-made `rehearsal-app-reader-slot-<n>` policies) is no longer
+needed and was not built.
+
+**Network for readers.** The OpenBao `network` policy admits TCP 8200 from namespaces labelled
+`app.kubernetes.io/part-of: bravo-rehearsal`. Both the candidate init container and the
+different-account rejection probe need this path: a network timeout cannot prove an OpenBao
+authorization denial. Only the trusted namespace manager sets this label. The control
+namespace remains outside this selector and still requires the writer Pod label above.
+Other OpenBao ports, existing ESO/probe peers and egress rules are unchanged. The rehearsal
+side already allows this egress (T3 `allow-target-profile`, `profiles/onprem.env`).
+`scripts/tests/test_rehearsal_object_access.py` ties the label to the T3 namespace template and
+the T3 OpenBao egress profile, and checks it against the T15 candidate and verifier Pod labels.
+
+**Public CA for the runner.** The operator reads `target-dev/target-openbao-ca`, key `ca.crt`,
+and supplies the same public certificate as ConfigMap
+`bravo-rehearsal-control/target-openbao-ca`, also key `ca.crt`. Compare its SHA-256 with the
+source before use and after renewal. Export only this key to the runner's configured CA file;
+the credential planner uses it to create each attempt's CA ConfigMap. Do not copy TLS private
+keys or grant the runner access to `bravo-secrets`. AWS-hosted runners need the same public
+certificate mounted by their deployment operator; a destination ConfigMap is not an AWS
+mount. Keep hostname and CA verification enabled.
+
+**Namespace and SA ownership.** The T15 owner coordinates creating `bravo-rehearsal-control` with
+T30. `rehearsal-writer-identity` renders the namespace and SA for that conversation; do not
+apply it if T30 creates them. It deliberately omits `app.kubernetes.io/part-of: bravo-rehearsal`
+so rehearsal selectors and cleanup never treat it as an attempt namespace. The namespace is
+shared with the platform-events rehearsal host (`rehearsal-host`, `rehearsal-exec`); those
+identities neither match the writer role (SA name) nor the network peer (Pod label), but any
+identity there that can create Pods as `rehearsal-openbao-writer` or mint its tokens becomes the
+writer. Keep that right with the T15 runner only.
+
+**Local check.** `testing/writer_acl_kind.py --kubeconfig <kind kubeconfig> --output <private
+file>` runs only on a single-node `kind-*` context. It deploys an upstream OpenBao 2.7.2 dev
+server as a `target-openbao` stand-in, performs the operator install above (real accessor, real
+CLI), applies the rendered NetworkPolicy, policies and roles unchanged, logs in with real
+ServiceAccount tokens and records each allowed/denied case, the replayed escalation, the
+wrong-accessor case, and the Pod path: a labelled writer Job prepares namespace A, the rendered
+init container in A fetches `credentials.json` (only the HTTP address, CA variable and image are
+substituted for the dev stand-in; it reaches OpenBao through the rendered policy alone), a TCP
+probe shows that a rehearsal-named namespace without the label stays blocked, and a second
+writer Job cleans up. It writes no token or value. It is not a substitute for the same checks on
+the demo RKE2 target with the TLS image.
+
+The init script fetches into a private temp file (`umask 077`), checks it is non-empty and
+has the expected shape, then replaces `credentials.json` with `mv -f`, which also succeeds
+over the 0400 file left by an earlier attempt on the same emptyDir. Token revocation runs from
+an `EXIT` trap on every path. A failed fetch exits non-zero and leaves no temp file, so a
+stale earlier file is never mistaken for a fresh success.
+
+**ESO scope.** The ESO release here is scoped to `target-dev` (`scopedNamespace`,
+`scopedRBAC`), so it does not reconcile ExternalSecrets in `rehearsal-*`. Two ways to serve
+them, in order of preference for the demo:
+
+1. Use `rehearsal-init-container` in the rehearsal Pod template (same path, same policy, no
+   ESO involvement). This keeps the production ESO permissions unchanged.
+2. Run a second ESO release with cluster-scoped RBAC limited by the `processClusterStore=false`
+   defaults and reconcile only namespaces carrying the rehearsal label. This widens ESO's
+   Secret-write permission to rehearsal namespaces and needs its own review.
+
+Neither has been exercised on the demo cluster yet; the T15 isolation test (#24 item 6) is the
+place to prove the chosen path.
+
 ## Modified OpenBao image
 
 The official 2.7.2 image contained fixable HIGH
 [CVE-2026-116587](https://github.com/advisories/GHSA-mgcc-cww5-fp2q).
 The local image uses exact upstream commit
 `9e0a0d3c3504a0a00b45e61355afac5e35c78379`, the small
-[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, and
-Go 1.27.3. This is a downstream development build, not an official release.
+[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, the
+[x/net patch](image/x-net.patch) upgrading golang.org/x/net 0.61.0 to 0.62.0
+(`bravo.4`, CVE-2026-78661), and Go 1.27.3. This is a downstream development
+build, not an official release.
 Upstream MPL-2.0 licensing remains applicable; the base image retains its license.
 
 [Build receipt](image/build-receipt.json) records the exact build flags, binary
@@ -159,10 +479,11 @@ Reproduce in a new source directory:
 git clone https://github.com/openbao/openbao.git openbao-source
 git -C openbao-source checkout 9e0a0d3c3504a0a00b45e61355afac5e35c78379
 git -C openbao-source apply /path/to/image/go-jose.patch
+git -C openbao-source apply /path/to/image/x-net.patch
 ```
 
 Use the receipt's `build_flags` with `GOTOOLCHAIN=go1.27.3`, `CGO_ENABLED=0`,
-`GOOS=linux`, `GOARCH=amd64`. First run the patched dependency's tests on the
+`GOOS=linux`, `GOARCH=arm64`. First run the patched dependency's tests on the
 host. Copy the resulting binary as `bao` next to [Dockerfile](image/Dockerfile),
 build for linux/amd64 and export an OCI layout. Scan those exact bytes with
 Trivy's `vuln,secret`, `HIGH,CRITICAL`, `--ignore-unfixed`, `--exit-code 1` gate.
@@ -174,3 +495,20 @@ bounded scan claim.
 
 The current chart/image metadata and the public reproduction material contain
 no operator tokens, recovery keys, source credentials or private kubeconfig.
+
+### Architectures
+
+`render.py --arch {arm64,amd64}` (default `arm64`) selects the image for
+`bao-values`, `finalize-bao` and `rehearsal-init-container`. Both are `bravo.4`.
+On 2026-11-07 `bravo.3` failed the gate on CVE-2026-78661 (`golang.org/x/net`
+0.61.0, fixed 0.62.0). [x-net.patch](image/x-net.patch) is
+`go get golang.org/x/net@v0.62.0` in each module that requires it.
+
+| Arch | Dockerfile | Receipt |
+|---|---|---|
+| arm64 | [Dockerfile](image/Dockerfile) | [build-receipt.json](image/build-receipt.json) |
+| amd64 | [Dockerfile.amd64](image/Dockerfile.amd64) (amd64 base manifest) | [build-receipt-amd64.json](image/build-receipt-amd64.json) |
+
+For each arch, the scan covered the alpine packages and `usr/bin/bao` with 0
+findings, and the offline `bao version` probe matched. Two independent builds
+of arm64 produced the same binary and image digest.

@@ -1,0 +1,36 @@
+{
+  "after-fix": {
+    "tenant_id": "tenant-one",
+    "app": "demo-chat",
+    "gate_id": "gate-0002",
+    "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "profile_id": "demo-gate",
+    "profile_version": "1",
+    "catalog_digest": "205e7865a5d85083015c8bcc93351ad3f7174493375ed0a35f541065af37e523",
+    "source_environment_id": "env-aws",
+    "source_environment_ref": "aws:eks/source",
+    "target_environment_id": "env-onprem",
+    "target_environment_ref": "onprem:rke2/target",
+    "source_ref": "source-ref",
+    "target_ref": "target-ref",
+    "source_digest": "5d7560b9a14db32c0ee92ece91459e4517df7fe999ebedf449fc7799aae385c6",
+    "target_digest": "eb94e6e636999f9095fb85102e4798edcdee994e5942d15e5ce4f790d110db1e"
+  },
+  "before-fix": {
+    "tenant_id": "tenant-one",
+    "app": "demo-chat",
+    "gate_id": "gate-0001",
+    "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "profile_id": "demo-gate",
+    "profile_version": "1",
+    "catalog_digest": "205e7865a5d85083015c8bcc93351ad3f7174493375ed0a35f541065af37e523",
+    "source_environment_id": "env-aws",
+    "source_environment_ref": "aws:eks/source",
+    "target_environment_id": "env-onprem",
+    "target_environment_ref": "onprem:rke2/target",
+    "source_ref": "source-ref",
+    "target_ref": "target-ref",
+    "source_digest": "5d7560b9a14db32c0ee92ece91459e4517df7fe999ebedf449fc7799aae385c6",
+    "target_digest": "86055924e6d5e3bc8eef25ac53f3409f899d12e99b04e0456c1344ce07a3ca35"
+  }
+}

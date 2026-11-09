@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::example-attachments-111122223333"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::example-attachments-111122223333/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:ap-northeast-2:111122223333:key/0d9d7a52-7c1f-4f0a-9f0e-3a5b6c7d8e9f",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.ap-northeast-2.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "kms:Decrypt"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Deny",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject"
+      ],
+      "NotResource": [
+        "arn:aws:s3:::example-attachments-111122223333",
+        "arn:aws:s3:::example-attachments-111122223333/*"
+      ]
+    }
+  ]
+}

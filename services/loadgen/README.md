@@ -10,18 +10,24 @@
 
 ## 실행
 
-```sh
+```bash
 uv sync
-export LOADGEN_DB_DSN=...    # 대조용. messages SELECT 권한이면 된다. 읽기 전용 트랜잭션만 연다
-export LOADGEN_LOCK_DSN=...  # 잠금 측정용. PgBouncer 뒤가 아니라 DB에 직접 붙는다
-export BRAVO_WINDOW_TOKEN=...  # 창 전송 인증. --window-url을 쓸 때 필요하다
-uv run bravo-loadgen run \
-  --base-url https://<Edge 주소> --measurement-path edge \
+read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN          # 대조용. messages SELECT 권한이면 된다. 읽기 전용 트랜잭션만 연다
+read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN      # 잠금 측정용. PgBouncer 뒤가 아니라 DB에 직접 붙는다
+read -rs BRAVO_WINDOW_TOKEN && export BRAVO_WINDOW_TOKEN  # 창 전송 인증. --window-url을 쓸 때 필요하다
+uv run bravo-loadgen measure \
+  --base-url https://<Edge 주소> --measurement-path edge --generator loadgen-ec2 \
   --plan-id plan-demo --source-env aws --target-env onprem \
-  --duration 300 --out out/run1 \
+  --run-id <실행 ID> --duration 300 --out out/run1 \
   --db-dsn-env LOADGEN_DB_DSN --lock-dsn-env LOADGEN_LOCK_DSN \
   --window-url https://<플랫폼 수신 주소>
 ```
+
+**실제 Cloudflare LB로 가중치 분배를 잴 때는 `--fresh-connections`를 붙인다.** 11/8 실측에서 LB가 연결마다 pool을 골라, keep-alive 연결 몇 개로는 10% 가중치에서 목적지 비율이 창마다 0–4%로 흔들렸다(T17). 이 옵션은 요청마다 새 연결을 열어 서로 다른 사용자처럼 보낸다. 리포트의 `measurement.connections`에 남는다.
+
+`measure`는 사전 점검을 통과해야 부하를 보낸다. 점검만 하려면 인자를 그대로 두고 `preflight`를 쓴다. 대상의 `/api/health/db`, `X-Bravo-Env`, Edge 경유(`CF-RAY`), 환경별 쓰기 차단(`/api/info`의 `write_blocked`), 창 수신 주소 · 토큰 · 계획 연결, 시계, DB를 본다. 점검 없이 보내는 `run`도 있지만, `edge` 경로면 `PREFLIGHT_SKIPPED`가 떠 판정 입력으로 쓸 수 없다. Edge 가중치 변경과 함께 재는 순서는 [합동 측정 절차](../../docs/operations/t18-joint-measure.md)에 있다.
+
+`read -rs`는 입력을 화면과 셸 기록에 남기지 않고 받는다. `bash`에서 **한 줄씩** 실행하고, 줄마다 값을 붙여 넣은 뒤 Enter를 누른다. 여러 줄을 한꺼번에 붙여 넣으면 다음 명령이 값으로 들어가고, 밀린 값이 명령으로 실행돼 화면과 셸 기록에 남는다. `sh`(dash)에는 `-s`가 없어 실패한다.
 
 연결 문자열과 창 전송 토큰은 비밀이라 환경변수로만 받는다. 값은 파일 · 로그에 남기지 않는다. `--base-url` · `--window-url`에 자격 증명을 넣으면 거부한다. 이미 결과가 있는 `--out` 폴더도 거부한다. 새 실행이 죽었을 때 이전 판정이 남아 잘못 읽히지 않게 하기 위해서다.
 
@@ -31,7 +37,7 @@ uv run bravo-loadgen run \
 | 1 | 하나라도 있음 |
 | 2 | 시험 불가 (DB를 못 읽음, 기록이 불완전, 쓰기 0건, 설정 오류, 예상 못 한 오류). 통과로 읽지 않는다 |
 
-컷오버 뒤 지금 쓰기를 받는 DB와 다시 맞추려면 `bravo-loadgen reconcile --out out/run1 --db-dsn-env ...`. 창 파일만 검사하려면 `bravo-loadgen check-windows out/run1/windows.jsonl`.
+컷오버 뒤 지금 쓰기를 받는 DB와 다시 맞추려면 `bravo-loadgen reconcile --out out/run1 --db-dsn-env ...`. 창 파일만 검사하려면 `bravo-loadgen check-windows out/run1/windows.jsonl`. 가중치 영수증과 창을 같은 실행 ID로 맞추려면 `bravo-loadgen align --out out/run1 --receipts <영수증 파일>`. `align`의 판정은 T36 코드로 다시 읽은 참고값이고, 기준은 T10이 저장한 판정이다.
 
 산출물:
 
@@ -39,8 +45,10 @@ uv run bravo-loadgen run \
 |---|---|
 | `journal.jsonl` | 모든 시도. 논리 요청 ID, 시도 ID, 시각, 결과. 요청 ID는 여기와 리포트에만 둔다 |
 | `windows.jsonl` | 낸 창 요약. 끝나면 `run-state.json`, `report.json`, `report.md`도 남는다 |
+| `preflight.json` | `measure`의 사전 점검 결과. 비밀 값과 주소는 없다 |
+| `weight-alignment.json` | `align`의 단계별 반영 상한과 환경별 p95 |
 
-공개 증거로 올릴 때는 `report.*` · `windows.jsonl`만 올리고, 실제 환경 주소는 [공개 증빙 절차](../../docs/public-evidence-policy.md)로 가린다. 측정 경로(`--measurement-path`)는 사람이 선언한 값이다. `edge`는 실제 Edge 주소로 돌릴 때만 쓴다.
+공개 증거로 올릴 때는 `report.*` · `windows.jsonl`만 올리고, 실제 환경 주소는 [공개 증빙 절차](../../docs/public-evidence-policy.md)로 가린다. 측정 경로(`--measurement-path`)는 사람이 선언한 값이다. `edge`는 실제 Edge 주소로 돌릴 때만 쓰고, `measure`가 응답의 `CF-RAY`로 확인한다. `edge`에는 `--generator`로 부하를 내는 곳도 밝힌다. `loadgen-ec2`는 그 EC2의 표시 파일이 있어야 쓸 수 있고, `laptop`은 리포트에 회선과 노트북 상태가 섞인 값으로 표시된다.
 
 ## 동작
 
@@ -74,18 +82,20 @@ uv run bravo-loadgen run \
 - 전달에 실패한 창은 다시 보내지 않고 세기만 한다. 늦은 창은 판정에 쓰이지 않고, 없는 창은 UNKNOWN이다.
 - `received_at`은 `build_window`가 창 끝으로 채운다. 플랫폼이 `receive()`로 덮어쓴다.
 
-**지금 demo-chat에는 `X-Bravo-Env`가 없다.** 계약대로 모든 응답이 `unattributed.other`, 곧 오류로 세어진다. 리포트는 HTTP 오류율과 계약 오류율을 나란히 보이고 `ENV_HEADER_MISSING`을 띄운다. 헤더는 T22가 추가한다. 이 상태의 창을 판정에 넣으면 전부 FAIL이 된다.
+**demo-chat은 `c1c74ab`(T22)부터 모든 HTTP 응답에 `X-Bravo-Env`를 넣는다.** 로컬 재측정에서 직접 실행의 환경 미확인이 12,000건에서 0건이 됐고, 응답은 모두 등록된 환경으로 세어졌다([증거 11절](../../docs/evidence/t18-load-generator-2026-11-04/README.md)). 실제 Edge 경유 측정은 아니다. 이전 `b71d4aa`에는 헤더가 없어 모든 응답이 `unattributed.other`로 세어졌고, 그 창을 판정에 넣으면 전부 FAIL이었다.
 
-리포트의 `sli_usable_for_judgement`는 Edge 경유이고, 환경을 모두 알 수 있고, 창이 온전할 때만 `true`다. 종료 코드는 쓰기 대조(NFR-2)만 본다. 읽기 5xx는 `HTTP_ERRORS` 경고와 창의 오류로 드러난다.
+헤더가 없거나 등록되지 않은 값이면 지금도 계약대로 `unattributed.other`, 곧 오류로 세어진다. 리포트는 HTTP 오류율과 계약 오류율을 나란히 보이고 `ENV_HEADER_MISSING` · `ENV_HEADER_UNREGISTERED`를 띄운다. Edge 오류 페이지가 이 경우다. Edge가 같은 헤더를 덧붙여도 `aws, aws`로 읽혀 이 경우가 된다.
+
+리포트의 `sli_usable_for_judgement`는 사전 점검을 통과한 `loadgen-ec2`의 Edge 경유 측정이고, 환경을 모두 알 수 있고, 창이 온전할 때만 `true`다. 노트북 값은 Edge를 지났어도 `GENERATOR_NOT_EC2`로 `false`이고, 그 창은 판정 경로로 보내지 못한다. 종료 코드는 쓰기 대조(NFR-2)만 본다. 읽기 5xx는 `HTTP_ERRORS` 경고와 창의 오류로 드러난다.
 
 ## 실행 위치와 창 전송
 
-**실행 위치는 별도 소형 EC2다. 아직 만들지 않았다.** 측정과 데모 때만 켠다. 이유는 둘이다.
+**실행 위치는 별도 소형 EC2다. Terraform 스택은 [`infra/envs/loadgen-aws`](../../infra/envs/loadgen-aws/README.md)에 있지만 EC2는 아직 만들지 않았다.** 측정과 데모 때만 켠다. 이유는 둘이다.
 
 - 판정 입력은 평가 대상 밖에서 사용자와 같은 경로로, Edge를 거쳐 재야 한다(ADR-0010). 출발지 · 목적지 클러스터 안에 두지 않는다.
 - 플랫폼 노드는 CPU 2,000m 중 1,976m가 이미 예약돼 있어(#146) 같은 서버에 두지 않는다.
 
-필요한 사양의 근거는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md)의 CPU · 메모리 측정값이다. 대조와 잠금 측정은 DB에 닿아야 하므로, 이 EC2에서 DB로 가는 읽기 경로와 계정은 EC2를 만들 때 함께 정한다. 부하만 먼저 돌리고 `reconcile`은 DB에 닿는 곳에서 따로 돌려도 된다.
+필요한 사양의 근거는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md)의 CPU · 메모리 측정값이다. 대조와 잠금 측정은 DB에 닿아야 하므로, 이 EC2에서 DB로 가는 읽기 경로와 계정은 EC2와 별도로 정한다. 부하만 먼저 돌리고 `reconcile`은 DB에 닿는 곳에서 따로 돌려도 된다.
 
 **창은 플랫폼 수신 경로로 POST한다.** `--window-url`은 창 JSON을 그대로 보내고 2초 안에 2xx를 못 받으면 전달 실패로 센다. Tailscale ACL은 부하 생성기 태그만 허용한다([계약 6절](../../docs/observability/README.md)). 수신 주소는 아직 없다(T10 · T17). 정해질 때까지는 `windows.jsonl`이 기준이다.
 
@@ -115,4 +125,13 @@ git clone https://github.com/Softbank-Hackathon-Finals/demo-chat.git <폴더>
 uv run python testing/e2e.py --demo-chat <폴더> --out <산출물 폴더>
 ```
 
-실제 `demo-chat`(수정 없음)과 실제 Postgres를 띄워 일부러 유실 · 중복 · 실패를 넣고 잡히는지 본다. 약 17분 걸린다. Docker가 필요하고, 로컬에 이미 받은 이미지만 쓴다(`public.ecr.aws/docker/library/postgres:16`, `nginx:alpine`). 없으면 받지 않고 멈춘다. 실제 Cloudflare가 아니다. `testing/mock-edge.conf`는 가중치 분배와 헤더만 흉내 낸 대역이다. 결과는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md).
+실제 `demo-chat`(수정 없음)과 실제 Postgres를 띄워 일부러 유실 · 중복 · 실패를 넣고 잡히는지 본다. 약 20분 걸린다. `--only joint-rehearsal`은 [합동 측정 절차](../../docs/operations/t18-joint-measure.md)를 대역으로 처음부터 끝까지 돌린다. Docker가 필요하고, 로컬에 이미 받은 이미지만 쓴다(`public.ecr.aws/docker/library/postgres:16`, `nginx:alpine`). 없으면 받지 않고 멈춘다. 실제 Cloudflare가 아니다. `testing/mock-edge.conf`는 가중치 분배만 흉내 낸 대역이고, 헤더는 앱이 붙인다. 그래서 `c1c74ab` 이후의 demo-chat이 필요하다. 결과는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md).
+
+## 쓰기 잠금 실험
+
+```sh
+uv run python testing/lock_lab.py <calibrate|wire|ceiling|invariants|matrix> --variants <안별 demo-chat 폴더들의 상위 폴더> --out <산출물 폴더> --names <안...>
+uv run python testing/lock_lab_report.py <결과.jsonl>...   # 결과를 표로 바꾼다
+```
+
+demo-chat 수정본 여러 벌을 같은 조건으로 잰다. Edge 대역이 헤더를 붙이지 않으므로 수정본은 `c1c74ab` 이후의 demo-chat에서 만든다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 표의 판정은 창별 판정(`judge`)을 모은 것이고, 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 뺀다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).

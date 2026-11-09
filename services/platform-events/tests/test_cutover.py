@@ -46,7 +46,7 @@ class Fixture:
         # Test-only prerequisite seed. No runtime route or convenience method can do this.
         with backend.admin() as c:
             c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id='plan-demo'")
-        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-token",
+        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-read", command_token="fixture-command",
                                      transport=httpx.MockTransport(self.handle))
 
     def authority(self, c, principal, plan, *, now, approved_by, approval_id):
@@ -109,6 +109,22 @@ def test_approval_then_single_post_and_durable_projection(fixture):
     f.submit(approval)
     with f.backend.admin() as c:
         assert c.execute("SELECT COUNT(*) AS n FROM plan_commands").fetchone()[0] == count
+
+
+@pytest.mark.parametrize("phase,application_id", [("initial", None), ("post_apply", "application-1")])
+def test_gate_phase_survives_approval_event_reopen_and_exact_replay(fixture, phase, application_id):
+    f = fixture
+    binding = BINDING | dict(gate_phase=phase, application_id=application_id)
+    f.context = replace(f.context, binding=binding)
+    approval = f.approve(binding=binding)
+    assert approval["binding"] == binding
+    assert f.approve(binding=binding) == approval
+    event = f.backend.reopen().read_after(SPEC.plan_id, None)[-1]
+    assert event["data"]["binding"] == binding
+    for wrong in (BINDING, binding | {"application_id": "different"}, binding | {"gate_phase": "different"}):
+        with pytest.raises(EventError, match="command_key_conflict|binding_mismatch"):
+            f.approve(binding=wrong)
+    assert not f.requests
 
 
 @pytest.mark.parametrize("field", ["plan_digest", "diff_hash", "image_digest", "gate_id", "context_digest", "target_environment_id", "expires_at"])

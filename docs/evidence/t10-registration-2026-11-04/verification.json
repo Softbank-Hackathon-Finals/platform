@@ -1,0 +1,100 @@
+{
+  "observed_at": "2026-11-04T05:28:38.117966+00:00",
+  "steps": [
+    "existing_serviceaccount_short_lived_tokenrequests",
+    {
+      "route": "environments",
+      "status": 201,
+      "summary": "verified"
+    },
+    {
+      "route": "environments",
+      "status": 201,
+      "summary": "verified"
+    },
+    {
+      "route": "workloads",
+      "status": 201,
+      "summary": "verified"
+    },
+    {
+      "route": "plans",
+      "status": 201
+    }
+  ],
+  "repo_revision": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+  "repo_deploy_match": true,
+  "tracked_resource_kinds": [
+    "Cluster",
+    "Secret",
+    "ServiceAccount"
+  ],
+  "stored_state": "COLLECT",
+  "plan_replay": 200,
+  "negative": {
+    "bad_token": "collector_denied",
+    "wrong_uid": "environment_replaced",
+    "stale_authenticated_release": 409
+  },
+  "ssm_terminated": true,
+  "temporary_directory_removed": true,
+  "production_plan_written": false,
+  "workload_rbac_changed": false,
+  "scope": "Owner-bound source EKS and development RKE2 VM, actual collector tokens; local ASGI ingress and isolated SQLite; temporary local PostgreSQL in suite.",
+  "production_migration": false,
+  "t18_posts": 0,
+  "local_tests": 499,
+  "environment_checks": {
+    "source": {
+      "warnings": [
+        "write_scope_unknown"
+      ],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    },
+    "development_target": {
+      "warnings": [],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    }
+  },
+  "private_run_sha256": "7b47eb9146bbe19c31b5e59c59b320f77aef24bd8023de4a8687cf6e2ff55c7c",
+  "sources": [
+    {
+      "path": "services/platform-events/src/bravo_platform_events/plans.py",
+      "sha256": "c1c8af5f5fd6073a5f6acdfca5ffeaa9cf82e73799caff33f0f924be604b52c0"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration.py",
+      "sha256": "5b93e31dcfe4c5c03f18bd938cf2ec34f0c56e8e8a08ae6514a7ae9ecf21f4fb"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_api.py",
+      "sha256": "657794c4b600c5accab881736cdf8fb887378c543cea315c464c6e8147347804"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_probe.py",
+      "sha256": "2d279a320aa87034c08f9c296aac90c543c8f264aef6daa53c5def5e3047bf52"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_server.py",
+      "sha256": "b92e60e3e81b9782e4ff380ed836f725a6a1d5d20d7aa42eba7638bdf4b1d84e"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/postgres.py",
+      "sha256": "ad2c3906bcc619e74002a4d89f209158777cc46a200386ba0ef369d8837289bc"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/window_server.py",
+      "sha256": "827d7309995d1dc8487d33d00dc5a5e455b1d457371b1feccd12ced857602e0a"
+    },
+    {
+      "path": "services/platform-events/sql/0003_registrations.sql",
+      "sha256": "a36a65b53928f2e332d625a41b4cc28425d8b0292210e12fc01e0cb7a61b32b2"
+    }
+  ]
+}

@@ -3,6 +3,8 @@
 import argparse
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -91,20 +93,70 @@ def run_worker(store, directory, args):
         token = store.access_token(oauth)
         if args.model not in oauth.models(token):
             raise AuthFailure("MODEL_NOT_AVAILABLE_FOR_ADMIN_ACCOUNT")
-        with tempfile.TemporaryDirectory(prefix="bravo-subscription-") as temp:
-            command = [sys.executable, "-m", "bravo_agent.cli", "analyze", "--provider", "chatgpt-plan",
-                       "--model", args.model]
-            for name in ("bundle", "manifest", "snapshot", "output"):
-                command += ["--" + name, str(getattr(args, name).absolute())]
-            environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
-                           "TMPDIR": temp, "ACCESS_TOKEN": token, "PYTHONDONTWRITEBYTECODE": "1"}
-            # Inject only inference access. OS/metadata/egress isolation is a host obligation;
-            # an environment allowlist alone is not an operating-system sandbox.
-            process = subprocess.run(command, cwd=temp, env=environment, capture_output=True,
-                                     timeout=210, text=True)
-            state = "PROPOSAL_READY" if process.returncode == 0 else "NEEDS_HUMAN"
-            print(json.dumps({"state": state, "provider": "chatgpt_plan"}))
-            return 0 if process.returncode == 0 else 2
+        return _isolated_worker("chatgpt-plan", {"ACCESS_TOKEN": token}, args)
+
+
+def api_key(path: Path, pattern=r"sk-ant-[A-Za-z0-9_-]{20,4000}") -> str:
+    """API key file (Anthropic, or OpenAI with its pattern) materialized for the broker user only."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+            raise AuthFailure("API_KEY_FILE_NOT_PRIVATE")
+        key = os.read(fd, 4097).decode().strip()
+    finally:
+        os.close(fd)
+    if re.fullmatch(pattern, key) is None:
+        raise AuthFailure("API_KEY_INVALID")
+    return key
+
+
+def run_claude_worker(key_file, directory, args):
+    """Same isolated T11 worker with the Claude Agent SDK adapter and an API key.
+
+    A claude.ai subscription login is not used here: Anthropic does not allow third-party
+    products, including Agent SDK agents, to offer claude.ai login or rate limits.
+    """
+    with broker_lock(directory):
+        return _isolated_worker("claude", {"ANTHROPIC_API_KEY": api_key(Path(key_file))}, args)
+
+
+def run_openai_worker(key_file, directory, args):
+    """Same isolated T11 worker with the OpenAI Agents SDK provider and a platform API key (T49, 11/8):
+    the ChatGPT-plan login needs a person to re-consent; an API key held by the platform does not."""
+    with broker_lock(directory):
+        return _isolated_worker("openai", {"OPENAI_API_KEY": api_key(Path(key_file), OPENAI_KEY)}, args)
+
+
+OPENAI_KEY = r"sk-(?!ant-)[A-Za-z0-9_-]{20,4000}"  # OpenAI user/project/service-account keys, never Anthropic
+
+
+def _isolated_worker(provider, credential, args):
+    with tempfile.TemporaryDirectory(prefix="bravo-subscription-") as temp:
+        command = [sys.executable, "-m", "bravo_agent.cli", "analyze", "--provider", provider,
+                   "--model", args.model]
+        for name in ("bundle", "manifest", "snapshot", "output"):
+            command += ["--" + name, str(getattr(args, name).absolute())]
+        # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
+        if getattr(args, "inventory", None) is not None:
+            command += ["--inventory", str(args.inventory.absolute())]
+        # Optional T44 desired state of the target environment: enables infra.plan.
+        if getattr(args, "iac_state", None) is not None:
+            command += ["--iac-state", str(args.iac_state.absolute())]
+        if getattr(args, "reasoning_effort", None) is not None:
+            command += ["--reasoning-effort", args.reasoning_effort]
+        if getattr(args, "sandbox_image", None) is not None:
+            command += ["--sandbox-image", args.sandbox_image]
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
+                       "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential,
+                       **(getattr(args, "docker", None) or {})}
+        # Inject only inference access. OS/metadata/egress isolation is a host obligation;
+        # an environment allowlist alone is not an operating-system sandbox.
+        process = subprocess.run(command, cwd=temp, env=environment, capture_output=True,
+                                 timeout=210, text=True)
+        state = "PROPOSAL_READY" if process.returncode == 0 else "NEEDS_HUMAN"
+        print(json.dumps({"state": state, "provider": provider.replace("-", "_")}))
+        return 0 if process.returncode == 0 else 2
 
 
 def main():
@@ -130,6 +182,7 @@ def main():
             command.add_argument("--model", required=True)
             for item in ("bundle", "manifest", "snapshot", "output"):
                 command.add_argument("--" + item, type=Path, required=True)
+            command.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "policy":

@@ -1,0 +1,61 @@
+{
+  "kind": "t14-pinned-scanner-capability-qualification.v1",
+  "at": "2026-11-06T13:20:45.913915+00:00",
+  "scope": "offline pinned scanner capability and isolated regression stores; no operating IAM control execution",
+  "capability": {
+    "kind": "prowler-analyzer-capability.v1",
+    "ready": false,
+    "reason": "ANALYZER_CATALOGUE_INCOMPATIBLE",
+    "full_iam_01_2_qualified": false,
+    "aws_api_calls": 0,
+    "pattern_count": 126,
+    "patterns_sha256": "0356d9861f8ae74875bb61fd151672f9794c4572d83bb7f0059c457ef6e26221",
+    "expanded_patterns": 0,
+    "rejected_pattern_sha256": "ab468db7ec5049245463513b7284baa8568528e291cc32005b2c7af8ac328392",
+    "scanner_version": "5.47.0",
+    "expand_version": "0.3.0",
+    "analyzer_sha256": "88411a627154c1ace9e7f16e00d32b4290f1187fe00bfdf911a6800c36089fb3",
+    "iamdata_version": "0.1.202611051"
+  },
+  "network_attempts": 0,
+  "aws_credential_file_reads": 0,
+  "driver_stopped_before_missing_profile_and_registration": true,
+  "full_iam_01_2_qualified": false,
+  "new_regressions": 26,
+  "full_regressions": 1545,
+  "subtests_passed": 58,
+  "skipped_tests": 0,
+  "actual_gitleaks_and_docker_tls_enabled": true,
+  "mutations": [
+    {
+      "mutation": "skip-expansion-error",
+      "failed_regressions": 7,
+      "verified_import": true
+    },
+    {
+      "mutation": "accept-empty-expansion",
+      "failed_regressions": 1,
+      "verified_import": true
+    },
+    {
+      "mutation": "skip-source-pin",
+      "failed_regressions": 2,
+      "verified_import": true
+    },
+    {
+      "mutation": "skip-worker-preflight",
+      "failed_regressions": 4,
+      "verified_import": true
+    }
+  ],
+  "raw_capability_sha256": "316df1437cfbcaf067541f1792664f2126d650957c705e401ae99bbad614291b",
+  "tool_dependency_inventory_sha256": "ac948063004deb0cb59737bc3c96bd98e76eb733a8e3cac43cccb2adeeaddbe3",
+  "operational_control_gate_pass": false,
+  "candidate_release": {
+    "version": "5.48.0",
+    "published_at": "2026-11-06T11:27:58Z",
+    "analyzer_bytes_equal_to_pinned_547": true,
+    "candidate_runtime_installed_or_qualified": false,
+    "adopted": false
+  }
+}

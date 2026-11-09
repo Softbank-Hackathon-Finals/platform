@@ -20,6 +20,11 @@ class PlanSpec:
     target_environment_id: str
     plan_digest: str
     collection_scope_digest: str
+    # Absent only on legacy plans/trusted fixtures. Such plans cannot bind T19.
+    profile_id: str | None = None
+    profile_version: str | None = None
+    recheck_profile_id: str | None = None
+    recheck_profile_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,10 @@ class CollectionProof:
     complete: bool
 
 
+def change_key(kind: str, value: str) -> str:
+    return f"change-{kind}-" + hashlib.sha256(value.encode()).hexdigest()
+
+
 def _canonical(value: dict) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -44,6 +53,12 @@ def _canonical(value: dict) -> str:
 def _digest(value: str) -> None:
     if not isinstance(value, str) or not re.fullmatch("[0-9a-f]{64}", value):
         raise ValueError("invalid_digest")
+
+
+def validate_profile(profile_id, profile_version):
+    for value in (profile_id, profile_version):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", value):
+            raise ValueError("invalid_evaluation_profile")
 
 
 class PlanStore(EventStore):
@@ -63,6 +78,11 @@ class PlanStore(EventStore):
                     receipt_json TEXT NOT NULL,
                     PRIMARY KEY (plan_id, command_key)
                 );
+                CREATE TABLE IF NOT EXISTS registrations (
+                    tenant_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('environment','workload','plan')),
+                    object_id TEXT NOT NULL, command_key TEXT NOT NULL, request_json TEXT NOT NULL, receipt_json TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, kind, object_id), UNIQUE(tenant_id, kind, command_key)
+                );
                 CREATE TABLE IF NOT EXISTS sli_windows (
                     plan_id TEXT NOT NULL REFERENCES plans(plan_id),
                     start_us INTEGER NOT NULL, end_us INTEGER NOT NULL CHECK (end_us > start_us),
@@ -74,39 +94,54 @@ class PlanStore(EventStore):
 
     def register_plan(self, spec: PlanSpec, *, run_id: str, occurred_at: str) -> None:
         """Trusted fixtures/registration only; same immutable spec is a no-op."""
+        with self._transaction(write=True, plan_id=spec.plan_id) as c:
+            self._register_in_transaction(c, spec, run_id=run_id, occurred_at=occurred_at)
+
+    def _register_in_transaction(self, c, spec, *, run_id, occurred_at):
         values = asdict(spec)
+        for prefix in ("", "recheck_"):
+            fields = (prefix + "profile_id", prefix + "profile_version")
+            if all(values[field] is None for field in fields):
+                # Preserve original canonical bytes on legacy registration replay.
+                for field in fields:
+                    values.pop(field)
+            else:
+                validate_profile(*(values[field] for field in fields))
+        if "recheck_profile_id" in values and "profile_id" not in values:
+            raise ValueError("invalid_evaluation_profile")
         for key, value in values.items():
-            if key.endswith("_digest"):
+            if key in {"profile_id", "profile_version", "recheck_profile_id", "recheck_profile_version"}:
+                continue
+            elif key.endswith("_digest"):
                 _digest(value)
             else:
                 validate_identifier(value)
         canonical = _canonical(values)
-        with self._transaction(write=True, plan_id=spec.plan_id) as c:
-            old = c.execute(
-                "SELECT spec_json FROM plans WHERE plan_id=?", (spec.plan_id,)
-            ).fetchone()
-            if old:
-                if old["spec_json"] != canonical:
-                    raise EventError("plan_conflict")
-                return
-            if c.execute("SELECT 1 FROM streams WHERE plan_id=?", (spec.plan_id,)).fetchone():
-                raise EventError("stream_conflict")
-            c.execute("INSERT INTO streams(plan_id) VALUES (?)", (spec.plan_id,))
-            c.execute("INSERT INTO state_owners(plan_id) VALUES (?)", (spec.plan_id,))
-            c.execute(
-                "INSERT INTO plans VALUES (?,?,?,'COLLECT',1,?,?)",
-                (spec.plan_id, canonical, spec.tenant_id, occurred_at, occurred_at),
-            )
-            self._append_in_transaction(
-                c,
-                plan_id=spec.plan_id,
-                run_id=run_id,
-                event_type="state.changed",
-                data={"from": None, "to": "COLLECT"},
-                occurred_at=occurred_at,
-                producer_key="plan-created",
-                state_owner=True,
-            )
+        old = c.execute(
+            "SELECT spec_json FROM plans WHERE plan_id=?", (spec.plan_id,)
+        ).fetchone()
+        if old:
+            if old["spec_json"] != canonical:
+                raise EventError("plan_conflict")
+            return
+        if c.execute("SELECT 1 FROM streams WHERE plan_id=?", (spec.plan_id,)).fetchone():
+            raise EventError("stream_conflict")
+        c.execute("INSERT INTO streams(plan_id) VALUES (?)", (spec.plan_id,))
+        c.execute("INSERT INTO state_owners(plan_id) VALUES (?)", (spec.plan_id,))
+        c.execute(
+            "INSERT INTO plans VALUES (?,?,?,'COLLECT',1,?,?)",
+            (spec.plan_id, canonical, spec.tenant_id, occurred_at, occurred_at),
+        )
+        self._append_in_transaction(
+            c,
+            plan_id=spec.plan_id,
+            run_id=run_id,
+            event_type="state.changed",
+            data={"from": None, "to": "COLLECT"},
+            occurred_at=occurred_at,
+            producer_key="plan-created",
+            state_owner=True,
+        )
 
     def complete_collection(
         self,

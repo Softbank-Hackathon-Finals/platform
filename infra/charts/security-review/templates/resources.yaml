@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: security-review
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+automountServiceAccountToken: false
+imagePullSecrets:
+  - name: {{ .Values.secrets.registry }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-review-config
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+data:
+  config.json: |
+    {{ dict "schema_version" 1 "tenant_id" .Values.tenantId "database_dsn_file" "/run/database/dsn" "tokenreview_origin" .Values.tokenReview.origin "tokenreview_ca_file" "/run/api/ca.crt" "reviewer_token_file" "/run/api/token" "audience" .Values.audience "grants_file" "/run/grants/grants.json" "local_audit_file" "/var/log/security-review/reviews.jsonl" | toJson }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: security-review-audit
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.audit.storageClassName }}
+  resources:
+    requests: {storage: {{ .Values.audit.size }}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-review
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: security-review}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: security-review, component: platform, bravo.dev/db-client: runtime}
+      annotations:
+        bravo.dev/source-revision: {{ .Values.sourceRevision | quote }}
+    spec:
+      serviceAccountName: security-review
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: security-review
+          image: {{ .Values.image.repository }}@{{ .Values.image.digest }}
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/run/config/config.json", "--certificate", "/run/tls/tls.crt", "--private-key", "/run/tls/tls.key", "--host", "0.0.0.0", "--port", "8443"]
+          ports: [{name: https, containerPort: 8443}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe: {tcpSocket: {port: https}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {tcpSocket: {port: https}, initialDelaySeconds: 10, periodSeconds: 10}
+          volumeMounts:
+            - {name: config, mountPath: /run/config, readOnly: true}
+            - {name: tls, mountPath: /run/tls, readOnly: true}
+            - {name: database, mountPath: /run/database, readOnly: true}
+            - {name: grants, mountPath: /run/grants, readOnly: true}
+            - {name: api, mountPath: /run/api, readOnly: true}
+            - {name: audit, mountPath: /var/log/security-review}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: config, configMap: {name: security-review-config}}
+        - {name: tls, secret: {secretName: {{ .Values.secrets.tls }}, defaultMode: 288}}
+        - {name: database, secret: {secretName: {{ .Values.secrets.database }}, defaultMode: 288}}
+        - {name: grants, configMap: {name: {{ .Values.configMaps.grants }}}}
+        - name: api
+          projected:
+            defaultMode: 288
+            sources:
+              - serviceAccountToken: {path: token, audience: {{ .Values.tokenReview.reviewerAudience }}, expirationSeconds: 600}
+              - configMap: {name: {{ .Values.configMaps.apiCA }}, items: [{key: ca.crt, path: ca.crt}]}
+        - {name: audit, persistentVolumeClaim: {claimName: security-review-audit}}
+        - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-review
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+spec:
+  selector: {app.kubernetes.io/name: security-review}
+  ports: [{name: https, port: 8443, targetPort: https}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-review-egress
+  labels: {app.kubernetes.io/name: security-review, component: platform}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: security-review}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{ipBlock: {cidr: {{ .Values.tokenReview.apiAddress }}/32}}]
+      ports: [{port: {{ .Values.tokenReview.apiPort }}, protocol: TCP}]
+    - to: [{ipBlock: {cidr: {{ .Values.database.address }}/32}}]
+      ports: [{port: {{ .Values.database.port }}, protocol: TCP}]

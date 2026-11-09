@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from .api import create_app
 from .contract import validate_identifier
 from .plans import PlanStore
+from .store import EventError
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,21 @@ PrincipalResolver = Callable[[Request], Principal | None]
 def unauthenticated(_request: Request) -> None:
     return None
 
+
+def authorized_plan(c, principal, plan_id, check_access):
+    """Read the tenant-owned plan and current host grant in the caller's transaction."""
+    validate_identifier(plan_id)
+    if not isinstance(principal, Principal):
+        raise EventError("forbidden")
+    validate_identifier(principal.subject_id)
+    validate_identifier(principal.tenant_id)
+    row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+    if row is None or row["tenant_id"] != principal.tenant_id:
+        raise EventError("forbidden")
+    plan = dict(row)
+    if check_access is not None:
+        check_access(c, principal, plan)
+    return plan
 
 def create_plan_app(
     store: PlanStore,

@@ -1,0 +1,518 @@
+"""Render isolated workload API routes. Never apply or mint credentials."""
+
+import argparse
+import json
+import re
+import sys
+from pathlib import PurePosixPath
+
+ROLES = ("rehearsal", "apply")
+COLLECTOR = "collector"
+SYSTEM = "tailscale-system"
+TAILNET = "bravo-clusters"
+PROXY_CLASS = "bravo-clusters-egress-v11044"
+PROXY_IMAGE = "tailscale/tailscale:v1.104.4@sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c"
+CLIENT_LABEL = "bravo.dev/target-api-client"
+MANAGED = {"app.kubernetes.io/part-of": "bravo-target-access"}
+
+
+def name(value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?", value
+    ):
+        raise ValueError("DNS label required")
+    return value
+
+
+def hostname(value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.ts\.net",
+        value,
+    ):
+        raise ValueError("verified canonical MagicDNS service hostname required")
+    return value
+
+
+def control(role):
+    if role == COLLECTOR:
+        return "platform-state"
+    if role not in ROLES:
+        raise ValueError("unknown role")
+    return "bravo-" + role + "-control"
+
+
+def service(role):
+    control(role)
+    return "collector-target-api" if role == COLLECTOR else "target-api"
+
+
+def client_labels(role):
+    control(role)
+    if role == COLLECTOR:
+        return {"app.kubernetes.io/name": "t10-registration", CLIENT_LABEL: role}
+    return {CLIENT_LABEL: role}
+
+
+def group(role):
+    control(role)
+    return "bravo-" + role + "-egress"
+
+
+def meta(value, namespace=None):
+    return {
+        "name": name(value),
+        "labels": MANAGED.copy(),
+        **({"namespace": name(namespace)} if namespace else {}),
+    }
+
+
+def proxy_labels(role):
+    return {
+        "tailscale.com/managed": "true",
+        "tailscale.com/parent-resource": group(role),
+        "tailscale.com/parent-resource-type": "proxygroup",
+    }
+
+
+def peer(namespace, labels):
+    return {
+        "namespaceSelector": {
+            "matchLabels": {"kubernetes.io/metadata.name": namespace}
+        },
+        "podSelector": {"matchLabels": labels},
+    }
+
+
+def policy(value, namespace, spec):
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": meta(value, namespace),
+        "spec": spec,
+    }
+
+
+def client_policy(role, ports=None):
+    rules = [
+        {
+            "to": [peer("kube-system", {"k8s-app": "kube-dns"})],
+            "ports": [{"protocol": p, "port": 53} for p in ("UDP", "TCP")],
+        }
+    ]
+    if ports is not None:
+        rules.append(
+            {
+                "to": [peer(SYSTEM, proxy_labels(role))],
+                "ports": [{"protocol": "TCP", "port": port} for port in ports],
+            }
+        )
+    return policy(
+        "collector-target-api-client" if role == COLLECTOR else "target-api-client",
+        control(role),
+        {
+            "podSelector": {"matchLabels": client_labels(role)},
+            "policyTypes": ["Egress"],
+            "egress": rules,
+        },
+    )
+
+
+def proxy_policy(role, ports=None):
+    rules = [
+        {
+            "from": [peer(SYSTEM, {"app": "operator"})],
+            "ports": [{"protocol": "TCP", "port": 9002}],
+        }
+    ]
+    if ports is not None:
+        rules.append(
+            {
+                "from": [peer(control(role), client_labels(role))],
+                "ports": [{"protocol": "TCP", "port": port} for port in ports],
+            }
+        )
+    return policy(
+        role + "-proxy-ingress",
+        SYSTEM,
+        {
+            "podSelector": {"matchLabels": proxy_labels(role)},
+            "policyTypes": ["Ingress"],
+            "ingress": rules,
+        },
+    )
+
+
+def platform(api_hostname, credential_secret):
+    hostname(api_hostname)
+    name(credential_secret)
+    items = [
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "Tailnet",
+            "metadata": meta(TAILNET),
+            "spec": {"credentialSecret": credential_secret},
+        },
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "ProxyClass",
+            "metadata": meta(PROXY_CLASS),
+            "spec": {
+                "statefulSet": {
+                    "pod": {
+                        "tailscaleContainer": {
+                            "image": PROXY_IMAGE,
+                            "imagePullPolicy": "IfNotPresent",
+                        }
+                    }
+                }
+            },
+        },
+    ]
+    for role in ROLES:
+        ns = control(role)
+        namespace_meta = meta(ns)
+        namespace_meta["labels"].update(
+            {
+                "pod-security.kubernetes.io/enforce": "restricted",
+                "pod-security.kubernetes.io/enforce-version": "v1.35",
+            }
+        )
+        items.extend(
+            [
+                {"apiVersion": "v1", "kind": "Namespace", "metadata": namespace_meta},
+                {
+                    "apiVersion": "v1",
+                    "kind": "ServiceAccount",
+                    "metadata": meta(role + "-host", ns),
+                    "automountServiceAccountToken": False,
+                },
+                {
+                    "apiVersion": "tailscale.com/v1alpha1",
+                    "kind": "ProxyGroup",
+                    "metadata": meta(group(role)),
+                    "spec": {
+                        "type": "egress",
+                        "replicas": 1,
+                        "tailnet": TAILNET,
+                        "proxyClass": PROXY_CLASS,
+                        "tags": ["tag:bravo-" + role],
+                    },
+                },
+                {
+                    "apiVersion": "tailscale.com/v1alpha1",
+                    "kind": "ProxyGroupPolicy",
+                    "metadata": meta("product-access", ns),
+                    "spec": {"egress": [group(role)]},
+                },
+                {
+                    "apiVersion": "v1",
+                    "kind": "Service",
+                    "metadata": {
+                        **meta("target-api", ns),
+                        "annotations": {
+                            "tailscale.com/tailnet-fqdn": api_hostname,
+                            "tailscale.com/proxy-group": group(role),
+                        },
+                    },
+                    "spec": {
+                        "type": "ExternalName",
+                        "externalName": "placeholder",
+                        "ports": [
+                            {
+                                "name": "https",
+                                "port": 443,
+                                "protocol": "TCP",
+                                "targetPort": 443,
+                            }
+                        ],
+                    },
+                },
+                policy(
+                    "control-default-deny",
+                    ns,
+                    {
+                        "podSelector": {},
+                        "policyTypes": ["Ingress", "Egress"],
+                        "ingress": [],
+                        "egress": [],
+                    },
+                ),
+                client_policy(role),
+                proxy_policy(role),
+            ]
+        )
+    return items
+
+
+def mapped_ports(observed, role):
+    """Bind to a single operator-managed Service; do not open the allocation range."""
+    matches = []
+    for item in observed.get("items", []):
+        md = item.get("metadata", {})
+        labels = md.get("labels", {})
+        expected = {
+            "tailscale.com/managed": "true",
+            "tailscale.com/parent-resource": service(role),
+            "tailscale.com/parent-resource-ns": control(role),
+            "tailscale.com/parent-resource-type": "svc",
+            "tailscale.com/proxy-group": group(role),
+            "tailscale.com/svc-type": "egress",
+        }
+        if labels.get("tailscale.com/parent-resource-ns") != control(role):
+            continue
+        if any(labels.get(k) != v for k, v in expected.items()):
+            raise ValueError("foreign Service labels")
+        if (
+            item.get("kind") != "Service"
+            or md.get("namespace") != SYSTEM
+            or not isinstance(md.get("uid"), str)
+            or not re.fullmatch(
+                r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", md["uid"]
+            )
+            or not isinstance(md.get("resourceVersion"), str)
+            or not md["resourceVersion"].isdigit()
+        ):
+            raise ValueError("incomplete Service identity")
+        ports = item.get("spec", {}).get("ports", [])
+        data = [port for port in ports if port.get("name") != "tailscale-health-check"]
+        if (
+            len(data) != 1
+            or data[0].get("port") != 443
+            or data[0].get("protocol") != "TCP"
+        ):
+            raise ValueError("unexpected exposed port")
+        target = data[0].get("targetPort")
+        if type(target) is not int or not 10000 <= target < 11000:
+            raise ValueError("unexpected mapped port")
+        matches.append([443, target])
+    if len(matches) != 1:
+        raise ValueError("exactly one observed Service per role required")
+    return matches[0]
+
+
+def network(observed):
+    # Validate both sides before producing any output.
+    ports = {role: mapped_ports(observed, role) for role in ROLES}
+    return [
+        obj
+        for role in ROLES
+        for obj in (client_policy(role, ports[role]), proxy_policy(role, ports[role]))
+    ]
+
+
+def collector_platform(api_hostname):
+    """Add one route; preserve existing namespace, SA, DB rules and shared operator."""
+    hostname(api_hostname)
+    return [
+        client_policy(COLLECTOR),
+        proxy_policy(COLLECTOR),
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "ProxyGroup",
+            "metadata": meta(group(COLLECTOR)),
+            "spec": {
+                "type": "egress",
+                "replicas": 1,
+                "tailnet": TAILNET,
+                "proxyClass": PROXY_CLASS,
+                "tags": ["tag:bravo-collector"],
+            },
+        },
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "ProxyGroupPolicy",
+            "metadata": meta("collector-access", control(COLLECTOR)),
+            "spec": {"egress": [group(COLLECTOR)]},
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                **meta(service(COLLECTOR), control(COLLECTOR)),
+                "annotations": {
+                    "tailscale.com/tailnet-fqdn": api_hostname,
+                    "tailscale.com/proxy-group": group(COLLECTOR),
+                },
+            },
+            "spec": {
+                "type": "ExternalName",
+                "externalName": "placeholder",
+                "ports": [{"name": "https", "port": 443, "protocol": "TCP"}],
+            },
+        },
+    ]
+
+
+def collector_network(observed):
+    ports = mapped_ports(observed, COLLECTOR)
+    return [client_policy(COLLECTOR, ports), proxy_policy(COLLECTOR, ports)]
+
+
+# ADR-0044: the one bucket-auth Secret and store workload T31 closes after the image (bravo_apply.policy).
+EXPOSURE_SECRET, EXPOSURE_WORKLOAD = "target-seaweedfs-auth", "target-seaweedfs"
+
+
+def target_apply(namespace, deployment, pull_secret=None, exposure=False):
+    """`pull_secret` (T49, 11/8 user decision): the platform keeps this one registry Secret current before
+    each apply (its own expiring GHCR read credential), so the app pulls the candidate by digest.
+    `exposure` (ADR-0044): also replace that one Secret and restart that one store, by name. The Secret
+    holds the store's bootstrap keys, so it is opt-in; the default output is unchanged."""
+    name(namespace)
+    name(deployment)
+    if pull_secret is not None:
+        name(pull_secret)
+    if namespace in {
+        "default",
+        "kube-system",
+        "kube-public",
+        "kube-node-lease",
+        SYSTEM,
+        "bravo-apply-access",
+    }:
+        raise ValueError("application namespace required")
+    identity_ns = "bravo-apply-access"
+    identity_meta = meta(identity_ns)
+    identity_meta["labels"].update(
+        {
+            "pod-security.kubernetes.io/enforce": "restricted",
+            "pod-security.kubernetes.io/enforce-version": "v1.35",
+        }
+    )
+    return [
+        {"apiVersion": "v1", "kind": "Namespace", "metadata": identity_meta},
+        policy(
+            "default-deny",
+            identity_ns,
+            {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
+        ),
+        {
+            "apiVersion": "v1",
+            "kind": "ServiceAccount",
+            "metadata": meta("apply-deployer", identity_ns),
+            "automountServiceAccountToken": False,
+        },
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "Role",
+            "metadata": meta("bravo-apply-demo-chat", namespace),
+            "rules": [
+                {
+                    "apiGroups": ["apps"],
+                    "resources": ["deployments"],
+                    "resourceNames": [deployment],
+                    "verbs": ["get", "watch", "patch"],
+                },
+                {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+            ] + ([{"apiGroups": [""], "resources": ["secrets"], "resourceNames": [pull_secret],
+                   "verbs": ["get", "update"]}] if pull_secret else []) + ([
+                {"apiGroups": [""], "resources": ["secrets"], "resourceNames": [EXPOSURE_SECRET],
+                 "verbs": ["get", "update"]},
+                {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": [EXPOSURE_WORKLOAD],
+                 "verbs": ["get", "watch", "patch"]},
+            ] if exposure else []),
+        },
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "RoleBinding",
+            "metadata": meta("bravo-apply-demo-chat", namespace),
+            "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": "bravo-apply-demo-chat",
+            },
+            "subjects": [
+                {
+                    "kind": "ServiceAccount",
+                    "name": "apply-deployer",
+                    "namespace": identity_ns,
+                }
+            ],
+        },
+    ] + ([{"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockerconfigjson",
+           "metadata": meta(pull_secret, namespace),
+           # Empty until the platform's first apply writes its current registry credential.
+           "stringData": {".dockerconfigjson": '{"auths":{}}'}}] if pull_secret else [])
+
+
+def kubeconfig(role, api_hostname, token_file):
+    control(role)
+    hostname(api_hostname)
+    path = PurePosixPath(token_file)
+    if not path.is_absolute() or ".." in path.parts or str(path) == "/":
+        raise ValueError("absolute mounted token file required")
+    return {
+        "apiVersion": "v1",
+        "kind": "Config",
+        "current-context": "target",
+        "clusters": [
+            {
+                "name": "target",
+                "cluster": {
+                    "server": "https://"
+                    + service(role)
+                    + "."
+                    + control(role)
+                    + ".svc.cluster.local",
+                    "tls-server-name": api_hostname,
+                },
+            }
+        ],
+        "users": [{"name": role, "user": {"tokenFile": token_file}}],
+        "contexts": [
+            {"name": "target", "context": {"cluster": "target", "user": role}}
+        ],
+    }
+
+
+# Route outputs owned by the tailnet-egress IaC module; one owner per resource. The functions stay
+# for the existing port readback checks.
+MOVED_TO_IAC = {"platform", "network", "collector-platform", "collector-network"}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("platform")
+    p.add_argument("--api-hostname", required=True)
+    p.add_argument("--credential-secret", required=True)
+    sub.add_parser("network")
+    p = sub.add_parser("collector-platform")
+    p.add_argument("--api-hostname", required=True)
+    sub.add_parser("collector-network")
+    p = sub.add_parser("target-apply")
+    p.add_argument("--namespace", required=True)
+    p.add_argument("--deployment", required=True)
+    p.add_argument("--pull-secret", help="registry Secret the platform refreshes before each apply (T49)")
+    p.add_argument("--exposure", action="store_true", help="ADR-0044: close the attachment bucket after the image")
+    p = sub.add_parser("kubeconfig")
+    p.add_argument("--role", choices=(*ROLES, COLLECTOR), required=True)
+    p.add_argument("--api-hostname", required=True)
+    p.add_argument("--token-file", required=True)
+    args = parser.parse_args(argv)
+    if args.command in MOVED_TO_IAC:
+        parser.exit(2, f"{args.command} no longer renders this route: it is declared in infra/iac/environments "
+                       "(tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
+    if args.command == "platform":
+        result = platform(args.api_hostname, args.credential_secret)
+    elif args.command == "network":
+        result = network(json.load(sys.stdin))
+    elif args.command == "collector-platform":
+        result = collector_platform(args.api_hostname)
+    elif args.command == "collector-network":
+        result = collector_network(json.load(sys.stdin))
+    elif args.command == "target-apply":
+        result = target_apply(args.namespace, args.deployment, args.pull_secret, args.exposure)
+    else:
+        result = kubeconfig(args.role, args.api_hostname, args.token_file)
+    print(
+        json.dumps(
+            {"apiVersion": "v1", "kind": "List", "items": result}
+            if isinstance(result, list)
+            else result,
+            indent=2,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

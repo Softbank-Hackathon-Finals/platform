@@ -1,0 +1,27 @@
+[
+  {
+    "operation": "migrate4",
+    "submitted_source_matches": true,
+    "source_sha256": "9c4286beda81d88639cda08c0db5eb712ff88fce721405cf96b849c8f297d332"
+  },
+  {
+    "operation": "enroll4",
+    "submitted_source_matches": true,
+    "source_sha256": "558f16d0015483c75c01a979987b7383f0f5647285137eb54a04060af4c9b64e"
+  },
+  {
+    "operation": "import_image_5",
+    "submitted_source_matches": true,
+    "source_sha256": "a283ecbc662a5a775c0dae281d7fabd78569f8e1031fa2d941717471ca251e14"
+  },
+  {
+    "operation": "verify2",
+    "submitted_source_matches": true,
+    "source_sha256": "86094ca665434b2d575d1e238c23fa731ce4adc3a1bc0040142ba60e164907e7"
+  },
+  {
+    "operation": "cleanup",
+    "submitted_source_matches": true,
+    "source_sha256": "24afd4f7a114e22bf0fa53c25a3e55f6c307a8a9f96ebfaefa1f7d5a9aeaca1b"
+  }
+]

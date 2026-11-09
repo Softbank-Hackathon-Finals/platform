@@ -47,6 +47,17 @@ resource "aws_vpc_security_group_egress_rule" "https" {
   to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
 }
+# Argo CD UI tunnel (infra/envs/argocd-exposure): cloudflared dials only Cloudflare's tunnel edge on 7844.
+# Ranges are Cloudflare's published tunnel edge (region1/region2); nothing else opens beyond HTTPS.
+resource "aws_vpc_security_group_egress_rule" "cloudflare_tunnel" {
+  for_each          = toset(["198.41.192.0/24", "198.41.200.0/24"])
+  security_group_id = aws_security_group.node.id
+  description       = "Outbound Cloudflare Tunnel edge (Argo CD UI connector)"
+  ip_protocol       = "tcp"
+  from_port         = 7844
+  to_port           = 7844
+  cidr_ipv4         = each.value
+}
 resource "aws_iam_role" "node" {
   name = var.name
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
@@ -69,13 +80,16 @@ resource "aws_iam_instance_profile" "node" {
   role = aws_iam_role.node.name
 }
 resource "aws_instance" "node" {
-  tags          = { Name = var.name }
+  tags = merge({ Name = var.name }, var.subscription_broker_ipv4 == null ? {} : {
+    "bravo:subscription-sts-ipv4" = var.subscription_broker_ipv4
+  })
   ami           = var.ami_id
   instance_type = var.instance_type
   cpu_options {
     core_count       = data.aws_ec2_instance_type.node.default_cores
     threads_per_core = data.aws_ec2_instance_type.node.default_threads_per_core
   }
+  secondary_private_ips       = var.subscription_broker_ipv4 == null ? null : [var.subscription_broker_ipv4]
   subnet_id                   = var.private_subnet_id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.node.id]

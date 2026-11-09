@@ -13,6 +13,9 @@ RUN_START = {
 RUN_END = {"type": "run_end", "ended_at_s": 10.0, "scheduled_writes": 1, "scheduled_reads": 1}
 KEY = "a0000000-0000-4000-8000-0000000000a1"
 ROW = {"id": 1, "idempotency_key": KEY, "author": "loadgen-t18-test", "body": f"t18 run=t18-test req={KEY}"}
+PREFLIGHT = {"passed": True, "health_rtt_ms": {"samples": 5, "p50": 31.5, "max": 48.25}, "env_values": {"aws": 5}}
+# 판정 입력이 될 수 있는 유일한 조합: Edge 경유, 전용 EC2, 사전 점검 통과.
+EDGE = {"measurement_path": "edge", "generator": "loadgen-ec2", "preflight": PREFLIGHT}
 
 
 def write(**over):
@@ -105,10 +108,55 @@ def test_local_path_is_never_reported_as_edge():
 
 
 def test_edge_path_with_headers_is_usable():
-    r = report(rows=[ROW], measurement_path="edge", target="https://edge.example.invalid", windows=[WINDOW])
+    r = report(rows=[ROW], **EDGE, target="https://edge.example.invalid", windows=[WINDOW])
     assert r["warnings"] == []
     assert r["measurement"]["edge_measured"] is True
+    assert r["measurement"]["generator"] == "loadgen-ec2"
     assert r["sli_usable_for_judgement"] is True
+
+
+def test_laptop_is_labelled_and_never_usable_for_judgement():
+    """회선과 노트북 상태가 값에 섞인다. Edge를 지났어도 판정 입력으로 표시하지 않는다."""
+    r = report(rows=[ROW], **{**EDGE, "generator": "laptop"}, windows=[WINDOW])
+    assert r["warnings"] == ["GENERATOR_NOT_EC2"]
+    assert r["measurement"] == {
+        "path": "edge", "edge_measured": True, "generator": "laptop", "connections": "keepalive",
+        "preflight": PREFLIGHT,
+    }
+    assert r["sli_usable_for_judgement"] is False
+    text = render_markdown(r)
+    assert "`laptop`" in text and "회선" in text and "판정 근거로 쓰지 않는다" in text
+
+
+def test_line_baseline_from_preflight_is_shown_in_the_report():
+    text = render_markdown(report(rows=[ROW], **EDGE, windows=[WINDOW]))
+    assert "p50 31.5ms" in text and "최대 48.25ms" in text
+
+
+def test_laptop_lag_shows_both_limits():
+    records = [RUN_START, write(lag_ms=500.0), read(lag_ms=500.0), RUN_END]
+    r = report(records=records, rows=[ROW], **{**EDGE, "generator": "laptop"}, windows=[WINDOW])
+    assert set(r["warnings"]) == {"GENERATOR_NOT_EC2", "GENERATOR_LAGGING"}
+
+
+def test_edge_without_a_declared_generator_is_not_usable():
+    """generator가 없던 예전 실행을 다시 대조해도 판정 입력이 되지 않는다."""
+    r = report(rows=[ROW], measurement_path="edge", preflight=PREFLIGHT, windows=[WINDOW])
+    assert r["measurement"]["generator"] is None
+    assert r["warnings"] == ["GENERATOR_NOT_EC2"]
+    assert r["sli_usable_for_judgement"] is False
+
+
+def test_edge_without_preflight_is_not_usable():
+    """edge는 사람이 적은 값이다. 사전 점검이 Cloudflare 응답을 보지 않았으면 믿지 않는다."""
+    r = report(rows=[ROW], measurement_path="edge", generator="loadgen-ec2", windows=[WINDOW])
+    assert r["warnings"] == ["PREFLIGHT_SKIPPED"]
+    assert r["sli_usable_for_judgement"] is False
+
+
+def test_local_path_does_not_get_edge_only_warnings():
+    r = report(rows=[ROW], generator="laptop", windows=[WINDOW])
+    assert r["warnings"] == ["NOT_EDGE_MEASURED"]
 
 
 def test_window_problems_are_reported():
@@ -131,7 +179,7 @@ def test_window_conservation_catches_uncounted_attempts():
 
 def test_generator_lag_warns_and_blocks_judgement_use():
     r = report(records=[RUN_START, write(lag_ms=500.0), read(lag_ms=500.0), RUN_END], rows=[ROW],
-               measurement_path="edge", windows=[WINDOW])
+               **EDGE, windows=[WINDOW])
     assert r["warnings"] == ["GENERATOR_LAGGING"]
     assert r["load"]["scheduler_lag_ms"]["p95"] == 500.0
     assert r["sli_usable_for_judgement"] is False
@@ -168,20 +216,20 @@ def test_write_gap_is_included():
 
 def test_no_windows_is_not_usable_for_judgement():
     """창이 하나도 없으면 판정 입력으로 쓸 수 없다."""
-    r = report(rows=[ROW], measurement_path="edge", tail_requests=2)
+    r = report(rows=[ROW], **EDGE, tail_requests=2)
     assert "NO_WINDOWS" in r["warnings"] and r["sli_usable_for_judgement"] is False
 
 
 def test_fewer_windows_than_the_load_time_warns():
     start = {**RUN_START, "duration_s": 60}
-    r = report(records=[start, write(), read(), RUN_END], rows=[ROW], measurement_path="edge", windows=[WINDOW])
+    r = report(records=[start, write(), read(), RUN_END], rows=[ROW], **EDGE, windows=[WINDOW])
     assert "WINDOW_COUNT_SHORT" in r["warnings"] and r["sli_usable_for_judgement"] is False
 
 
 def test_http_errors_warn_without_changing_the_write_verdict():
     """읽기가 전부 500이어도 NFR-2는 쓰기 대조다. 숨기지 않되 창에는 이미 오류로 들어가 있다."""
     records = [RUN_START, write(), read(status=500, acked=False), RUN_END]
-    r = report(records=records, rows=[ROW], measurement_path="edge", windows=[WINDOW])
+    r = report(records=records, rows=[ROW], **EDGE, windows=[WINDOW])
     assert r["verdict"] == "PASS" and r["warnings"] == ["HTTP_ERRORS"]
     assert r["sli_usable_for_judgement"] is True
 
@@ -204,3 +252,13 @@ def test_report_is_json_serializable_and_markdown_states_the_facts():
     md = render_markdown(r)
     assert "FAIL" in md and "유실" in md and "local-direct" in md
     assert "Edge 경유 측정이 아니다" in md
+
+
+def test_the_report_says_how_requests_reached_the_edge():
+    """연결 방식이 분배 관측을 바꾼다(실제 LB는 연결마다 pool을 고른다). 예전 실행은 keepalive다."""
+    from bravo_loadgen.report import render_markdown
+
+    assert report(rows=[ROW], windows=[WINDOW])["measurement"]["connections"] == "keepalive"
+    fresh = report(rows=[ROW], **EDGE, windows=[WINDOW], connections="fresh")
+    assert fresh["measurement"]["connections"] == "fresh"
+    assert "- 연결: `fresh`" in render_markdown(fresh)

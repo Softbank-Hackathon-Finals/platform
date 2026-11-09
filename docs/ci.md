@@ -8,7 +8,7 @@
 
 | 변경 | 실행 |
 |---|---|
-| 문서·README만 | scope 회귀 시험, 전체 이력 secrets, 필수 infra/platform의 명시적 결과 |
+| 문서·README만 | scope 회귀 시험, 해당 병합 커밋의 전체 조상 이력 secrets, 필수 infra/platform의 명시적 결과 |
 | 한 서비스의 코드·lock·테스트 | 해당 프로젝트 검사와 의존성 취약점 검사 |
 | 서비스의 Kubernetes YAML·Dockerfile | 해당 프로젝트 + IaC·Dockerfile 검사 |
 | infra | Terraform root/module 전체 fmt·validate·mock tests와 IaC 검사 |
@@ -39,13 +39,29 @@ python3 -m unittest discover -s scripts/tests -v
 trivy config --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
+## Merge Queue (2026-11-07 제거)
+
+2026-11-07 11:52 KST부터 develop·main ruleset에 Merge Queue와 리뷰 승인 조건이 없다. PR, 필수 검사 `secrets`·`infra`·`platform`, 삭제·강제 푸시 금지만 남는다. 필수 검사가 통과하면 직접 병합한다. `ci.yml`의 `merge_group` 처리는 남아 있지만 큐가 없어 실행되지 않는다.
+
 ## 보안·권한·절차
+
+### PR 이력 검사와 저장소 전체 감사
+
+필수 `secrets`는 `scripts/ci_secrets.py --scope head`로 checkout한 커밋의 전체 조상 이력을 검사한다. PR에서는 GitHub의 병합 결과 커밋이며, 변경 diff만 검사하지 않는다. PR 안에서 비밀 파일을 추가했다가 지워도 과거 이력에서 계속 차단한다. `--diff-merges=first-parent`로 병합 해결 과정에서만 추가된 값도 검사한다. 다른 브랜치·태그를 fetch했더라도 해당 커밋에서 도달할 수 없으면 이 필수 판정에 포함하지 않는다.
+
+별도 `security-history.yml`의 `history-secrets`는 모든 fetch된 브랜치·태그의 전체 이력을 `--scope repository`로 검사한다. main/develop push, 기존 주간 주기, 수동 실행을 지원한다. 감사 구현·설정 자체를 바꾸는 PR에서도 실행해 변경을 검증한다. 일반 PR에는 이 workflow가 실행되지 않으며, 필수 `secrets/infra/platform`과 의존 관계가 없다. 이 job은 실패 시 그대로 실패와 탐지 위치를 보고한다. `continue-on-error`나 탐지 규칙 완화로 녹색을 만들지 않는다. `history-secrets`를 모든 PR의 필수 context로 추가하면 이 격리가 깨지므로 추가하지 않는다.
+
+두 경로 모두 같은 Gitleaks 8.24.3, `.gitleaks.toml`과 검토된 개별 ignore 설정을 사용한다. [공식 배포 안내](https://github.com/gitleaks/gitleaks/blob/v8.24.3/README.md#installing)의 Docker Hub 이미지를 `ci_secrets.py`에 manifest digest로 고정한다. 버전 출력의 선택적 `v` 접두사만 정규화하며 다른 버전은 거부한다. shallow/빈 이력, 버전 불일치와 도구 오류는 실패다. 검사 입력 기록은 scope·checkout SHA·검사 버전·이미지 digest·설정 해시·run/attempt·전체 감사의 fetched refs·종료 코드를 포함하며 14일간 Actions artifact로 보존한다. 탐지 원문 값은 redacted로만 출력한다. 같은 PR head라도 전체 감사의 refs 집합은 달라질 수 있으므로 두 결과를 같은 검사로 합치지 않는다.
+
+`secrets`는 실제 scanner 회귀와 [증빙 소스 해시 형식](public-evidence-policy.md#소스-파일-해시-형식)도 확인한다. 변경 전 기준은 merge_group의 base SHA, PR base 또는 push의 before SHA이며, 예약/수동 실행에서는 현재 SHA를 사용한다. 기준 커밋을 읽을 수 없으면 형식 검사를 성공시키지 않는다. 기존 공개 증빙의 의미와 해시를 소급해서 바꾸지 않는다.
+
+결정과 원인: [ADR-0014](adr/0014-secret-history-scope.md).
 
 PR 검사는 `contents: read`만 쓴다. 클라우드 배포/모델 키를 PR에 주입하지 않는다. 검사 선택과 판정에 LLM을 넣지 않는다. 새 AI 수정 기능이 workflow·검증 정책·lock을 고쳐 검사를 무력화하지 않도록, 모델의 쓰기 허용 경로는 별도 제안 계약에서 제한한다.
 
 Trivy 예외는 `.trivyignore.yaml`의 정확한 파일 경로에 한정한다. 기존 리허설 Role의 KSV-0053/0056 예외도 저장소 전역에서 해당 Role 파일로 좁혔다. 임시 AWS 검증 호스트의 외부 HTTPS(AWS-0104)는 bootstrap·SSM을 위한 예외이며 2026-11-10 만료다. 이 호스트는 인바운드 0·90분 종료·운영 네트워크 미연결이며, Pod는 별도 default-deny 시험을 통과해야 한다. 부하 생성기 호스트의 외부 HTTPS(AWS-0104)는 바뀌는 Edge·SSM 주소에 닿기 위한 예외이며 2026-11-30 만료다. 인바운드 0과 443 외 차단을 시험으로 고정했다. [Trivy 경로·만료일 필터](https://trivy.dev/docs/latest/configuration/filtering/)
 
-보드 동기화는 CI와 다른 workflow다. 상태가 같으면 쓰지 않으며, 이슈 체크와 PR 승인을 혼동하지 않는다. 이벤트 병합으로 누락된 상태는 주기적 대조로 복구하고 개별 API·job 시간을 제한한다. `platform` 저장소의 GitHub 기본 auto-merge는 최종 필수 CI와 리뷰 승인 1건 이상, 변경 요청 해소를 요구한다. 리뷰 요청 대상 전체의 승인을 기다리는 규칙은 아니다. `demo-chat`의 승인 요건은 자체 문서·실제 보호 규칙에서 별도로 확인한다([저장소별 적용 범위](development.md)). 고객 앱을 실행하는 제품 CI의 승인·실행 권한은 아래 T10/T15/T31 계약을 따른다.
+보드 동기화는 CI와 다른 workflow다. 상태가 같으면 쓰지 않으며, 이슈 체크와 PR 승인을 혼동하지 않는다. 이벤트 병합으로 누락된 상태는 주기적 대조로 복구하고 개별 API·job 시간을 제한한다. develop·main은 필수 CI 통과 후 직접 병합한다(2026-11-07). 알려진 결함은 수정한 뒤 병합한다. `demo-chat`의 승인 요건은 자체 문서·실제 보호 규칙에서 별도로 확인한다([저장소별 적용 범위](development.md)). 고객 앱을 실행하는 제품 CI의 승인·실행 권한은 아래 T10/T15/T31 계약을 따른다.
 
 ## 플랫폼 CI와 S2의 접점
 

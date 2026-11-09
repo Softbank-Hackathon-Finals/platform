@@ -1,0 +1,55 @@
+{
+  "scope": "local integration qualification, not team AWS/EKS/RKE2 acceptance",
+  "runtime_test_revision": "0050fa2662bdf22245c321d8b4effe4ec688057f",
+  "observability_tree": "c960b58397f6cec12bb8c6a93fb58c47a99242cc",
+  "checks": {
+    "observability_python": {
+      "passed": 144
+    },
+    "compose": {
+      "passed": 20,
+      "failed": 0
+    },
+    "k3s_cnpg_and_intake": {
+      "passed": 20,
+      "failed": 0
+    },
+    "promtool_rule_suites": {
+      "passed": 2
+    },
+    "loadgen_python": {
+      "passed": 172,
+      "skipped": 8
+    }
+  },
+  "sources": [
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "7cf08cd766f75914a4b1a45c58fc95a707fc16ff2a2995ff50d016e146825a88"
+    },
+    {
+      "path": "services/observability/deploy/collector/collector-db.yaml",
+      "sha256": "62cccabfd23410a1b619c0e9fab2fa921e0c566264b2b5fd04254bb7f372947b"
+    },
+    {
+      "path": "services/observability/deploy/platform/prometheus.yml",
+      "sha256": "bb9fd941f8c1482ab39c790804080bab50b4f97753f461bf8ff404a104c621e9"
+    },
+    {
+      "path": "services/observability/testing/k8s.sh",
+      "sha256": "450715c25a35fd154b0f62115d1eb0fd922b70f4d4902f38dfb38bb57daa42ab"
+    },
+    {
+      "path": "services/observability/testing/run.sh",
+      "sha256": "f7fad6e82f9cf70acfd5e44141656ae5b80471afe361ba19d3624482997ba305"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/intake_api.py",
+      "sha256": "0582109fca78548d0d2dfcc59d046d1c59a743b2f2ab1466cf49a5220bae62b7"
+    },
+    {
+      "path": "services/loadgen/uv.lock",
+      "sha256": "b6b6e437ab96744a2fcebeb0661e7d13547d76d0f3ffcfb9e8f89fcdd2fbf7d1"
+    }
+  ]
+}

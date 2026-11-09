@@ -1,0 +1,27 @@
+{
+  "source_repository": "Softbank-Hackathon-Finals/platform",
+  "source_revision": "3d5dcc5f9504b69752b4e5477ca4724d99314a6b",
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/secret_scan.py",
+      "sha256": "198963568ae30de8ea1cff8588f14de6bb24c133fc60fd921983901838074248"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/tool_reports.py",
+      "sha256": "3ce90e35826b9651a5db7aa66703d56de3caefd841b21eb3f6d5bab63c876ee0"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "0070c448d12aba94a35630243fce5223840250d99cecc876a021401e304d3ae1"
+    },
+    {
+      "path": "docs/controls/profiles.json",
+      "sha256": "47870083fb7f48b8a607bb261314a611b503ad655b6c9435afa61c1b1e1381d3"
+    },
+    {
+      "path": "docs/controls/control-result.schema.json",
+      "sha256": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654"
+    }
+  ],
+  "private_scripts": "represented by per-run hash only; not repository source files"
+}

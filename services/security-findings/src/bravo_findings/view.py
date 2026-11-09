@@ -100,7 +100,16 @@ class View:
         for env, rows in self._sources_by_env(allowed).items():
             caps = {}
             for spec in rows_spec:
-                present = [r for r in rows if r.source in spec["sources"] and r.enabled]
+                present = [
+                    r for r in rows
+                    if r.source in spec["sources"] and r.enabled
+                    # Provider-confirmed absence is not a working capability. Access denial
+                    # and timeouts remain collection failures, not proof of absence.
+                    and not (
+                        r.error_code == "NOT_ENABLED"
+                        and source_state(r, now, self.stale_ms) == "FAILED"
+                    )
+                ]
                 caps[spec["id"]] = {
                     "available": bool(present),
                     "sources": sorted(r.source for r in present),

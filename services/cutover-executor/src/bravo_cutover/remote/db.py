@@ -14,6 +14,7 @@ from bravo_cutover.db_fingerprint import (
     SequenceState,
     fingerprint,
     only_fixed_errors,
+    schema_fingerprint,
     sequence_state,
 )
 from bravo_cutover.remote import Unconfirmed
@@ -110,10 +111,23 @@ class DbControl:
             (subscription,),
         )
 
+    def last_msg_receipt_time(self, subscription: str) -> str | None:
+        """구독이 발행 쪽에서 마지막으로 무언가(데이터 · keepalive)를 받은 시각. 진단용이며 판정에 쓰지 않는다."""
+        value = self._one(
+            """SELECT last_msg_receipt_time FROM pg_stat_subscription
+               WHERE subname = %s AND relid IS NULL""",
+            (subscription,),
+        )
+        return value.isoformat() if value is not None else None
+
     # barrier ------------------------------------------------------------
     def insert_barrier(self, barrier_id: uuid.UUID, epoch: int) -> None:
         self._do(sql.SQL("INSERT INTO cutover.barrier (barrier_id, epoch) VALUES ({}, {})").format(
             sql.Literal(barrier_id), sql.Literal(epoch)))
+
+    def insert_path_probe(self, probe_id: uuid.UUID, epoch: int) -> None:
+        """사전 확인의 복제 경로 왕복 시험(ADR-0016). 5단계 barrier와 같은 표에 쓰지만 호출을 따로 둬 기록을 구별한다."""
+        self.insert_barrier(probe_id, epoch)
 
     def has_barrier(self, barrier_id: uuid.UUID) -> bool:
         return self._one("SELECT count(*) FROM cutover.barrier WHERE barrier_id = %s", (barrier_id,)) == 1
@@ -186,17 +200,13 @@ class DbControl:
         with only_fixed_errors("connection_failed"), self._connect() as conn:
             return fingerprint(conn, table)
 
+    def schema_fingerprint(self, table: str) -> dict:
+        """컷오버 전 데이터 준비 관찰(readiness.py)용. 데이터를 보지 않는다."""
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return schema_fingerprint(conn, table)
+
     def row_count(self, table: str) -> int:
         return self._one(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(*table.split("."))))
-
-    def fingerprint(self, table: str) -> dict:
-        from bravo_cutover.integrity import fingerprint
-
-        try:
-            with self._connect() as conn:
-                return fingerprint(conn, table)
-        except psycopg.Error as e:
-            raise Unconfirmed("integrity snapshot could not be read") from e
 
 
 @dataclass(frozen=True)

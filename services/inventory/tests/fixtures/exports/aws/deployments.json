@@ -1,0 +1,5 @@
+{"kind": "DeploymentList", "items": [{"metadata": {"name": "chat", "namespace": "chat"},
+  "spec": {"template": {"spec": {"serviceAccountName": "chat",
+    "containers": [{"name": "chat", "image": "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "env": [{"name": "APP_ENV", "value": "aws"}, {"name": "DB_HOST", "value": "chat-pooler-rw"}, {"name": "DB_SECRET_ID", "value": "demo-chat/db"},
+              {"name": "S3_BUCKET", "value": "demo-chat-attachments.example.invalid"}, {"name": "ADMIN_TOKEN", "valueFrom": {"secretKeyRef": {"name": "chat-admin", "key": "token"}}}]}]}}}}]}

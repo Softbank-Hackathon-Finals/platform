@@ -3,10 +3,11 @@
 import logging
 from collections import Counter
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Protocol
 
+from bravo_findings.gcp_scc import SccSource as SccSource
 from bravo_findings.ingest import Ingestor, collection_error_code
+from bravo_findings.securityhub import SecurityHubSource as SecurityHubSource
 
 log = logging.getLogger("bravo_findings")
 
@@ -14,64 +15,10 @@ log = logging.getLogger("bravo_findings")
 OVERLAP_MS = 5 * 60_000
 
 
-def iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
 class PullSource(Protocol):
     source: str
 
     def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]: ...
-
-
-class SecurityHubSource:
-    """boto3 securityhub 클라이언트로 GetFindings. 필요한 권한: securityhub:GetFindings (읽기 전용)."""
-
-    source = "aws_security_hub"
-
-    def __init__(self, client: Any, page_size: int = 100):
-        self.client, self.page_size = client, page_size
-
-    def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]:
-        kwargs: dict[str, Any] = {
-            "Filters": {"UpdatedAt": [{"Start": iso(since_ms), "End": iso(until_ms)}]},
-            "MaxResults": self.page_size,
-        }
-        while True:
-            page = self.client.get_findings(**kwargs)
-            yield from page.get("Findings", [])
-            if not page.get("NextToken"):
-                return
-            kwargs["NextToken"] = page["NextToken"]
-
-
-class SccSource:
-    """Security Command Center v1 REST ListFindings. session은 인증된 HTTP 세션
-    (예: google.auth.transport.requests.AuthorizedSession). 필요한 권한: SCC 결과 조회 전용 역할.
-    필터 문법(event_time 비교)은 실제 프로젝트에서 확인한다."""
-
-    source = "gcp_scc"
-    endpoint = "https://securitycenter.googleapis.com/v1"
-
-    def __init__(self, session: Any, parent: str, page_size: int = 100):
-        self.session, self.parent, self.page_size = session, parent, page_size
-
-    def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]:
-        params: dict[str, Any] = {
-            "filter": f'event_time >= "{iso(since_ms)}" AND event_time <= "{iso(until_ms)}"',
-            "pageSize": self.page_size,
-        }
-        url = f"{self.endpoint}/{self.parent}/sources/-/findings"
-        while True:
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            page = response.json()
-            for item in page.get("listFindingsResults", []):
-                if "finding" in item:
-                    yield item["finding"]
-            if not page.get("nextPageToken"):
-                return
-            params["pageToken"] = page["nextPageToken"]
 
 
 def run_once(

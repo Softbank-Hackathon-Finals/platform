@@ -112,8 +112,10 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 
 | 통제 ID | 도구 | 범위 | 점검 ID | 상태 |
 |---|---|---|---|---|
-| IAM-01 | kube-bench (양쪽) | CIS Kubernetes Benchmark 5.1절 (RBAC와 서비스 계정) 중 앱 네임스페이스에 해당하는 항목 | T14에서 도구 출력 확인 후 확정 | 미정 |
-| IAM-01 | Prowler (출발지) | 앱 IAM 역할 · 정책에 해당하는 IAM 점검 | T14에서 도구 출력 확인 후 확정 | 미정 |
+| IAM-01 | kube-bench v0.10.2 (양쪽) | RBAC와 서비스 계정: `rke2-cis-1.7` `5.1.1`–`5.1.6`, `eks-1.5.0` `4.1.1`–`4.1.6` | 채택 안 함 | **미채택.** 실제 출력이 모두 `type=manual`(`WARN`)이라 측정된 판정이 없다([실측](../evidence/t14-kube-bench-2026-11-03/README.md)) |
+| IAM-01 | Prowler 5.47.0 (출발지) | 등록 앱 역할 하나의 인라인 정책 하나(관리형 정책 · 권한 경계는 미자격) | `iam_inline_policy_no_administrative_privileges`, `iam_inline_policy_allows_privilege_escalation` | **점검 ID 고정, 도구 자격 미통과.** 분석 오류 뒤에도 PASS 행을 내서 UNKNOWN 유지([실측](../evidence/t14-prowler-2026-11-06/README.md), [분석기 자격](../evidence/t14-prowler-capability-2026-11-06/README.md)) |
+
+T14 코드가 이 표와 같다: Prowler 버전과 두 점검은 `services/control-runner/src/bravo_controls/prowler_iam.py`가 고정하고, kube-bench의 `manual` · `skip` 항목은 위반으로 세지 않는다(`tool_reports.py`). 그래서 IAM-01.2는 지금 양쪽 모두 UNKNOWN이다. 목적지(온프렘)의 Kubernetes 쪽은 RBAC를 직접 분석하는 별도 방법이 생기기 전까지 이 도구들로 판정하지 않는다. gitleaks는 SEC-01.2(위 2절)에 매핑돼 있다.
 
 점검 ID는 실제 도구 출력과 버전을 보고 채운다. 추측으로 채우지 않는다. **매핑이 미확정이거나 비어 있으면 IAM-01.2는 UNKNOWN(`NOT_RUN`)**이다. 점검을 수행하지 않은 상태를 "위반 0건"으로 PASS 처리하지 않는다. T14는 도구·버전·범위·필수 점검 ID를 고정하고 누락·미지원 점검도 UNKNOWN으로 보고해야 한다.
 
@@ -163,12 +165,15 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 |---|---|---|
 | `demo-gate` v1 | IAM-01.1, SEC-01.1, AUD-01.1 (5절 데모 질문) | 데모 게이트, `examples/` |
 | `full` v1 | 하위 시험 20개 전체 | 설계 문서 S1 · S3 인수 조건(6개 통제) |
+| `apply-recheck` v1 | SEC-01.1, IAM-01.1, ENC-01.1 (T31 `GATE_RECHECK_TESTS`) | T31이 이미지·버킷 정책을 반영한 뒤의 게이트 재대조. 정책 반영의 재대조(IAM-01.1)를 포함한다. 첫 게이트는 `demo-gate`를 그대로 쓴다 |
+
+프로필은 `(id, version)`으로 고른다. 프로필의 `app`은 그 프로필을 정한 기준 앱 표시이고, 실행 결과나 게이트의 앱과 대조하지 않는다. 실행 결과의 `app`은 등록된 workload(T10 `workload_id`)이고, 플랫폼 경로에서 어떤 프로필을 쓸지는 T10 계획이 고정한다([#29 합의](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6661163853)).
 
 `tests`는 시험별 불변조건이다: 통제 ID, 시험 방법 버전, 기대값(2절 표의 "합격"), 허용 대조군 필수 여부(2절 표의 "허용 대조군"). 프로필이나 불변조건을 바꾸면 버전을 올린다.
 
 ### 게이트 검사 순서 (T19)
 
-1. **실행 묶음**: 양쪽 `ControlRun`의 `app`이 프로필의 `app`과 같다(`APP_MISMATCH`), 출발지는 `role: source` · 목적지는 `role: target`이다(`ENVIRONMENT_ROLE_MISMATCH`), 두 환경 ID가 다르다(`SAME_ENVIRONMENT`). 하나라도 어긋나면 `run_issues`에 넣고 게이트 전체를 BLOCK한다.
+1. **실행 묶음**: 양쪽 `ControlRun`의 `app`이 게이트 컨텍스트의 `app`(T10 등록 `workload_id`)과 같다(`APP_MISMATCH`), 출발지는 `role: source` · 목적지는 `role: target`이다(`ENVIRONMENT_ROLE_MISMATCH`), 두 환경 ID가 다르다(`SAME_ENVIRONMENT`). 하나라도 어긋나면 `run_issues`에 넣고 게이트 전체를 BLOCK한다.
 2. **시험마다** (`required_test_ids` 순서대로 한 행씩): 결과가 양쪽에 정확히 한 건 → 불변조건 → 방법 버전 → 증거 시각(`collected_at ≤ evaluated_at < expires_at`; 미래 수집 시각도 거부) → 아래 비교.
 3. **예외 승인**: 비교 결과가 `TARGET_FAIL`인 행만 예외 대상이다. 관찰하지 못한 것(UNKNOWN)과 위 1 · 2단계의 무결성 문제는 예외로 덮지 않는다.
 4. **전체 판정**: `run_issues`가 있거나 BLOCK 행이 하나라도 있으면 BLOCK. 이것은 스키마도 강제한다.

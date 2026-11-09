@@ -1,0 +1,18 @@
+{{- if .Values.registration.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-registration
+spec:
+  description: Registration Deployment, Service and ServiceAccount only
+  sourceRepos:
+    - https://github.com/Softbank-Hackathon-Finals/platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: platform-state
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+{{- end }}

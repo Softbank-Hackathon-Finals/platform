@@ -1,0 +1,33 @@
+{
+  "source_revision": "ff09cca1304ff7416be0efdc7da4ff9b240ebc8d",
+  "image": "ghcr.io/softbank-hackathon-finals/platform-security-review",
+  "image_digest": "sha256:24b18a21bb288f71b134273e2e3947ff404dd7defff71c4185f33f523e01df4a",
+  "platform_manifest_digest": "sha256:aede566f26632348a27d4fcec494aeb1b8e46b043c0ad1519cf73dc7cf215ed3",
+  "config_digest": "sha256:d66da2175758421be2d1867963f387dda0e57ab14f62f4a9223bb59ba9018ac2",
+  "context_sha256": "10ab0a28a6af7442098f4645e12737cd733abcfc1428b3a5f18ae6b12b9a07fd",
+  "oci_blobs": 18,
+  "scan": {
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "package_types": [
+      "debian",
+      "python-pkg"
+    ],
+    "vulnerability_count": 0,
+    "secret_match_count": 0
+  },
+  "registry_visibility": "private",
+  "tag": "sha-ff09cca1304ff7416be0efdc7da4ff9b240ebc8d-42441381372-1",
+  "run_id": "42441381372",
+  "attempt": "1",
+  "workflow_revision": "ff09cca1304ff7416be0efdc7da4ff9b240ebc8d",
+  "published": true,
+  "deployed": false
+}

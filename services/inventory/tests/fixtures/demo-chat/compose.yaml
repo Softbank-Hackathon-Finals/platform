@@ -1,0 +1,63 @@
+# 로컬 개발용. 같은 DB를 쓰는 앱 두 개(aws · onprem)를 띄워 환경 간 메시지 전파와 쓰기 차단을 확인한다.
+# AWS(S3 · Secrets Manager)는 moto로 흉내 낸다. 값은 모두 로컬 전용이다.
+x-app: &app
+  build: .
+  depends_on:
+    db: { condition: service_healthy }
+    aws-seed: { condition: service_completed_successfully }
+  environment: &app-env
+    DB_HOST: db
+    DB_NAME: chat
+    DB_SECRET_ID: demo-chat/db
+    S3_BUCKET: demo-chat-attachments
+    S3_ENDPOINT_URL: http://aws:5000
+    S3_FORCE_PATH_STYLE: "true"
+    AWS_ENDPOINT_URL_SECRETS_MANAGER: http://aws:5000
+    AWS_DEFAULT_REGION: ap-northeast-1
+    AWS_ACCESS_KEY_ID: local
+    AWS_SECRET_ACCESS_KEY: local
+    ADMIN_TOKEN: local-admin
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: chat
+      POSTGRES_PASSWORD: local-only-admin
+    command: ["postgres", "-c", "wal_level=logical"]
+    volumes:
+      - ./db/local/00-role.sql:/docker-entrypoint-initdb.d/00-role.sql:ro
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "chat"]
+      interval: 2s
+      retries: 15
+
+  aws:
+    image: motoserver/moto:5.1.4
+  aws-seed:
+    image: amazon/aws-cli:2.27.0
+    depends_on: [aws]
+    environment:
+      AWS_ENDPOINT_URL: http://aws:5000
+      AWS_REGION: ap-northeast-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until aws s3 ls >/dev/null 2>&1; do sleep 1; done
+        aws s3 mb s3://demo-chat-attachments || true
+        aws secretsmanager create-secret --name demo-chat/db \
+          --secret-string '{"username":"chat_app","password":"local-only-app"}' || true
+
+  app-aws:
+    <<: *app
+    environment: { <<: *app-env, APP_ENV: aws }
+    ports: ["8081:8080"]
+
+  app-onprem:
+    <<: *app
+    environment: { <<: *app-env, APP_ENV: onprem }
+    ports: ["8082:8080"]

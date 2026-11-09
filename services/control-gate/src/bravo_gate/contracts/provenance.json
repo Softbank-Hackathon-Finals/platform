@@ -1,0 +1,11 @@
+{
+  "repository": "Softbank-Hackathon-Finals/platform",
+  "commit": "626bca041e2bceca7692a5d4c458a699a047941d",
+  "status": "Merged develop contract; schema byte-identical to the pinned T5 revision. profiles.json adds apply-recheck:1 (T31) after that commit; contract-cases/evaluation-contexts carry the resulting catalog/context digests. All byte-identical to docs/controls",
+  "sha256": {
+    "control-result.schema.json": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654",
+    "profiles.json": "47870083fb7f48b8a607bb261314a611b503ad655b6c9435afa61c1b1e1381d3",
+    "contract-cases.json": "5d7104aec2061f12c7beb5f62d33f985efc41b66f2e1e4b53513e3a51a5805c2",
+    "evaluation-contexts.json": "03454af5f6b057d60cbd072402cdb31e9ad5a20d5fc13c920f18765bc2413097"
+  }
+}

@@ -55,13 +55,19 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 | 동작 | 저장/검사 |
 |---|---|
 | `set_permissions` | trusted host가 실제 관리 결정을 인증한 뒤 호출. plan/tenant/subject, 권한, 유효 구간, 기대 revision, 관리 감사 참조를 저장 |
-| 권한 | `read`, `approve_cutover`, `execute_cutover`를 구분. 쓰기 권한은 `read`를 함께 요구 |
+| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. T17 런타임은 기존 SHIFT 승인에 실행을 결속하는 `approve_shift`와 가중치 실행의 `execute_shift`를 사용한다. T44 목적지 구축은 계획 digest 승인의 `approve_infra`와 실행 1회 소비의 `apply_infra`를 사용한다(ADR-0032, 아래 목적지 구축 승인). 쓰기 권한은 `read`를 함께 요구 |
 | 권한 회수 | 빈 권한 집합을 다음 revision으로 기록. 회수 후 재부여도 새로운 revision |
 | 재인증 요구 | `auth_time`이 `valid_after`보다 이른 토큰 거부. refresh로 iat만 바꿔도 거부 |
 | `revoke_approval` | 아직 소비하지 않은 승인 ID의 취소를 영속화. 이미 접수된 원격 실행을 취소했다고 반환하지 않음 |
 | 조회/SSE | 현재 계획의 read 권한과 유효 토큰 재검사. 다른 계획/tenant로 권한 전파 없음 |
 | 승인 접수 | 동일 plan lock 안에서 실제 신원, 승인 권한, upstream authority 확인 |
 | 실행 접수 | 실행자의 실행 권한 + 원 승인자의 현재 승인 권한 + 승인 취소 상태를 동일 lock 안에서 확인 |
+
+T17의 [ShiftAuthority와 단일 실행 런타임](../../services/edge-control/README.md#단일-실행-런타임)은
+기존 WorkflowRecovery의 SHIFT 승인 체크포인트와 현재 T19 원문을 소비한다.
+새 상태 전이나 승인 API를 만들지 않는다. 실행 등록은 승인자의 권한 revision에 결속하며,
+회수·재부여로 이전 등록을 재활성화하지 않는다. `ShiftAuthority.revoke`는 같은 계획 잠금에서
+해당 Edge 실행 등록을 철회하며 이미 수행된 원격 가중치를 되돌렸다고 표시하지 않는다.
 
 `administration_ref` 문자열 자체는 관리자 인증이 아니다. host가 현재 관리자 권한을
 검증하고 남긴 실제 결정의 참조여야 하며, 클라이언트 JSON에서 이 관리 함수를 호출하면 안 된다.
@@ -83,6 +89,11 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 `authority`를 생략하면 여전히 거부한다. 기존 `create_cutover_app`의 기본 인증 거부도 유지한다.
 순수 `Principal`이나 서명 확인 없이 만든 HTTP actor 값은 이 연결의 사람 자격으로 받아들이지 않는다.
 
+S2는 같은 factory에 `change_authority`를 명시적으로 연결할 때 활성화한다.
+승인 종류별 권한과 취소 기록을 분리하며, `revoke_approval(..., approval_kind="change")`로
+아직 소비되지 않은 변경 승인을 취소한다. 기본 `cutover` 취소 동작은 유지한다.
+T15 공급자와 T31 반영 접수의 경계는 [변경 승인 계약](T10-change-approval.md)을 따른다.
+
 권한 변경은 트랜잭션이 먼저 저장된 뒤 효력을 갖는다. DB 재시작 뒤에도 그대로 읽으며
 SQLite `BEGIN IMMEDIATE`와 PostgreSQL의 기존 plan advisory lock을 사용한다.
 권한이 네트워크 호출 중 회수되면 이미 저장한 실행 명령은 남고 응답/관측 접근은 거부될 수 있다.
@@ -95,3 +106,15 @@ HTTP 승인/조회/SSE, 권한 회수/재부여·승인 취소·잠금 경쟁을
 AWS는 기존 EC2의 비루트 임시 프로세스에서 같은 코드와 합성 identity/gate/SHIFT를 시험한다.
 두 시험 모두 실제 사람 로그인·운영 권한 부여·게이트 PASS·실제 컷오버 증거가 아니다.
 [검증 기록](../evidence/t10-operator-access-2026-11-04/README.md)을 함께 본다.
+
+## 목적지 구축 승인 (T44, ADR-0032)
+
+목적지 구축 계획의 승인도 같은 승인 경로와 계획별 권한을 쓴다. 목적지 구축은 그 목적지로 옮기는 이전 계획에 묶는다.
+
+| 경로 | 권한 | 규칙 |
+|---|---|---|
+| `POST /v1/plans/{plan_id}/approvals` (`approval_kind: "infra"`) | `approve_infra` | binding은 `infra_plan_id`, `plan_digest`(sha256 hex), `requested_by` 세 필드만 받는다. 요청자와 승인자가 같으면 `self_approval_forbidden`. 계획 상태가 COLLECT ~ AWAIT_APPROVAL일 때만 받고, 만료는 24시간 이내 |
+| `GET /v1/plans/{plan_id}/infra-approvals/{approval_id}` | `read` | 승인 영수증과 회수 여부, 소비한 실행 ID |
+| `POST /v1/plans/{plan_id}/infra-approvals/{approval_id}/claims` | `apply_infra` | 본문 `run_id`와 기대 binding 전체 `binding: {infra_plan_id, plan_digest, requested_by}`. 세 필드 중 하나라도 승인과 다르거나(다시 계산한 digest 포함) 빠지면 `binding_mismatch`. digest만 보내는 옛 본문은 422다. 한 승인은 한 실행만 소비하고 같은 실행의 재요청은 같은 결과를 돌려준다. 원 승인자가 지금도 `approve_infra`를 가져야 한다 |
+
+승인 회수는 기존 `revoke_approval(..., approval_kind="infra")`를 쓴다. T10 이벤트 v1 스키마에는 `infra` 종류가 없으므로 `approval.decided` 이벤트를 내지 않는다(SHIFT 승인과 같다). 실행 기록은 T44가 T24 감사 로그에 남긴다.

@@ -1,0 +1,9 @@
+{"roles": {"arn:aws:iam::000000000000:role/chat-irsa": {"policies": [
+   {"name": "chat-s3", "statements": [{"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": ["arn:aws:s3:::demo-chat-attachments.example.invalid/*", "arn:aws:s3:::demo-chat-attachments.example.invalid"]}]},
+   {"name": "chat-secrets", "statements": [{"Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:demo-chat/db-AbCdEf"}]},
+   {"name": "chat-kms", "statements": [{"Effect": "Allow", "Action": ["kms:Decrypt"], "Resource": "arn:aws:kms:ap-northeast-2:000000000000:key/00000000-0000-0000-0000-00000000abcd"}]},
+   {"name": "legacy-audit", "statements": [{"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": "arn:aws:s3:::chat-audit-archive.example.invalid/*"}]}
+ ]}},
+ "buckets": {"demo-chat-attachments.example.invalid": {"public": false, "region": "ap-northeast-2"}, "chat-audit-archive.example.invalid": {"public": false, "region": "ap-northeast-2"}},
+ "secrets": {"demo-chat/db-AbCdEf": {"rotation_enabled": true}},
+ "kms": {"00000000-0000-0000-0000-00000000abcd": {"key_manager": "CUSTOMER"}}}

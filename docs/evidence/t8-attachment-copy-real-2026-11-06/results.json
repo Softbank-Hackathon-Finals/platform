@@ -1,0 +1,43 @@
+{
+  "kind": "t8_attachment_copy_real_run",
+  "recorded": "2026-11-06",
+  "source_revision": "04a612617a4acfe1218cf13b42f24e55cf0bcb6a",
+  "path": {
+    "source_objects": "AWS S3 (source bucket), read through a 30-minute assumed-role session limited by a session policy to that bucket and its KMS key",
+    "source_database": "source CNPG through the Tailscale egress Service in target-dev",
+    "destination_objects": "target SeaweedFS in target-dev",
+    "target_node_architecture": "arm64"
+  },
+  "result": {
+    "schema": "bravo.t8.attachment-copy-result/v1",
+    "run_id": "t8-attach-rehearsal-1106-01",
+    "plan_id": "rehearsal-t8-attach-1106",
+    "epoch": 1,
+    "verdict": "SUCCEEDED",
+    "reason_code": "receipt_passed",
+    "image_digest": "sha256:8b48cb593221b8adf1871a2e66080aa6ae81b12ab3f83a42c17016aae03e1f6b",
+    "started_at": "2026-11-06T02:24:32Z",
+    "finished_at": "2026-11-06T02:24:37Z",
+    "job_failure_reason": null,
+    "container_exit_code": 0,
+    "receipt": {
+      "passed": true,
+      "source_count": 2,
+      "destination_count": 2,
+      "database_referenced_count": 1,
+      "operator_approved_extra_count": 1,
+      "copied": 0,
+      "reused": 2,
+      "bytes_verified": 119
+    }
+  },
+  "omitted": [
+    "job_uid and pod_uid (cluster resource identifiers)",
+    "key_content_inventory_sha256 and content_sha256 (kept in the private record)",
+    "bucket name, account, role and KMS key identifiers"
+  ],
+  "cleanup": {
+    "source_session_secret_deleted": true,
+    "approved_extras_secret_deleted": true
+  }
+}

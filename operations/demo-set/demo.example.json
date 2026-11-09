@@ -1,0 +1,224 @@
+{
+  "workdir": "~/.bravo-demo/runs",
+  "repo": "",
+  "aws_profile": "<operator SSO profile>",
+  "aws_region": "ap-northeast-2",
+  "gate_keys": "<private dir with the operator gate keys (never committed)>",
+  "clusters": {
+    "platform": {
+      "kubeconfig": "<tailnet kubeconfig of the platform API>",
+      "uid": "<kube-system UID>",
+      "context": "<context name>"
+    },
+    "source": {
+      "kubeconfig": "<tailnet kubeconfig of the source API>",
+      "uid": "<kube-system UID>"
+    },
+    "target": {
+      "kubeconfig": "<tailnet kubeconfig of the destination API>",
+      "uid": "<kube-system UID>"
+    }
+  },
+  "collector_namespaces": {
+    "source": "source-dev",
+    "target": "target-dev"
+  },
+  "registration": {
+    "url": "https://<registration tailnet name>",
+    "ca_file": "<registration CA path>",
+    "check_hostname": false,
+    "collectors_secret": "<current collectors Secret name>"
+  },
+  "workload_receipt": "<workload registration receipt JSON>",
+  "plan": {
+    "workload_id": "<workload-...>",
+    "target_environment_id": "env-onprem",
+    "profile": "demo-gate/1",
+    "recheck_profile": "apply-recheck/1"
+  },
+  "t16": {
+    "reader_config": "<T16 reader config JSON>",
+    "repo_checkout": "<demo app checkout at the source revision>",
+    "platform_checkout": "<platform checkout>"
+  },
+  "grants": {
+    "operator": "<operator subject>",
+    "operator_permissions": [
+      "read",
+      "approve_change",
+      "approve_shift",
+      "execute_shift",
+      "approve_cutover",
+      "execute_cutover",
+      "approve_failback",
+      "execute_failback",
+      "start_rehearsal",
+      "hold_rehearsal",
+      "gate:read",
+      "gate:evaluate",
+      "gate:consume",
+      "gate:record",
+      "gate:bind"
+    ],
+    "job_principal": "<initial proposal Job principal>",
+    "gate_subjects": {
+      "gate-admin-bravo": [
+        "read",
+        "gate:manage-provenance"
+      ],
+      "gate-issuer-bravo": [
+        "read",
+        "gate:read",
+        "gate:publish-provenance"
+      ],
+      "gate-operator-bravo": [
+        "read",
+        "gate:read",
+        "gate:record",
+        "gate:bind",
+        "gate:evaluate"
+      ]
+    }
+  },
+  "t14": {
+    "target": {
+      "namespace": "target-dev",
+      "environment_ref": "<onprem:cluster/namespace>",
+      "profile": "full/1",
+      "ca_configmap": "target-openbao-ca",
+      "service_accounts": [
+        "demo-chat",
+        "t14-other"
+      ],
+      "token_audience": "openbao",
+      "object_secret": "target-app-objects",
+      "forwards": [
+        {
+          "namespace": "target-dev",
+          "service": "svc/seaweedfs",
+          "ports": "18333:8333"
+        },
+        {
+          "namespace": "bravo-secrets",
+          "service": "svc/target-openbao",
+          "ports": "18200:8200"
+        }
+      ],
+      "tests": {
+        "IAM-01.1": {
+          "adapter": "s3-endpoint",
+          "endpoint": "http://127.0.0.1:18333",
+          "bucket": "<bucket>",
+          "key": "attachments/t14-canary.txt",
+          "identity": "client",
+          "access_key_env": "T14_OBJECT_ACCESS_KEY",
+          "secret_key_env": "T14_OBJECT_SECRET_KEY"
+        },
+        "SEC-01.1": {
+          "adapter": "openbao",
+          "origin": "https://127.0.0.1:18200",
+          "server_hostname": "<openbao service host>",
+          "ca_file": "{ca_file}",
+          "auth_mount": "kubernetes",
+          "mount": "secret",
+          "path": "<kv path>",
+          "version": 1,
+          "app": {
+            "namespace": "target-dev",
+            "service_account": "demo-chat",
+            "uid": "{uid:demo-chat}",
+            "role": "demo-chat",
+            "jwt_file": "{jwt:demo-chat}"
+          },
+          "other": {
+            "namespace": "target-dev",
+            "service_account": "t14-other",
+            "uid": "{uid:t14-other}",
+            "role": "t14-other",
+            "jwt_file": "{jwt:t14-other}"
+          }
+        },
+        "AUD-01.1": {
+          "adapter": "pod-log",
+          "kube_context": "<context>",
+          "namespace": "target-dev",
+          "cluster": "target-db",
+          "database": "chat"
+        }
+      }
+    },
+    "source": {
+      "namespace": "source-dev",
+      "environment_ref": "<aws:eks/cluster/namespace>",
+      "profile": "full/1",
+      "db_ca_secret": "source-db-ca",
+      "pooler_deployment": "source-pgbouncer",
+      "app_role_arn": "<app IAM role ARN>",
+      "db_secret_id": "<app DB secret id>",
+      "psql": "<path to psql>",
+      "forwards": [
+        {
+          "namespace": "source-dev",
+          "service": "svc/source-pgbouncer",
+          "ports": "15432:5432"
+        }
+      ],
+      "tests": {
+        "IAM-01.1": {
+          "adapter": "aws-object",
+          "account_id": "<account>",
+          "region": "ap-northeast-2",
+          "bucket": "<bucket>",
+          "key": "attachments/t14-canary.txt",
+          "version_id": "<object version>",
+          "app_role": {
+            "arn": "<app role ARN>",
+            "role_id": "<role id>"
+          },
+          "aws_profile": "<operator SSO profile>"
+        },
+        "SEC-01.1": {
+          "adapter": "aws-secret",
+          "secret_arn": "<secret ARN>",
+          "version_id": "<secret version>",
+          "app_role": {
+            "arn": "<app role ARN>",
+            "role_id": "<role id>"
+          },
+          "other_role": {
+            "arn": "<other role ARN>",
+            "role_id": "<role id>"
+          },
+          "aws_profile": "<operator SSO profile>"
+        },
+        "AUD-01.1": {
+          "adapter": "pod-log",
+          "kube_context": "<context>",
+          "namespace": "source-dev",
+          "cluster": "source-db",
+          "database": "chat"
+        },
+        "ENC-01.1": {
+          "adapter": "pooler-tls",
+          "namespace": "source-dev",
+          "pooler_uid": "{pooler_uid}",
+          "hostname": "source-pgbouncer.source-dev.svc.cluster.local",
+          "address": "127.0.0.1",
+          "port": 15432,
+          "database": "chat",
+          "username": "{db_username}",
+          "ca_file": "{ca_file}",
+          "wrong_ca_file": "{wrong_ca_file}",
+          "password_env": "T14_POOLER_PASSWORD",
+          "psql": "{psql}",
+          "psql_sha256": "{psql_sha256}",
+          "psql_version": "<psql version>"
+        }
+      }
+    }
+  },
+  "catalog": {
+    "claim": "<task catalog PVC>",
+    "key_secret": "<task catalog key Secret>"
+  }
+}

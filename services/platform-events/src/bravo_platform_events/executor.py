@@ -6,6 +6,7 @@ durably claimed command. Neither retries commands or releases leases.
 
 import json
 import math
+import re
 import ssl
 import time
 from dataclasses import dataclass
@@ -15,12 +16,16 @@ from uuid import UUID
 
 import httpx
 
-from .contract import validate_identifier
+from .contract import IDENTIFIER, validate_identifier
 
 MAX_RESPONSE_BYTES = 262_144
 MAX_STEPS = 256
 STATUSES = frozenset({"PENDING", "RUNNING", "DONE", "ABORT_PRE_WRITE", "SAFE_HOLD"})
 STEP_STATUSES = frozenset({"started", "succeeded", "failed", "unknown"})
+READINESS_REFUSALS = frozenset({
+    "environment_not_registered", "direction_not_registered", "table_not_registered", "sequence_not_registered",
+    "readiness_capture_expired", "execution_in_progress", "executor_not_configured",
+    "command_credential_required", "unauthorized"})
 
 
 def _uuid(value: str) -> None:
@@ -156,6 +161,16 @@ def _extends(current: ExecutionSnapshot, previous: ExecutionSnapshot) -> bool:
     )
 
 
+class ExecutorReadError(RuntimeError):
+    """Bounded failure code, safe to expose without upstream response contents."""
+
+
+def _validate_token(token: str | None) -> None:
+    if token is not None and (not isinstance(token, str) or not 1 <= len(token) <= 8192
+                              or any(not 33 <= ord(c) <= 126 for c in token)):
+        raise ValueError("invalid_executor_token")
+
+
 class ExecutorReader:
     """One bounded GET against a configured origin, with TLS and no redirects.
 
@@ -184,8 +199,7 @@ class ExecutorReader:
             raise ValueError("invalid_executor_origin")
         if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 30:
             raise ValueError("invalid_executor_timeout")
-        if token is not None and (not isinstance(token, str) or not 1 <= len(token) <= 8192 or any(not 33 <= ord(c) <= 126 for c in token)):
-            raise ValueError("invalid_executor_token")
+        _validate_token(token)
         if tls_context is not None and (not isinstance(tls_context, ssl.SSLContext)
                 or tls_context.verify_mode != ssl.CERT_REQUIRED or not tls_context.check_hostname):
             raise ValueError("verified_tls_context_required")
@@ -228,26 +242,64 @@ class ExecutorReader:
         return self._request("GET", path, expected, params=params, previous=previous,
                              list_response=expected.execution_id is None)
 
+    def verified_bindings(self, registered_pair: dict) -> dict[str, str]:
+        """Read the deployed pair once and bind this host to its independent enrollment."""
+        resource_fields = {"environment_id", "resource_id", "connection_ref"}
+        if not isinstance(registered_pair, dict) or set(registered_pair) != {"source", "target"}:
+            raise ValueError("invalid_registered_pair")
+        expected = {}
+        for side, resource in registered_pair.items():
+            if not isinstance(resource, dict) or set(resource) != resource_fields:
+                raise ValueError("invalid_registered_pair")
+            env = resource["environment_id"]
+            if not isinstance(env, str) or not IDENTIFIER.fullmatch(env):
+                raise ValueError("invalid_registered_pair")
+            for field in ("resource_id", "connection_ref"):
+                value = resource[field]
+                if (not isinstance(value, str) or not 1 <= len(value) <= 256
+                        or not re.fullmatch(r"[A-Za-z0-9_.:-]+(?:/[A-Za-z0-9_.:-]+)*", value)):
+                    raise ValueError("invalid_registered_pair")
+            expected[side] = dict(resource)
+        if any(expected["source"][field] == expected["target"][field]
+               for field in resource_fields):
+            raise ValueError("invalid_registered_pair")
+        if "Authorization" not in self._client.headers:
+            raise ExecutorReadError("registry_auth_required")
+        try:
+            pair = self._request_json("GET", "/v1/resources")
+        except (ExecutorReadError, httpx.HTTPError, ValueError, RecursionError):
+            raise ExecutorReadError("registry_unavailable") from None
+        if pair != expected:
+            raise ExecutorReadError("registry_mismatch")
+        return {site["environment_id"]: site["connection_ref"] for site in pair.values()}
+
+    def _request_json(self, method, path, *, params=None, body=None, headers=None,
+                      accepted_statuses=(200,), with_status=False):
+        started = time.monotonic()
+        with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
+            if response.status_code not in accepted_statuses:
+                raise ExecutorReadError("http_status")
+            if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                raise ExecutorReadError("invalid_response")
+            if response.headers.get("content-encoding", "identity").lower() != "identity":
+                raise ExecutorReadError("invalid_response")
+            body = bytearray()
+            # Check each received chunk; batching to 8 KiB can hide a slow drip.
+            for chunk in response.iter_bytes():
+                if time.monotonic() - started > self._timeout:
+                    raise ExecutorReadError("read_timeout")
+                body.extend(chunk)
+                if len(body) > MAX_RESPONSE_BYTES:
+                    raise ExecutorReadError("response_too_large")
+            status = response.status_code
+        value = json.loads(body, object_pairs_hook=_object)
+        return (status, value) if with_status else value
+
     def _request(self, method, path, expected, *, params=None, body=None, headers=None,
                  previous=None, list_response=False, accepted_statuses=(200,)):
-        started = time.monotonic()
         try:
-            with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
-                if response.status_code not in accepted_statuses:
-                    return _unknown("http_status")
-                if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    return _unknown("invalid_response")
-                if response.headers.get("content-encoding", "identity").lower() != "identity":
-                    return _unknown("invalid_response")
-                body = bytearray()
-                # Check each received chunk; batching to 8 KiB can hide a slow drip.
-                for chunk in response.iter_bytes():
-                    if time.monotonic() - started > self._timeout:
-                        return _unknown("read_timeout")
-                    body.extend(chunk)
-                    if len(body) > MAX_RESPONSE_BYTES:
-                        return _unknown("response_too_large")
-            value = json.loads(body, object_pairs_hook=_object)
+            value = self._request_json(method, path, params=params, body=body, headers=headers,
+                                       accepted_statuses=accepted_statuses)
             if list_response:
                 if not isinstance(value, list):
                     return _unknown("invalid_response")
@@ -258,6 +310,8 @@ class ExecutorReader:
             if previous is not None and not _extends(snapshot, previous):
                 return _unknown("history_mismatch")
             return ExecutionRead("OBSERVED", snapshot=snapshot)
+        except ExecutorReadError as error:
+            return _unknown(str(error))
         except httpx.HTTPError:
             return _unknown("transport_failure")
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
@@ -272,6 +326,18 @@ class ExecutorClient(ExecutorReader):
     host resumes through the inherited read path and its saved plan/epoch.
     """
 
+    def __init__(
+        self, base_url: str, *, token: str | None = None, command_token: str | None = None,
+        timeout_seconds: float = 5.0, transport: httpx.BaseTransport | None = None,
+        tls_context: ssl.SSLContext | None = None,
+    ):
+        _validate_token(command_token)
+        if command_token is not None and (not token or command_token == token):
+            raise ValueError("distinct_executor_credentials_required")
+        super().__init__(base_url, token=token, timeout_seconds=timeout_seconds,
+                         transport=transport, tls_context=tls_context)
+        self._command_token = command_token
+
     def submit(self, expected: ExpectedExecution, command: dict, *, idempotency_key: str):
         if not isinstance(expected, ExpectedExecution):
             raise ValueError("trusted_execution_context_required")
@@ -279,6 +345,34 @@ class ExecutorClient(ExecutorReader):
         if (not isinstance(command, dict) or command.get("plan_id") != expected.plan_id
                 or type(command.get("epoch")) is not int or command["epoch"] != expected.epoch):
             raise ValueError("command_context_mismatch")
+        if self._command_token is None:
+            return _unknown("command_credential_missing")
         return self._request("POST", "/v1/cutovers", expected, body=command,
-                             headers={"Idempotency-Key": idempotency_key},
+                             headers={"Idempotency-Key": idempotency_key, "Authorization": f"Bearer {self._command_token}"},
                              accepted_statuses=(200, 202))
+
+    def observe_readiness(self, request: dict) -> dict:
+        """POST /v1/readiness: the Executor's pre-cutover T13 observation (it may raise the target sequence).
+
+        Not a cutover command and not retried here. Any failure is one bounded code.
+        """
+        if self._command_token is None:
+            raise ExecutorReadError("command_credential_missing")
+        try:
+            status, value = self._request_json("POST", "/v1/readiness", body=request,
+                                               headers={"Authorization": f"Bearer {self._command_token}"},
+                                               accepted_statuses=(200, 401, 403, 404, 409, 422, 503),
+                                               with_status=True)
+        except ExecutorReadError:
+            raise
+        except httpx.HTTPError:
+            raise ExecutorReadError("transport_failure") from None
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            raise ExecutorReadError("invalid_response") from None
+        if status != 200:  # a refusal: only the Executor's fixed codes pass through
+            detail = value.get("detail") if isinstance(value, dict) else None
+            code = detail.get("code") if isinstance(detail, dict) else None
+            raise ExecutorReadError(code if code in READINESS_REFUSALS else "http_status")
+        if not isinstance(value, dict) or value.get("kind") != "t13-readiness-observation.v1":
+            raise ExecutorReadError("invalid_response")  # a 200 that is not an observation
+        return value

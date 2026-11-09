@@ -1,0 +1,109 @@
+{
+  "artifact_kind": "real amd64 image build and import on an emulated amd64 k3s node; no cloud resource was called",
+  "source_revision": "dbbe2dc5b9ebe0c9ef7743a67e26cf0151bddcde",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.Dockerfile",
+      "sha256": "8a80fde9341c940433e001e0116dd9a24a6f97d8c9356fa820f5b7d0bd3e3916"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.requirements.txt",
+      "sha256": "f3874f5baea2e6374999b0fc873067ddbe40be515d6e45a7ab5e4f5d1795a234"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_job.py",
+      "sha256": "6c85fee7631a4cc2de0a70e807fa48793dc8062d21ad9e17030d19578ada8c4c"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_verdict.py",
+      "sha256": "89bfcdec6b4cc33795e3a98b334a43c778501abbbb8f0eb2cb9a0a30b07aced3"
+    },
+    {
+      "path": "scripts/attachment_image.py",
+      "sha256": "8a22e60901bc1224f166c54ca61fa1e27926006dce616f4f57e3b80e62539e50"
+    },
+    {
+      "path": "scripts/executor_image.py",
+      "sha256": "6345003fe514b8a302e5a3e59a0395d2f46bac0c9a8f2a200d7dbae1415945b2"
+    },
+    {
+      "path": "scripts/tests/attachment_image_check.py",
+      "sha256": "7e9df3bcc80c2f32571070af1a7e46ae541e079112167352da4ee220bf82ff28"
+    },
+    {
+      "path": "scripts/tests/attachment_job_k3s.py",
+      "sha256": "9230b0bcad1346ab97b92b3d99d53985b119e7a255a71f3adb9f2655c2c237e6"
+    },
+    {
+      "path": "scripts/tests/attachment_job_mutation_check.py",
+      "sha256": "06039ae2c7188416f66cb6c7b735666742e6aba928e63246e274ef772cd5355a"
+    }
+  ],
+  "checks": {
+    "receipt_hash_matches_archive": true,
+    "receipt_is_for_this_commit": true,
+    "amd64_probe_passed": true,
+    "scan_found_nothing": true,
+    "previous_base_refused_by_scan": true,
+    "node_is_amd64": true,
+    "hash_matches_on_the_node": true,
+    "digest_name_points_at_the_receipt_digest": true,
+    "guide_filter_works_on_real_ctr_output": true
+  },
+  "receipt": {
+    "source_repository": "Softbank-Hackathon-Finals/platform",
+    "source_sha": "dbbe2dc5b9ebe0c9ef7743a67e26cf0151bddcde",
+    "base_image": "python:3.12-slim-bookworm@sha256:da54eb86849fe19be7584d8b3f291fcf0c53c196760ab3d70dc6382f681ef9c0",
+    "image": "localhost/bravo-attachment-copy@sha256:c2a6b1c105fa4cfc6393d0de782fb6c0f5e3912248d4231d099dee569bcc39c1",
+    "digest": "sha256:c2a6b1c105fa4cfc6393d0de782fb6c0f5e3912248d4231d099dee569bcc39c1",
+    "platform": "linux/amd64",
+    "runtime_user": "10001:10001",
+    "archive_sha256": "df7fdfdf977556412df3645776c140da177c63764f8997118fcba5c5dfa5f563",
+    "archive_bytes": 73308160,
+    "verified_blob_count": 15,
+    "scan": {
+      "scanners": [
+        "vuln",
+        "secret"
+      ],
+      "severity": [
+        "HIGH",
+        "CRITICAL"
+      ],
+      "ignore_unfixed": true,
+      "package_types": [
+        "debian",
+        "python-pkg"
+      ],
+      "vulnerability_count": 0,
+      "secret_match_count": 0
+    },
+    "scanned_before_packing": true,
+    "provenance_and_sbom_verified": true,
+    "isolated_runtime_probe_verified": true,
+    "built_in_ci": false,
+    "target_import_verified": false,
+    "target_job_verified": false
+  },
+  "previous_base": {
+    "exit_code": 1,
+    "error_code": "image_scan_failed",
+    "archive_written": false
+  },
+  "import": {
+    "guide_grep_finds_the_tag": true,
+    "guide_grep_finds_the_digest_name": true,
+    "guide_grep_rejects_another_digest": true,
+    "node_architecture": "x86_64",
+    "archive_hash_matches_receipt": true,
+    "tag_created_by_import": true,
+    "digest_name_created_by_import": false,
+    "digest_name_after_alias": true,
+    "descriptor_digest_matches_receipt": true,
+    "platform_column": [
+      "linux/amd64",
+      "io.cri-containerd.image=managed"
+    ]
+  },
+  "seconds": 77
+}

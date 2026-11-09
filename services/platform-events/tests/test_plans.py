@@ -89,6 +89,62 @@ def test_registration_cannot_rebind_existing_plan(store, change):
     assert len(store.read_after(SPEC.plan_id, None)) == 1
 
 
+def test_profile_is_immutable_and_snapshot_schema_requires_the_pair(store):
+    spec = replace(SPEC, plan_id="profile-plan", profile_id="full", profile_version="1.0")
+    store.register_plan(spec, run_id="run-profile", occurred_at=TIME)
+    store.register_plan(spec, run_id="run-retry", occurred_at=TIME)
+    schema = json.loads(files("bravo_platform_events").joinpath("schemas/plan-snapshot.schema.json").read_text())
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    snapshot = store.snapshot(spec.plan_id)
+    validator.validate(snapshot)
+    assert snapshot["profile_id"] == "full" and snapshot["profile_version"] == "1.0"
+    for field in ("profile_id", "profile_version"):
+        invalid = dict(snapshot)
+        invalid.pop(field)
+        assert not validator.is_valid(invalid)
+        with pytest.raises(EventError, match="plan_conflict"):
+            store.register_plan(replace(spec, **{field: "different"}), run_id="run-retry", occurred_at=TIME)
+    assert store.snapshot(spec.plan_id) == snapshot
+    assert len(store.read_after(spec.plan_id, None)) == 1
+
+
+@pytest.mark.parametrize("change", [
+    dict(profile_id="full"), dict(profile_version="1"),
+    dict(profile_id="full", profile_version=1),
+    dict(profile_id="full", profile_version="unsafe value"),
+    dict(recheck_profile_id="apply-recheck", recheck_profile_version="1"),
+    dict(profile_id="demo-gate", profile_version="1", recheck_profile_id="apply-recheck"),
+    dict(profile_id="demo-gate", profile_version="1", recheck_profile_version="1"),
+])
+def test_partial_or_invalid_profile_never_registers(store, change):
+    spec = replace(SPEC, plan_id="bad-profile-plan", **change)
+    with pytest.raises(ValueError, match="invalid_evaluation_profile"):
+        store.register_plan(spec, run_id="run-profile", occurred_at=TIME)
+    with pytest.raises(EventError, match="plan_not_found"):
+        store.snapshot(spec.plan_id)
+
+
+def test_recheck_snapshot_requires_initial_and_recheck_pairs_and_preserves_old_bytes(store):
+    with store._transaction() as c:
+        old = c.execute("SELECT spec_json FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone()["spec_json"]
+    store.register_plan(SPEC, run_id="retry", occurred_at=TIME)
+    with store._transaction() as c:
+        assert c.execute("SELECT spec_json FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone()["spec_json"] == old
+    spec = replace(SPEC, plan_id="recheck-plan", profile_id="demo-gate", profile_version="1",
+                   recheck_profile_id="apply-recheck", recheck_profile_version="1")
+    store.register_plan(spec, run_id="recheck", occurred_at=TIME)
+    schema = json.loads(files("bravo_platform_events").joinpath("schemas/plan-snapshot.schema.json").read_text())
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    snapshot = store.snapshot(spec.plan_id)
+    validator.validate(snapshot)
+    for field in ("profile_id", "profile_version", "recheck_profile_id", "recheck_profile_version"):
+        invalid = dict(snapshot)
+        invalid.pop(field)
+        assert not validator.is_valid(invalid)
+        with pytest.raises(EventError, match="plan_conflict"):
+            store.register_plan(replace(spec, **{field: "changed"}), run_id="retry", occurred_at=TIME)
+
+
 @pytest.mark.parametrize(
     "change,error",
     [
@@ -326,9 +382,10 @@ def test_snapshot_does_not_claim_audit_history_recovery(store):
 
 
 def test_published_snapshot_schema_and_example_match_local_read_model(store):
-    schema = json.loads(
-        files("bravo_platform_events").joinpath("schemas/plan-snapshot.schema.json").read_text()
-    )
+    schemas = files("bravo_platform_events").joinpath("schemas")
+    schema = json.loads(schemas.joinpath("plan-snapshot.schema.json").read_text())
+    events = json.loads(schemas.joinpath("event.schema.json").read_text())
+    assert set(schema["properties"]["state"]["enum"]) == set(events["$defs"]["state"]["enum"])
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
     validator.check_schema(schema)
     example = json.loads((Path(__file__).parents[1] / "examples/plan-snapshot.json").read_text())
@@ -338,7 +395,7 @@ def test_published_snapshot_schema_and_example_match_local_read_model(store):
     validator.validate(store.snapshot(SPEC.plan_id))
     for invalid in [
         dict(example, tenant_id="other"),
-        dict(example, state="DONE"),
+        dict(example, state="INVALID_STATE"),
         dict(example, version=True),
     ]:
         with pytest.raises(ValidationError):

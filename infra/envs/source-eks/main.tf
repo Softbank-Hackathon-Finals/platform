@@ -183,7 +183,7 @@ resource "aws_eks_node_group" "source" {
   release_version = var.node_release_version
   instance_types  = [var.instance_type]
   scaling_config {
-    desired_size = 1
+    desired_size = var.node_count
     min_size     = 1
     max_size     = 2
   }

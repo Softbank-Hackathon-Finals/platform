@@ -1,0 +1,14 @@
+get secret/target-seaweedfs-auth                        yes
+update secret/target-seaweedfs-auth                     yes
+list secrets                                            no
+get secret/other                                        no
+delete secret/target-seaweedfs-auth                     no
+patch deployment.apps/target-seaweedfs                  yes
+get deployment.apps/target-seaweedfs                    yes
+watch deployment.apps/target-seaweedfs                  yes
+patch deployment.apps/demo-chat                         no
+get deployment.apps/demo-chat                           no
+delete deployment.apps/target-seaweedfs                 no
+list pods                                               no
+create pods/exec                                        no
+get secret/target-seaweedfs-auth -n kube-system         no

@@ -1,0 +1,117 @@
+{
+  "kind": "operator-readonly-verification",
+  "task": "T14",
+  "started_at": "2026-11-04T07:33:57.909909+00:00",
+  "negative_checks_at": "2026-11-04T07:35:55.065787+00:00",
+  "execution_scope": "existing source app process environment, actual AWS and PostgreSQL; no infrastructure mutation",
+  "image_digest": "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+  "pod_uid_sha256": "eb73a8b4ce34b2b2f3a642a0354c13ad7f4f9623d40222e0dcb862e67797553b",
+  "checks": {
+    "/healthz": {
+      "http_status": 200
+    },
+    "/readyz": {
+      "http_status": 200
+    },
+    "/api/health/db": {
+      "http_status": 200
+    },
+    "/admin/write-block": {
+      "http_status": 401
+    },
+    "/metrics": {
+      "http_status": 404
+    },
+    "db_positive_before": {
+      "select_one": 1,
+      "tls_in_use": true,
+      "role_flags": {
+        "superuser": false,
+        "create_role": false,
+        "create_db": false,
+        "replication": false,
+        "bypass_rls": false
+      },
+      "elapsed_ms": 23.0
+    },
+    "db_wrong_hostname": {
+      "error_type": "OperationalError",
+      "certificate_hostname_mismatch": true
+    },
+    "db_positive_after": {
+      "select_one": 1,
+      "tls_in_use": true,
+      "role_flags": {
+        "superuser": false,
+        "create_role": false,
+        "create_db": false,
+        "replication": false,
+        "bypass_rls": false
+      },
+      "elapsed_ms": 18.3
+    },
+    "app_role_observed": {
+      "identity_sha256": "e772b5d8998cb4c24aacd9c3a54b4367af7f3cdefb2f4e8becdc2c0f89b1395b",
+      "identity_type": "assumed-role",
+      "comparison": "matches Kubernetes ServiceAccount IRSA role; not operator SSO"
+    },
+    "own_secret_read": {
+      "http_status": 200,
+      "version_id_sha256": "695c486c145997ea139010a4f916ca255bee4d31bc9063bbe208d6453fcf5b11"
+    },
+    "wrong_ca": {
+      "certificate_rejected": true,
+      "verify_code": 20
+    },
+    "plaintext_startup_no_password": {
+      "message_type": "E",
+      "sqlstate": "08P01",
+      "tls_required": true
+    },
+    "object_positive_before": {
+      "http_status": 200,
+      "version_matches": true
+    },
+    "object_anonymous": {
+      "http_status": 403,
+      "code": "AccessDenied"
+    },
+    "object_positive_after": {
+      "http_status": 200,
+      "version_matches": true
+    },
+    "admin_absent": {
+      "http_status": 401
+    },
+    "admin_invalid": {
+      "http_status": 401
+    },
+    "db_positive_after_negatives": {
+      "http_status": 200
+    }
+  },
+  "qualification": "partial actual observations, not a T5 ControlRun or T19 approval",
+  "pod_uid_and_image_unchanged_on_readback": true,
+  "raw_artifact_hashes": [
+    {
+      "artifact": "source-negative-result.json",
+      "sha256": "51297c9a9646accc737606fa2837a06b46fed04f2191da58c67af3a002ca4fe4"
+    },
+    {
+      "artifact": "source-object-versions.json",
+      "sha256": "c252c3e56c19d50ebf037e4f45c32856329b056dc94dad5b872a9e1cc04dc2fc"
+    },
+    {
+      "artifact": "source-pods-after.json",
+      "sha256": "6a41bd2b37eb97bdde205f380b08d9f763875224445d4711d840a7b32f11d749"
+    },
+    {
+      "artifact": "source-pods.json",
+      "sha256": "e9b351f50bbfae07808e5133a6588985993e681f960f261a2f0f267ddb50cd3b"
+    },
+    {
+      "artifact": "source-probe-result.json",
+      "sha256": "e47d4fc2d1bc37920991e464d23ce87d99942202765a34c5b68e94e9f34952d1"
+    }
+  ]
+}

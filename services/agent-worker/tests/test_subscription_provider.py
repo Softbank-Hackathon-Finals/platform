@@ -18,6 +18,17 @@ def install_stream(monkeypatch, streams, status=200):
         assert request.headers["Authorization"] == "Bearer subscription-fixture"
         assert str(request.url) == "https://api.openai.com/v1/responses"
         events = streams[min(len(requests) - 1, len(streams) - 1)]
+        # Each response is a distinct invocation. Preserve bindings within its event stream.
+        if status == 200:
+            def unique(value):
+                if isinstance(value, dict):
+                    return {key: unique(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [unique(item) for item in value]
+                if value in ("call_fixture", "fc_fixture", "resp_fixture"):
+                    return value + f"_{len(requests)}"
+                return value
+            events = unique(events)
         if status != 200:
             return httpx2.Response(status, json=events)
         content = "".join("event: " + e["type"] + "\ndata: " + json.dumps(e) + "\n\n" for e in events)
@@ -44,8 +55,13 @@ def completed(name, args, namespace="bravo"):
 
 def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(context, monkeypatch):
     bundle, snapshot, proposal, _ = context
-    calls = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})],
-                                         [completed("plan_propose", proposal)]])
+    first = completed("repo_read", {"path": "src/config.py"})
+    item = first["response"]["output"][0]
+    added = {"type": "response.output_item.added", "output_index": 0, "sequence_number": 0,
+             "item": dict(item, arguments="", status="in_progress")}
+    done = dict(added, type="response.output_item.done", sequence_number=1, item=item)
+    first["sequence_number"] = 2
+    calls = install_stream(monkeypatch, [[added, done, first], [completed("plan_propose", proposal)]])
     result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
     assert result["state"] == "PROPOSAL_READY" and len(calls) == 2
     assert result["attempts"][0]["model_usage"] == {
@@ -54,6 +70,13 @@ def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(con
         assert call["stream"] is True and call["store"] is False
         assert not {"max_output_tokens", "previous_response_id", "conversation", "metadata"} & call.keys()
         assert call["tools"][0]["type"] == "namespace" and call["tools"][0]["name"] == "bravo"
+    assert calls[0]["tool_choice"] == "required"
+    assert [t["name"] for t in calls[0]["tools"][0]["tools"]] == ["repo_read"]
+    assert calls[1]["tool_choice"] == "auto"
+    assert {t["name"] for t in calls[1]["tools"][0]["tools"]} == {"repo_read", "plan_propose", "policy_evaluate"}
+    shapes = [event for event in result["audit"] if event["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert len(shapes) == 1 and shapes[0]["function_call_count"] == 1 and shapes[0]["bravo_namespace_matches"] is True
+    assert shapes[0]["stream_added"] == shapes[0]["stream_done"] == shapes[0]["terminal_items"] == "bravo_repo_read=1"
     assert calls[1]["input"][-1]["type"] == "function_call_output"
     assert "subscription-fixture" not in str(result)
 
@@ -88,3 +111,331 @@ def test_admission_failure_is_bounded_and_never_billed_through_api_fallback(cont
     result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
     assert len(calls) == 1 and result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
     assert "private-detail" not in str(result) and "403" in str(result["audit"])
+
+
+@pytest.mark.parametrize(("namespaces", "match"), [
+    ([], None), (["private-wrong-namespace"], False), ([None], False),
+    (["bravo", "bravo"], True), (["bravo", "private-wrong-namespace"], False),
+])
+def test_first_subscription_response_shape_is_private_and_fails_closed(context, monkeypatch, namespaces, match):
+    bundle, snapshot, _, _ = context
+    terminal = completed("private-function", {"private-key": "private-value"})
+    output = terminal["response"]["output"].pop()
+    terminal["response"]["output"] = [dict(output, namespace=ns) for ns in namespaces]
+    if not namespaces:
+        terminal["response"]["output"].append({
+            "id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
+            "content": [{"type": "output_text", "text": "private-response-text", "annotations": []}],
+        })
+    requests = install_stream(monkeypatch, [[terminal]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    shape, *denied, stopped = result["audit"]
+    # A single out-of-namespace call is audited by the shared classifier before the attempt ends.
+    assert denied == ([{"run_id": bundle.run_id, "attempt": 1, "tool": "unlisted", "outcome": "DENIED",
+                        "reason": "TOOL_NOT_ALLOWED"}] if len(namespaces) == 1 else [])
+    assert shape == {"run_id": bundle.run_id, "attempt": 1, "tool": "model", "outcome": "OBSERVED",
+                     "reason": "FIRST_RESPONSE_SHAPE", "function_call_count": len(namespaces),
+                     **({"bravo_namespace_matches": match} if namespaces else {}),
+                     "stream_added": "", "stream_done": "", "terminal_output_missing": False,
+                     "terminal_items": f"other_function={len(namespaces)}" if namespaces else "message=1"}
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert stopped["reason"] == "MODEL_OR_POLICY_FAILURE"
+    assert "private-" not in json.dumps(result)
+
+@pytest.mark.parametrize("bad_read", [False, True])
+def test_proposal_before_successful_read_is_rejected(context, monkeypatch, bad_read):
+    bundle, snapshot, proposal, _ = context
+    streams = [[completed("repo_read", {"path": "../outside"})]] if bad_read else []
+    streams.append([completed("plan_propose", proposal)])
+    calls = install_stream(monkeypatch, streams)
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert len(calls) == len(streams) and all(c["tool_choice"] == "required" for c in calls)
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+
+
+def test_subscription_can_stop_after_a_read_without_proposing(context, monkeypatch):
+    bundle, snapshot, _, _ = context
+    no_call = completed("plan_propose", {})
+    no_call["response"]["output"] = []
+    calls = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})], [no_call]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert [c["tool_choice"] for c in calls] == ["required", "auto"]
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+
+
+@pytest.mark.parametrize("terminal_shape", ["empty", "omitted", "refusal"])
+def test_done_call_is_observed_but_never_dispatched_without_terminal_call(context, monkeypatch, terminal_shape):
+    bundle, snapshot, _, _ = context
+    terminal = completed("repo_read", {"path": "src/config.py"})
+    item = terminal["response"]["output"].pop()
+    item["arguments"] = '{"path":"private-provider-path"}'
+    events = [{"type": "response.output_item.done", "output_index": 0, "sequence_number": 0, "item": item}]
+    if terminal_shape == "omitted":
+        del terminal["response"]["output"]
+    elif terminal_shape == "refusal":
+        terminal["response"]["output"] = [{
+            "type": "message", "id": "private-id", "status": "completed", "role": "assistant",
+            "content": [{"type": "refusal", "refusal": "private-provider-reason"}],
+        }]
+    requests = install_stream(monkeypatch, [[*events, terminal]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    audit = result["audit"]
+    shape, stop = audit
+    assert shape["reason"] == "FIRST_RESPONSE_SHAPE"
+    assert shape["stream_done"] == "bravo_repo_read=1"
+    assert shape["terminal_items"] == ("refusal=1" if terminal_shape == "refusal" else "")
+    assert shape["terminal_output_missing"] is (terminal_shape == "omitted")
+    assert len(requests) == 1 and result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+    assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
+
+
+def streamed_call(name, args):
+    final = completed(name, args)
+    item = final["response"]["output"].pop()
+    created = dict(final, type="response.created", sequence_number=0,
+                   response=dict(final["response"], status="in_progress", usage=None))
+    added = {"type": "response.output_item.added", "output_index": 0, "sequence_number": 1,
+             "item": dict(item, arguments="", status="in_progress")}
+    done = dict(added, type="response.output_item.done", sequence_number=2, item=item)
+    return [created, added, done, dict(final, sequence_number=3)]
+
+
+def with_call_metadata(events, **changes):
+    note = {"type": "response.metadata", "response_id": events[0]["response"]["id"],
+            "metadata": {"annotation": "private-provider-note"}, **changes}
+    events.insert(2, note)
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    return events
+
+
+def test_bound_metadata_during_function_call_is_not_a_tool_output(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = with_call_metadata(streamed_call("repo_read", {"path": "src/config.py"}))
+    plan = with_call_metadata(streamed_call("plan_propose", proposal))
+    requests = install_stream(monkeypatch, [read, plan])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    assert result["proposal"] == {"schema_version": 1, **proposal}
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call" and shape["function_call_count"] == 1
+    assert sum(e["reason"] == "POLICY_ACCEPTED" for e in result["audit"]) == 2
+    assert "private-provider-note" not in json.dumps([requests, result])
+
+
+@pytest.mark.parametrize("variant", ["different_response", "missing_id", "extra_item", "extra_unknown",
+                                     "not_an_object", "before_added", "after_done", "no_done", "refusal", "incomplete"])
+def test_metadata_does_not_authorize_unbound_or_unfinished_calls(context, monkeypatch, variant):
+    bundle, snapshot, _, _ = context
+    events = with_call_metadata(streamed_call("repo_read", {"path": "src/config.py"}))
+    note = events[2]
+    if variant == "different_response":
+        note["response_id"] = "private-other-response"
+    elif variant == "missing_id":
+        del note["response_id"]
+    elif variant in ("extra_item", "extra_unknown"):
+        note["item" if variant == "extra_item" else "private-extra"] = {}
+    elif variant == "not_an_object":
+        note["metadata"] = "private-body"
+    elif variant in ("before_added", "after_done"):
+        events.pop(2)
+        events.insert(1 if variant == "before_added" else 3, note)
+    elif variant == "no_done":
+        del events[3]
+    elif variant == "refusal":
+        events.insert(3, {"type": "response.refusal.delta", "delta": "private-refusal"})
+    elif variant == "incomplete":
+        events[-1]["type"] = "response.incomplete"
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert all(e["reason"] != "POLICY_ACCEPTED" for e in result["audit"])
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(("kind", "position", "label", "phase", "extra", "fields"), [
+    ("response.metadata", 0, "response.metadata", "before_response", {"metadata": {"id": "private-value"}}, ["metadata"]),
+    ("codex.rate_limits", 1, "codex.rate_limits", "after_created", {"rate_limits": {"id": "private-value"}}, ["rate_limits"]),
+    ("response.refusal.delta", 2, "response.refusal.delta", "after_added", {"delta": "private-value"}, ["delta"]),
+    ("private-event", 3, "other", "after_done", {"private-field": "private-value"}, []),
+])
+def test_first_rejected_event_reports_protocol_shape_without_admitting_it(
+        context, monkeypatch, kind, position, label, phase, extra, fields):
+    bundle, snapshot, _proposal, _ = context
+    events = streamed_call("repo_read", {"path": "src/config.py"})
+    events.insert(position, {"type": kind, "sequence_number": 0, **extra})
+    for index, event in enumerate(events):
+        event["sequence_number"] = index
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    shape, stop = result["audit"]
+    assert shape["rejected_event"] == ":".join([label, phase, "+".join(fields), "" if fields else "other"])
+    assert shape["stream_resolution"] == "unrecognized_event" and shape["function_call_count"] == 0
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
+
+
+def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_policy(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = streamed_call("repo_read", {"path": "src/config.py"})
+    args = read[2]["item"]["arguments"]
+    read[2]["sequence_number"], read[3]["sequence_number"] = 4, 5
+    read[2:2] = [
+        {"type": "response.function_call_arguments.delta", "output_index": 0, "item_id": "fc_fixture",
+         "sequence_number": 2, "delta": args},
+        {"type": "response.function_call_arguments.done", "output_index": 0, "item_id": "fc_fixture",
+         "sequence_number": 3, "arguments": args},
+    ]
+    requests = install_stream(monkeypatch, [read, streamed_call("plan_propose", proposal)])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call"
+    assert shape["terminal_items"] == "" and shape["function_call_count"] == 1
+    assert shape["stream_done"] == "bravo_repo_read=1" and shape["bravo_namespace_matches"] is True
+    assert requests[1]["input"][-1]["call_id"] == "call_fixture_1"
+
+
+def with_side_items(events):
+    """Observed gpt-6.1 subscription shape: reasoning and a commentary message stream before the call."""
+    created, added, done, final = events
+    reasoning = {"id": "rs_fixture", "type": "reasoning", "summary": [], "encrypted_content": "private-reasoning"}
+    message = {"id": "msg_fixture", "type": "message", "status": "completed", "role": "assistant",
+               "content": [{"type": "output_text", "text": "private-commentary", "annotations": []}]}
+    side = [{"type": "response.output_item.added", "output_index": 0, "item": reasoning},
+            {"type": "response.output_item.done", "output_index": 0, "item": reasoning},
+            {"type": "response.output_item.added", "output_index": 1,
+             "item": dict(message, status="in_progress", content=[])},
+            {"type": "response.output_text.delta", "output_index": 1, "item_id": "msg_fixture",
+             "content_index": 0, "delta": "private-commentary", "logprobs": []},
+            {"type": "response.output_item.done", "output_index": 1, "item": message}]
+    added["output_index"] = done["output_index"] = 2
+    events = [created, *side, added, done, final]
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    return events
+
+
+def test_streamed_side_items_keep_the_one_call_with_empty_terminal(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = with_side_items(streamed_call("repo_read", {"path": "src/config.py"}))
+    plan = with_side_items(streamed_call("plan_propose", proposal))
+    requests = install_stream(monkeypatch, [read, plan])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    assert result["proposal"] == {"schema_version": 1, **proposal}
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call" and shape["function_call_count"] == 1
+    assert sum(e["reason"] == "POLICY_ACCEPTED" for e in result["audit"]) == 2
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("variant", ["side_at_call_index", "refusal_delta"])
+def test_side_items_cannot_bind_or_replace_the_call(context, monkeypatch, variant):
+    bundle, snapshot, _, _ = context
+    events = with_side_items(streamed_call("repo_read", {"path": "src/config.py"}))
+    if variant == "side_at_call_index":
+        events[4]["output_index"] = events[5]["output_index"] = 2
+    else:
+        events.insert(4, {"type": "response.refusal.delta", "output_index": 1, "item_id": "msg_fixture",
+                          "content_index": 0, "delta": "private-refusal"})
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert all(e["reason"] != "POLICY_ACCEPTED" for e in result["audit"])
+
+
+@pytest.mark.parametrize("case", ["no_done", "no_terminal", "other_response", "other_index", "other_call",
+                                  "other_item", "wrong_namespace", "partial", "duplicate", "extra_message",
+                                  "wrong_name", "args_mismatch", "incomplete_status", "no_usage", "early_proposal", "bad_path"])
+def test_unbound_or_denied_stream_output_cannot_submit(context, monkeypatch, case):
+    bundle, snapshot, proposal, _ = context
+    events = streamed_call("plan_propose", proposal) if case == "early_proposal" else streamed_call(
+        "repo_read", {"path": "../private-path" if case == "bad_path" else "src/config.py"})
+    created, added, done, final = events
+    if case == "no_done":
+        events.remove(done)
+    elif case == "no_terminal":
+        events.remove(final)
+    elif case == "other_response":
+        created["response"]["id"] = "different"
+    elif case == "other_index":
+        done["output_index"] = 1
+    elif case in ("other_call", "other_item", "wrong_namespace", "wrong_name", "partial"):
+        field = {"other_call": "call_id", "other_item": "id", "wrong_namespace": "namespace",
+                 "wrong_name": "name", "partial": "status"}[case]
+        done["item"][field] = "in_progress" if case == "partial" else "different"
+    elif case == "duplicate":
+        events.insert(-1, done)
+    elif case == "extra_message":
+        # A commentary message is a side item; a refusal item beside the call stays unbound.
+        events.insert(-1, dict(done, output_index=1, item={
+            "id": "msg", "type": "message", "status": "completed", "role": "assistant",
+            "content": [{"type": "refusal", "refusal": "private-refusal"}]}))
+    elif case == "args_mismatch":
+        events.insert(2, {"type": "response.function_call_arguments.done", "item_id": "fc_fixture", "output_index": 0,
+                          "sequence_number": 2, "arguments": "{}"})
+    elif case == "incomplete_status":
+        final["response"]["status"] = "incomplete"
+    elif case == "no_usage":
+        final["response"]["usage"] = None
+    requests = install_stream(monkeypatch, [events, [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+    assert len(requests) == (2 if case == "bad_path" else 1)
+    assert all(r["tool_choice"] == "required" for r in requests)
+
+
+def denials(result):
+    return [{k: v for k, v in e.items() if k not in ("run_id", "attempt")} for e in result["audit"] if e["outcome"] == "DENIED"]
+
+
+def offered_names(requests):
+    return {t["name"] for r in requests for t in r["tools"][0]["tools"]}
+
+
+@pytest.mark.parametrize("empty_terminal", [False, True])
+def test_reserved_call_in_bravo_namespace_is_audited_and_the_loop_continues(context, monkeypatch, empty_terminal):
+    bundle, snapshot, proposal, _ = context
+    reserved = (streamed_call if empty_terminal else lambda n, a: [completed(n, a)])(
+        "rehearsal_exec", {"command": "kubectl delete namespace private-ns"})
+    requests = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})], reserved,
+                                            [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 3
+    assert denials(result) == [{"tool": "rehearsal.exec", "outcome": "DENIED",
+                                "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "namespace_delete"}]
+    assert json.loads(requests[2]["input"][-1]["output"]) == {"error": "POLICY_DENIED"}
+    assert offered_names(requests) == {"repo_read", "plan_propose", "policy_evaluate"}
+    assert "private-" not in json.dumps(result)
+
+
+def test_reserved_call_before_the_required_read_is_audited_then_stops(context, monkeypatch):
+    bundle, snapshot, _, _ = context
+    requests = install_stream(monkeypatch, [[completed("rehearsal_run", {"job": "private-job"})]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and len(requests) == 1
+    assert denials(result) == [{"tool": "rehearsal.run", "outcome": "DENIED", "reason": "TOOL_NOT_PROVIDED"}]
+    assert result["audit"][-1]["reason"] == "MODEL_OR_POLICY_FAILURE"
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("namespace,name,reason,tool", [
+    (None, "bravo.rehearsal_exec", "DESTRUCTIVE_ATTEMPT_BLOCKED", "rehearsal.exec"),
+    ("private-other", "rehearsal_exec", "DESTRUCTIVE_ATTEMPT_BLOCKED", "rehearsal.exec"),
+    ("private-other", "repo_read", "DESTRUCTIVE_ATTEMPT_BLOCKED", "unlisted"),  # an offered name outside bravo never runs
+])
+def test_call_outside_the_bravo_namespace_is_audited_and_still_ends_the_attempt(context, monkeypatch, namespace, name, reason, tool):
+    bundle, snapshot, proposal, _ = context
+    requests = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})],
+                                            [completed(name, {"command": "aws s3 rb s3://private-bucket"}, namespace=namespace)],
+                                            [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 2
+    assert denials(result) == [{"tool": tool, "outcome": "DENIED", "reason": reason, "category": "bucket_delete"}]
+    assert [e["tool"] for e in result["audit"]].count("repo.read") == 1  # the outside "repo_read" was not dispatched
+    assert "private-" not in json.dumps(result)

@@ -1,0 +1,225 @@
+"""Read-only T13 schema capture for T19's registered readiness policy.
+
+This is not a credential provider, approval, or cutover implementation. The host
+binds the connection factory to a registered DB and authenticates/stores captures.
+Sequence correction receipts and replication observations remain separate inputs;
+this module never invents those observations or runs setval on a live database.
+"""
+
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from .contract import GateError, canonical, fingerprint, server_time
+from .models import GateContext, RunSnapshot, identity
+from .readiness import ReadinessBinding, ReadinessPolicy
+
+# Only T13's fixed schema-capture codes cross this boundary. Never serialize an
+# exception's text, arbitrary code, SQLSTATE detail, or connection parameters.
+_SCHEMA_FAILURE_CODES = frozenset({
+    "table_not_qualified", "table_missing", "unsupported_major", "not_plain_table",
+    "primary_key_missing", "unsupported_type", "collation_unverified",
+    "statement_timeout", "snapshot_unreadable",
+})
+
+
+def _schema_error(error, fallback):
+    from bravo_cutover.db_fingerprint import FingerprintUnconfirmed
+
+    if isinstance(error, FingerprintUnconfirmed) and type(error.code) is str:
+        if error.code in _SCHEMA_FAILURE_CODES:
+            return error.code
+    return fallback
+
+
+@dataclass(frozen=True)
+class DatabaseRegistration:
+    environment_id: str
+    environment_ref: str
+    database_ref: str
+    database_name: str
+    role_name: str
+
+    def __post_init__(self):
+        for value in (self.environment_id, self.environment_ref, self.database_ref,
+                      self.database_name, self.role_name):
+            identity(value)
+
+
+@dataclass(frozen=True)
+class SchemaCapture:
+    context_digest: str
+    policy_digest: str
+    registration: DatabaseRegistration
+    document_json: bytes
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def document(self):
+        from .contract import decode
+        return decode(self.document_json)
+
+
+def _verified_connection(connection, registration):
+    from psycopg import Connection
+    from psycopg.pq import TransactionStatus
+
+    if (not isinstance(connection, Connection) or connection.closed
+            or not connection.autocommit
+            or connection.info.transaction_status != TransactionStatus.IDLE
+            or connection.info.get_parameters().get("sslmode") != "verify-full"
+            or not connection.pgconn.ssl_in_use):
+        raise GateError("READINESS_VERIFIED_CONNECTION_REQUIRED")
+    # The factory owns host/CA/cluster UID binding. Check actual DB/role as well,
+    # rather than trusting the username/database string in a DSN.
+    with connection.transaction():
+        connection.execute("SET TRANSACTION READ ONLY")
+        connection.execute("SET LOCAL statement_timeout = '3s'")
+        connection.execute("SET LOCAL lock_timeout = '1s'")
+        # A database/role default can place an application schema before pg_catalog.
+        # Do not execute its functions or operators while establishing DB identity.
+        connection.execute("SET LOCAL search_path = pg_catalog")
+        row = connection.execute(
+            "SELECT pg_catalog.current_database(), session_user, current_user, rolsuper, rolbypassrls "
+            "FROM pg_catalog.pg_roles WHERE rolname = current_user"
+        ).fetchone()
+    if row != (registration.database_name, registration.role_name, registration.role_name, False, False):
+        raise GateError("READINESS_DATABASE_IDENTITY_MISMATCH")
+
+
+def collect_schema(
+    ctx: GateContext, policy: ReadinessPolicy, registration: DatabaseRegistration, *,
+    side: str, connect: Callable[[DatabaseRegistration], AbstractContextManager],
+    clock: Callable[[], datetime],
+) -> SchemaCapture:
+    """Read actual schema/PK via the T13 implementation; failure remains unknown.
+
+Dedicated idle TLS connection, non-superuser/non-BYPASSRLS role, fixed server
+policy only. A second read detects schema changes during collection. This does
+not lock DDL across gate approval: T12 must recheck after fencing at cutover.
+"""
+    from bravo_cutover.db_fingerprint import HASH_RULE, schema_fingerprint
+
+    if side not in ("source", "target"):
+        raise GateError("INVALID_READINESS_SIDE")
+    if (registration.environment_id != getattr(ctx, side + "_environment_id")
+            or registration.environment_ref != getattr(ctx, side + "_environment_ref")):
+        raise GateError("READINESS_RESOURCE_MISMATCH")
+    if policy.schema_rule != HASH_RULE:
+        raise GateError("READINESS_T13_RULE_MISMATCH")
+    started = server_time(clock)
+    expires = started + timedelta(seconds=min(30, policy.max_age_seconds))
+    rows = {name: {"name": name, "schema_hash": None, "primary_key": None} for name in policy.tables}
+    errors = {}
+
+    def within_deadline():
+        now = server_time(clock)
+        if not started <= now < expires:
+            raise GateError("READINESS_COLLECTION_EXPIRED")
+
+    try:
+        with connect(registration) as connection:
+            _verified_connection(connection, registration)
+            for name in policy.tables:
+                within_deadline()
+                try:
+                    observed = schema_fingerprint(connection, name)
+                    rows[name].update(schema_hash=observed["schema_hash"], primary_key=observed["primary_key"])
+                except Exception as error:
+                    errors[name] = _schema_error(error, "SCHEMA_UNCONFIRMED")
+            for name in policy.tables:
+                within_deadline()
+                if name in errors:
+                    continue
+                try:
+                    reread = schema_fingerprint(connection, name)
+                    if any(reread[k] != rows[name][k] for k in ("schema_hash", "primary_key")):
+                        raise GateError("SCHEMA_CHANGED")
+                except Exception as error:
+                    rows[name].update(schema_hash=None, primary_key=None)
+                    errors[name] = _schema_error(error, "SCHEMA_CHANGED_OR_UNCONFIRMED")
+            _verified_connection(connection, registration)
+            within_deadline()
+    except Exception:
+        # Connection, identity, deadline or final identity failure invalidates
+        # the whole capture; never return the earlier partial success.
+        for name in policy.tables:
+            rows[name].update(schema_hash=None, primary_key=None)
+            errors[name] = "SCHEMA_CAPTURE_UNAVAILABLE"
+    doc = dict(environment_id=registration.environment_id, environment_ref=registration.environment_ref,
+               database_ref=registration.database_ref, schema_rule=policy.schema_rule,
+               observed_at=started.isoformat(), expires_at=expires.isoformat(),
+               tables=list(rows.values()))
+    return SchemaCapture(ctx.fingerprint, policy.fingerprint, registration, canonical(doc), tuple(sorted(errors.items())))
+
+
+def assemble_snapshot(
+    ctx: GateContext, policy: ReadinessPolicy, source: SchemaCapture, target: SchemaCapture, *,
+    snapshot_ref: str, replication: dict, sequences: list[dict],
+) -> tuple[ReadinessBinding, RunSnapshot]:
+    """Package host-authenticated observations; does not authenticate JSON input.
+
+The host must authenticate provenance/receipt scope for replication and sequence
+rehearsal records before calling. Missing records must remain missing/unknown;
+never substitute estimates, requested setval values, or a UI PASS flag.
+The resulting snapshot still requires the existing T19 snapshot authority.
+"""
+    for side, capture in (("source", source), ("target", target)):
+        if not isinstance(capture, SchemaCapture) or capture.context_digest != ctx.fingerprint or capture.policy_digest != policy.fingerprint:
+            raise GateError("READINESS_CAPTURE_BINDING_MISMATCH")
+        reg = capture.registration
+        if (reg.environment_id != getattr(ctx, side + "_environment_id")
+                or reg.environment_ref != getattr(ctx, side + "_environment_ref")):
+            raise GateError("READINESS_RESOURCE_MISMATCH")
+    return _package(ctx, policy, source.document, target.document, snapshot_ref=snapshot_ref,
+                    replication=replication, sequences=sequences)
+
+
+def _package(ctx, policy, source, target, *, snapshot_ref, replication, sequences):
+    doc = dict(kind="data-readiness.v1", context_digest=ctx.fingerprint, policy_digest=policy.fingerprint,
+               source=source, target=target, replication=replication, sequences=sequences)
+    snapshot = RunSnapshot(snapshot_ref, canonical(doc))
+    binding = ReadinessBinding(ctx.fingerprint, policy, source["database_ref"], target["database_ref"],
+                               snapshot_ref, fingerprint(doc))
+    return binding, snapshot
+
+
+OBSERVATION_KIND = "t13-readiness-observation.v1"
+_OBSERVED_SIDE = ("environment_id", "database_ref", "observed_at", "expires_at", "tables", "errors")
+
+
+def snapshot_from_observation(
+    ctx: GateContext, policy: ReadinessPolicy, observation: dict, *, snapshot_ref: str,
+) -> tuple[ReadinessBinding, RunSnapshot, dict]:
+    """Package the Executor's pre-cutover observation (POST /v1/readiness) for this context.
+
+The Executor reads both registered DBs with the T13 functions over its own control connections and
+raises the target sequence only (the contract's rehearsal readback). This checks shape and scope against
+the context and the server policy, adds the context's environment refs and drops diagnostics; unknown
+values stay unknown and assess_readiness judges them. It does not authenticate the observation: only the
+operator's readiness-binding and readiness-snapshot signatures make the record trusted.
+Returns (binding, snapshot, diagnostics), diagnostics being the fixed failure codes the Executor reported.
+"""
+    o = observation
+    if (type(o) is not dict or o.get("kind") != OBSERVATION_KIND or o.get("schema_rule") != policy.schema_rule
+            or type(o.get("sequences")) is not list or type(o.get("replication")) is not dict):
+        raise GateError("READINESS_OBSERVATION_INVALID")
+    sides, diagnostics = {}, {}
+    for side in ("source", "target"):
+        part = o.get(side)
+        if type(part) is not dict or set(part) != set(_OBSERVED_SIDE) or type(part["tables"]) is not list:
+            raise GateError("READINESS_OBSERVATION_INVALID")
+        if part["environment_id"] != getattr(ctx, side + "_environment_id"):
+            raise GateError("READINESS_RESOURCE_MISMATCH")
+        if [type(t) is dict and t.get("name") for t in part["tables"]] != list(policy.tables):
+            raise GateError("READINESS_OBSERVATION_SCOPE")
+        sides[side] = dict(environment_id=part["environment_id"],
+                           environment_ref=getattr(ctx, side + "_environment_ref"),
+                           database_ref=part["database_ref"], schema_rule=policy.schema_rule,
+                           observed_at=part["observed_at"], expires_at=part["expires_at"], tables=part["tables"])
+        diagnostics[side] = part["errors"]
+    diagnostics.update(replication=o.get("replication_error"), sequences=o.get("sequence_errors"))
+    binding, snapshot = _package(ctx, policy, sides["source"], sides["target"], snapshot_ref=snapshot_ref,
+                                 replication=o["replication"], sequences=o["sequences"])
+    return binding, snapshot, diagnostics

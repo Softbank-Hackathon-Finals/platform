@@ -21,7 +21,7 @@ from .executor import (
     _extends,
     _timestamp,
 )
-from .plan_api import Principal
+from .plan_api import Principal, authorized_plan
 from .plans import PlanStore, _canonical
 from .store import EventError
 
@@ -87,20 +87,6 @@ class CutoverService:
         self.check_access = check_access
         self.clock = clock or (lambda: datetime.now(UTC).isoformat())
 
-    def _plan(self, c, principal, plan_id):
-        validate_identifier(plan_id)
-        if not isinstance(principal, Principal):
-            raise EventError("forbidden")
-        validate_identifier(principal.subject_id)
-        validate_identifier(principal.tenant_id)
-        row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
-        if row is None or row["tenant_id"] != principal.tenant_id:
-            raise EventError("forbidden")
-        plan = dict(row)
-        if self.check_access is not None:
-            self.check_access(c, principal, plan)
-        return plan
-
     def _current(self, c, principal, plan, now, approved_by=None, approval_id=None):
         if plan["state"] != "SHIFT":
             raise EventError("transition_not_allowed")
@@ -158,7 +144,7 @@ class CutoverService:
         key = _key("approval-key", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = self._plan(c, principal, plan_id)
+            plan = authorized_plan(c, principal, plan_id, self.check_access)
             old = _get(c, plan_id, key)
             if old:
                 if _canonical(old[0]) != _canonical(request):
@@ -190,7 +176,7 @@ class CutoverService:
         key = _key("submit", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = self._plan(c, principal, plan_id)
+            plan = authorized_plan(c, principal, plan_id, self.check_access)
             old = _get(c, plan_id, key)
             if old:
                 if _canonical(old[0]) != _canonical(request):
@@ -231,15 +217,12 @@ class CutoverService:
 
     @staticmethod
     def _latest(c, plan_id, command_id):
-        prefix = _key("observation", command_id)
-        row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ? "
-                        "ORDER BY command_key DESC LIMIT 1", (plan_id, prefix + "-%")).fetchone()
-        return json.loads(row["receipt_json"]) if row else dict(index=0, snapshot=None, outcome="UNKNOWN")
+        return latest_observation(c, plan_id, command_id)
 
     def reconcile(self, principal, plan_id, command_id):
         validate_identifier(command_id)
         with self.store._transaction() as c:
-            self._plan(c, principal, plan_id)
+            authorized_plan(c, principal, plan_id, self.check_access)
             record = _get(c, plan_id, _key("command", command_id))
             if record is None:
                 raise EventError("command_not_found")
@@ -250,43 +233,71 @@ class CutoverService:
         return self._project(principal, plan_id, command_id, read)
 
     def _project(self, principal, plan_id, command_id, read: ExecutionRead):
-        now = self.clock()
-        with self.store._transaction(write=True, plan_id=plan_id) as c:
-            plan = self._plan(c, principal, plan_id)
-            latest = self._latest(c, plan_id, command_id)
-            previous = _snapshot(latest["snapshot"])
-            snapshot = read.snapshot if read.outcome == "OBSERVED" else None
-            record = _get(c, plan_id, _key("command", command_id))
-            if record is None:
-                raise EventError("command_not_found")
-            if snapshot and (snapshot.plan_id != plan_id or snapshot.epoch != record[1]["command"]["epoch"]):
-                read, snapshot = ExecutionRead("UNKNOWN", "identity_mismatch"), None
-            if snapshot and previous and not _extends(snapshot, previous):
-                # Another observer may have committed a newer prefix while GET was pending.
-                read, snapshot = ExecutionRead("UNKNOWN", "history_mismatch"), None
-            value = dict(outcome=read.outcome, reason=read.reason,
-                         snapshot=asdict(snapshot) if snapshot else latest["snapshot"])
-            value = json.loads(_canonical(value))
-            if all(latest.get(k) == v for k, v in value.items()):
-                return dict(command_id=command_id, **value)
-            if snapshot:
-                for ordinal, step in enumerate(snapshot.steps):
-                    if previous and ordinal < len(previous.steps):
-                        continue
-                    data = dict(execution_id=snapshot.execution_id, step=step.step, status=step.status)
-                    if step.elapsed_ms is not None:
-                        data["elapsed_ms"] = step.elapsed_ms
-                    self.store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,
-                        event_type="execution.updated", data=data, occurred_at=now,
-                        producer_key=_key("step", f"{snapshot.execution_id}:{ordinal}"))
-            if (read.outcome == "UNKNOWN" or (snapshot and snapshot.remote_status == "SAFE_HOLD")) and plan["state"] == "CUTOVER":
-                c.execute("UPDATE plans SET state='SAFE_HOLD',version=version+1,updated_at=? WHERE plan_id=?",
-                          (now, plan_id))
-                self.store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,
-                    event_type="state.changed", occurred_at=now, producer_key=_key("hold", command_id),
-                    data={"from": "CUTOVER", "to": "SAFE_HOLD"}, state_owner=True)
-            index = latest["index"] + 1
-            if index > 999_999_999_999:
-                raise EventError("observation_limit")
-            _put(c, plan_id, f"{_key('observation', command_id)}-{index:012d}", {}, dict(index=index, **value))
+        return project_observation(self.store, principal, plan_id, command_id, read,
+                                   check_access=self.check_access, now=self.clock(),
+                                   key_for=_key, running_state="CUTOVER")
+
+
+def latest_observation(c, plan_id, command_id, key_for=_key):
+    prefix = key_for("observation", command_id)
+    row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ? "
+                    "ORDER BY command_key DESC LIMIT 1", (plan_id, prefix + "-%")).fetchone()
+    return json.loads(row["receipt_json"]) if row else dict(index=0, snapshot=None, outcome="UNKNOWN")
+
+
+def project_observation(store, principal, plan_id, command_id, read: ExecutionRead, *, check_access, now,
+                        key_for, running_state, hold_after_done=True, owns=None, authorize=None):
+    """Append one Executor observation and its new steps; hold the running plan on UNKNOWN/SAFE_HOLD.
+
+    key_for keeps each command kind's journal separate (cutover-, failback-). running_state is the
+    plan state that an uncertain observation moves to SAFE_HOLD. With hold_after_done=False a stored
+    committed DONE is final (Executor DONE never changes), so a later failed GET no longer holds.
+    owns(c, plan) says whether this command drives the plan now; an older command's observation is
+    still journaled but never changes the plan state. authorize(c, principal, plan) re-checks a
+    permission in this write transaction: a grant revoked during the remote GET stores nothing.
+    """
+    with store._transaction(write=True, plan_id=plan_id) as c:
+        plan = authorized_plan(c, principal, plan_id, check_access)
+        if authorize is not None:
+            authorize(c, principal, plan)
+        latest = latest_observation(c, plan_id, command_id, key_for)
+        previous = _snapshot(latest["snapshot"])
+        snapshot = read.snapshot if read.outcome == "OBSERVED" else None
+        record = _get(c, plan_id, key_for("command", command_id))
+        if record is None:
+            raise EventError("command_not_found")
+        if snapshot and (snapshot.plan_id != plan_id or snapshot.epoch != record[1]["command"]["epoch"]):
+            read, snapshot = ExecutionRead("UNKNOWN", "identity_mismatch"), None
+        if snapshot and previous and not _extends(snapshot, previous):
+            # Another observer may have committed a newer prefix while GET was pending.
+            read, snapshot = ExecutionRead("UNKNOWN", "history_mismatch"), None
+        value = dict(outcome=read.outcome, reason=read.reason,
+                     snapshot=asdict(snapshot) if snapshot else latest["snapshot"])
+        value = json.loads(_canonical(value))
+        if all(latest.get(k) == v for k, v in value.items()):
             return dict(command_id=command_id, **value)
+        if snapshot:
+            for ordinal, step in enumerate(snapshot.steps):
+                if previous and ordinal < len(previous.steps):
+                    continue
+                data = dict(execution_id=snapshot.execution_id, step=step.step, status=step.status)
+                if step.elapsed_ms is not None:
+                    data["elapsed_ms"] = step.elapsed_ms
+                store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,
+                    event_type="execution.updated", data=data, occurred_at=now,
+                    producer_key=key_for("step", f"{snapshot.execution_id}:{ordinal}"))
+        settled = (not hold_after_done and previous is not None
+                   and previous.remote_status == "DONE" and previous.committed)
+        uncertain = read.outcome == "UNKNOWN" or (snapshot and snapshot.remote_status == "SAFE_HOLD")
+        current = owns is None or owns(c, plan)
+        if uncertain and plan["state"] == running_state and not settled and current:
+            c.execute("UPDATE plans SET state='SAFE_HOLD',version=version+1,updated_at=? WHERE plan_id=?",
+                      (now, plan_id))
+            store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,
+                event_type="state.changed", occurred_at=now, producer_key=key_for("hold", command_id),
+                data={"from": running_state, "to": "SAFE_HOLD"}, state_owner=True)
+        index = latest["index"] + 1
+        if index > 999_999_999_999:
+            raise EventError("observation_limit")
+        _put(c, plan_id, f"{key_for('observation', command_id)}-{index:012d}", {}, dict(index=index, **value))
+        return dict(command_id=command_id, **value)

@@ -1,0 +1,1050 @@
+{
+  "description": "T19(게이트 계산)와 T10 · T21(게이트 문서 소비)이 통과해야 하는 계약 시험. patch는 RFC 6902 JSON Patch로 기준 예시에 적용한다. approvals는 T10이 저장한 서버 승인 기록이다. schema: reject면 JSON Schema가 거부하고, accept면 스키마는 받지만 decision · rows · check대로 코드가 판정해야 한다.",
+  "profiles": "profiles.json",
+  "gate_input": {
+    "description": "T19 입력: 평가 프로필 + 출발지 · 목적지 ControlRun + 승인 기록 → GateComparison. rows는 기대하는 행 사유(적지 않은 행은 BOTH_PASS)",
+    "profile": {
+      "id": "demo-gate",
+      "version": "1"
+    },
+    "evaluated_at": "2026-11-04T11:35:00Z",
+    "base": {
+      "source": "examples/source-run.json",
+      "target": "examples/target-run-after-fix.json"
+    },
+    "cases": [
+      {
+        "id": "GI-00",
+        "description": "기준: 고친 뒤 예시 그대로",
+        "patch": {},
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "PASS",
+          "rows": {
+            "IAM-01.1": "BOTH_PASS",
+            "SEC-01.1": "BOTH_PASS",
+            "AUD-01.1": "BOTH_PASS"
+          }
+        }
+      },
+      {
+        "id": "GI-01",
+        "description": "목적지 결과가 비어 있음",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results",
+              "value": []
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "MISSING_RESULT",
+            "SEC-01.1": "MISSING_RESULT",
+            "AUD-01.1": "MISSING_RESULT"
+          }
+        }
+      },
+      {
+        "id": "GI-02",
+        "description": "같은 시험 ID 결과가 두 건",
+        "patch": {
+          "target": [
+            {
+              "op": "copy",
+              "from": "/results/0",
+              "path": "/results/-"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "DUPLICATE_RESULT"
+          }
+        }
+      },
+      {
+        "id": "GI-03",
+        "description": "대조군이 필수인 IAM-01.1을 대조군 없이(not_applicable) PASS",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/positive_control",
+              "value": "not_applicable"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "INVARIANT_VIOLATION"
+          }
+        }
+      },
+      {
+        "id": "GI-04",
+        "description": "IAM-01.1의 통제 ID를 AUD-01로",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/control_id",
+              "value": "AUD-01"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GI-05",
+        "description": "기대값을 allow로 바꿔 허용을 PASS로",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/expected",
+              "value": "allow"
+            },
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "INVARIANT_VIOLATION"
+          }
+        }
+      },
+      {
+        "id": "GI-06",
+        "description": "목적지 시험 방법 버전이 프로필과 다름",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/method_version",
+              "value": "2"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "METHOD_MISMATCH"
+          }
+        }
+      },
+      {
+        "id": "GI-07",
+        "description": "목적지 실행의 앱이 다름",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/app",
+              "value": "other-app"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "run_issues": [
+            "APP_MISMATCH"
+          ]
+        }
+      },
+      {
+        "id": "GI-08",
+        "description": "목적지 실행의 환경 역할이 source",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/environment/role",
+              "value": "source"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "run_issues": [
+            "ENVIRONMENT_ROLE_MISMATCH"
+          ]
+        }
+      },
+      {
+        "id": "GI-09",
+        "description": "출발지 · 목적지가 같은 환경",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/environment/id",
+              "value": "env-aws"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "run_issues": [
+            "SAME_ENVIRONMENT"
+          ]
+        }
+      },
+      {
+        "id": "GI-10",
+        "description": "프로필 밖 시험 결과가 더 있음 (무시한다)",
+        "patch": {
+          "target": [
+            {
+              "op": "copy",
+              "from": "/results/1",
+              "path": "/results/-"
+            },
+            {
+              "op": "replace",
+              "path": "/results/3/test_id",
+              "value": "ISO-01.1"
+            },
+            {
+              "op": "replace",
+              "path": "/results/3/control_id",
+              "value": "ISO-01"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "PASS",
+          "rows": {
+            "IAM-01.1": "BOTH_PASS",
+            "SEC-01.1": "BOTH_PASS",
+            "AUD-01.1": "BOTH_PASS"
+          }
+        }
+      },
+      {
+        "id": "GI-11",
+        "description": "만료된 예외 승인 (평가 11/4, 만료 11/2)",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/verdict",
+              "value": "FAIL"
+            },
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "ce53ef53bf6ac8864b7eab3efd0922cb6b750b3d1c6cf665e2f7048211b93618"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-01T00:00:00Z",
+            "expires_at": "2026-11-02T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "EXCEPTION_INVALID"
+          }
+        }
+      },
+      {
+        "id": "GI-12",
+        "description": "유효한 예외 승인",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/verdict",
+              "value": "FAIL"
+            },
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "ce53ef53bf6ac8864b7eab3efd0922cb6b750b3d1c6cf665e2f7048211b93618"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-04T11:00:00Z",
+            "expires_at": "2026-11-30T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "decision": "PASS",
+          "rows": {
+            "IAM-01.1": "EXCEPTION_APPROVED"
+          }
+        }
+      },
+      {
+        "id": "GI-13",
+        "description": "예외 승인의 대상 환경이 다름",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/verdict",
+              "value": "FAIL"
+            },
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem-old",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "ce53ef53bf6ac8864b7eab3efd0922cb6b750b3d1c6cf665e2f7048211b93618"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-04T11:00:00Z",
+            "expires_at": "2026-11-30T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "TARGET_FAIL"
+          }
+        }
+      },
+      {
+        "id": "GI-14",
+        "description": "평가 시각보다 나중에 승인된 예외",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/verdict",
+              "value": "FAIL"
+            },
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "ce53ef53bf6ac8864b7eab3efd0922cb6b750b3d1c6cf665e2f7048211b93618"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-04T12:00:00Z",
+            "expires_at": "2026-11-30T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "EXCEPTION_INVALID"
+          }
+        }
+      },
+      {
+        "id": "GI-15",
+        "description": "대조군이 실패했는데 PASS",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/positive_control",
+              "value": "fail"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GI-16",
+        "description": "관찰이 기대와 다른데 PASS (허용됐는데 PASS)",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/observed",
+              "value": "allow"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "INVARIANT_VIOLATION"
+          }
+        }
+      },
+      {
+        "id": "GI-17",
+        "description": "관찰이 기대와 같은데 FAIL",
+        "patch": {
+          "target": [
+            {
+              "op": "replace",
+              "path": "/results/0/verdict",
+              "value": "FAIL"
+            }
+          ]
+        },
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "decision": "BLOCK",
+          "rows": {
+            "IAM-01.1": "INVARIANT_VIOLATION"
+          }
+        }
+      }
+    ]
+  },
+  "gate_document": {
+    "description": "T10 · T21 입력: GateComparison 문서. 스키마·프로필·서버 승인 기록·현재 context에 더해 인증된 T19 서버 정본과 전체 결과를 대조한다. 아래 server_result는 서버 측 시험 fixture이며 요청 JSON으로 받는 값이 아니다. 상태 available/missing/unavailable/unauthenticated는 신뢰된 저장소 어댑터의 조회 결과를 모의한다. 사례별 base/server_result가 없으면 묶음의 기본값을 쓴다. patch는 제출 문서에만 적용하며 정본은 변경하지 않는다. consumer accept는 보안 승인 근거로 사용 가능함을 뜻하며 실행 권한을 뜻하지 않는다. 여러 검사가 실패하면 expect.check에 명시한 거부 사유를 반드시 검출하되 검사 순서는 구현이 정한다.",
+    "base": "examples/gate-after-fix.json",
+    "cases": [
+      {
+        "id": "GD-00",
+        "description": "기준: 고친 뒤 게이트 예시 그대로",
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "accept"
+        }
+      },
+      {
+        "id": "GD-01",
+        "description": "프로필 3개 중 1개 행만 남긴 PASS",
+        "patch": [
+          {
+            "op": "remove",
+            "path": "/rows/2"
+          },
+          {
+            "op": "remove",
+            "path": "/rows/1"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "ROWS_NOT_MATCH_PROFILE"
+        }
+      },
+      {
+        "id": "GD-02",
+        "description": "같은 시험 ID 행이 두 개",
+        "patch": [
+          {
+            "op": "remove",
+            "path": "/rows/2"
+          },
+          {
+            "op": "copy",
+            "from": "/rows/0",
+            "path": "/rows/-"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "ROWS_NOT_MATCH_PROFILE"
+        }
+      },
+      {
+        "id": "GD-03",
+        "description": "BLOCK 행이 있는데 전체 PASS",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "FAIL"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "BLOCK"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "TARGET_FAIL"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GD-04",
+        "description": "모든 행이 PASS인데 전체 BLOCK",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/decision",
+            "value": "BLOCK"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GD-05",
+        "description": "만료된 예외로 전체 PASS (평가 11/4, 만료 11/2)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "FAIL"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "EXCEPTION"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "EXCEPTION_APPROVED"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/exception",
+            "value": {
+              "approval_id": "apr-0001",
+              "scope": {
+                "app": "demo-chat",
+                "target_environment_id": "env-onprem",
+                "test_id": "IAM-01.1",
+                "profile_id": "demo-gate",
+                "profile_version": "1",
+                "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+              },
+              "approved_by": "approver@example",
+              "approved_at": "2026-11-01T00:00:00Z",
+              "expires_at": "2026-11-02T00:00:00Z",
+              "compensating_control": "첨부 버킷 앞단 인증 프록시",
+              "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+            }
+          }
+        ],
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-01T00:00:00Z",
+            "expires_at": "2026-11-02T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "EXCEPTION_INVALID"
+        }
+      },
+      {
+        "id": "GD-06",
+        "description": "서버 승인 기록이 없는 예외 (approval_id를 아무도 저장하지 않음)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "FAIL"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "EXCEPTION"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "EXCEPTION_APPROVED"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/exception",
+            "value": {
+              "approval_id": "apr-9999",
+              "scope": {
+                "app": "demo-chat",
+                "target_environment_id": "env-onprem",
+                "test_id": "IAM-01.1",
+                "profile_id": "demo-gate",
+                "profile_version": "1",
+                "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+              },
+              "approved_by": "approver@example",
+              "approved_at": "2026-11-04T11:00:00Z",
+              "expires_at": "2026-11-30T00:00:00Z",
+              "compensating_control": "첨부 버킷 앞단 인증 프록시",
+              "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+            }
+          }
+        ],
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-04T11:00:00Z",
+            "expires_at": "2026-11-30T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "EXCEPTION_INVALID"
+        }
+      },
+      {
+        "id": "GD-07",
+        "description": "문서의 예외와 서버 기록이 다름 (만료 시각을 늘려 적음)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "FAIL"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "EXCEPTION"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "EXCEPTION_APPROVED"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/exception",
+            "value": {
+              "approval_id": "apr-0001",
+              "scope": {
+                "app": "demo-chat",
+                "target_environment_id": "env-onprem",
+                "test_id": "IAM-01.1",
+                "profile_id": "demo-gate",
+                "profile_version": "1",
+                "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+              },
+              "approved_by": "approver@example",
+              "approved_at": "2026-11-04T11:00:00Z",
+              "expires_at": "2026-12-31T00:00:00Z",
+              "compensating_control": "첨부 버킷 앞단 인증 프록시",
+              "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+            }
+          }
+        ],
+        "approvals": [
+          {
+            "approval_id": "apr-0001",
+            "scope": {
+              "app": "demo-chat",
+              "target_environment_id": "env-onprem",
+              "test_id": "IAM-01.1",
+              "profile_id": "demo-gate",
+              "profile_version": "1",
+              "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+            },
+            "approved_by": "approver@example",
+            "approved_at": "2026-11-04T11:00:00Z",
+            "expires_at": "2026-11-30T00:00:00Z",
+            "compensating_control": "첨부 버킷 앞단 인증 프록시",
+            "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+          }
+        ],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "EXCEPTION_INVALID"
+        }
+      },
+      {
+        "id": "GD-08",
+        "description": "approval_id 없는 예외",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "FAIL"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "EXCEPTION"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "EXCEPTION_APPROVED"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/exception",
+            "value": {
+              "scope": {
+                "app": "demo-chat",
+                "target_environment_id": "env-onprem",
+                "test_id": "IAM-01.1",
+                "profile_id": "demo-gate",
+                "profile_version": "1",
+                "context_digest": "dfa8049bc4a9b133c9f08b63981173fc9d2383988d4ab8effd723b190adc0892"
+              },
+              "approved_by": "approver@example",
+              "approved_at": "2026-11-04T11:00:00Z",
+              "expires_at": "2026-11-30T00:00:00Z",
+              "compensating_control": "첨부 버킷 앞단 인증 프록시",
+              "reason": "SeaweedFS 버킷 정책 미지원 (예시)"
+            }
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GD-09",
+        "description": "실행 묶음 문제가 있는데 전체 PASS",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/run_issues",
+            "value": [
+              "APP_MISMATCH"
+            ]
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "reject"
+        }
+      },
+      {
+        "id": "GD-10",
+        "description": "같은 gate/context/원본 참조를 유지하고 IAM FAIL·AUD UNKNOWN과 BLOCK 판정만 모두 PASS로 변조",
+        "base": "examples/gate-before-fix.json",
+        "server_result": {
+          "status": "available",
+          "document": "examples/gate-before-fix.json"
+        },
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "BOTH_PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/target_verdict",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/reason",
+            "value": "BOTH_PASS"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_MISMATCH"
+        }
+      },
+      {
+        "id": "GD-11",
+        "description": "제출 PASS는 정상이지만 서버 정본이 없음",
+        "server_result": {
+          "status": "missing",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_NOT_FOUND"
+        }
+      },
+      {
+        "id": "GD-12",
+        "description": "서버 정본 조회가 실패해도 제출 PASS로 대체하지 않음",
+        "server_result": {
+          "status": "unavailable",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_UNAVAILABLE"
+        }
+      },
+      {
+        "id": "GD-13",
+        "description": "정본과 같은 내용이어도 조회 출처 인증 실패 시 거부",
+        "server_result": {
+          "status": "unauthenticated",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_UNAVAILABLE"
+        }
+      },
+      {
+        "id": "GD-14",
+        "description": "변조되지 않은 서버 BLOCK과 일치해도 보안 승인 근거로 사용 불가",
+        "base": "examples/gate-before-fix.json",
+        "server_result": {
+          "status": "available",
+          "document": "examples/gate-before-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_BLOCKED"
+        }
+      }
+    ],
+    "server_result": {
+      "status": "available",
+      "document": "examples/gate-after-fix.json"
+    }
+  },
+  "evaluation_binding": {
+    "description": "GI-12의 유효한 예외 보고서와 서버 승인 기록을 먼저 만든다. 이후 context_patch/source_patch/target_patch를 적용하고 원본 hash를 재계산한다. rewrite_document_binding이면 문서의 gate_id/context_digest/run_id만 현행값으로 고친다. 승인 기록은 그대로 둔다. 단순 스키마 수용이 아니라 T10/T19 소비 거부를 검사한다.",
+    "base_case": "GI-12",
+    "cases": [
+      {
+        "id": "EB-00",
+        "description": "같은 계획·게이트·결과를 재조회: 유효한 예외",
+        "expect": "accept"
+      },
+      {
+        "id": "EB-01",
+        "description": "문서 gate_id만 교체",
+        "document_patch": [
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "expect": "reject"
+      },
+      {
+        "id": "EB-02",
+        "description": "다른 계획·게이트에 기존 승인을 복사",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/plan_digest",
+            "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-03",
+        "description": "재측정 결과에 기존 승인을 복사",
+        "target_patch": [
+          {
+            "op": "replace",
+            "path": "/run_id",
+            "value": "run-tgt-new"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-04",
+        "description": "같은 run ID의 증거 내용이 변경됨",
+        "target_patch": [
+          {
+            "op": "replace",
+            "path": "/results/0/evidence/excerpt",
+            "value": "새 관측 증거"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-05",
+        "description": "다른 계획에서 문서와 예외 결속값까지 위조해도 서버 기록은 그대로",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/plan_digest",
+            "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "rewrite_exception_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-06",
+        "description": "게이트 ID만 새 것으로 등록하고 예전 승인 재사용",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      }
+    ]
+  }
+}

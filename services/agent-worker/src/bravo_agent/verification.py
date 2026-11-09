@@ -9,8 +9,9 @@ import time
 import uuid
 from pathlib import Path
 
-from .contracts import FailureBundle, Proposal, SnapshotManifest, VerificationReceipt, digest
+from .contracts import FailureBundle, SnapshotManifest, VerificationReceipt, digest
 from .coordinator import Coordinator
+from .proposal_contracts import validate_result as validate_result
 from .tools import Snapshot
 
 # Candidate and verifier run in different Pods; neither has a service-account token.
@@ -28,11 +29,24 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(code);self.end_headers();self.wfile.write(data)
 HTTPServer(("0.0.0.0",8080),Handler).serve_forever()
 '''
-VERIFIER = '''import json,os,urllib.request,urllib.error
+VERIFIER = '''import json,os,time,urllib.request,urllib.error
 def request(host):
- try:
-  with urllib.request.urlopen("http://"+host+":8080/",timeout=10) as r:return r.status,json.load(r)
- except urllib.error.HTTPError as e:return e.code,json.load(e)
+    deadline = time.monotonic() + 10
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("candidate connection unavailable")
+        try:
+            with urllib.request.urlopen("http://" + host + ":8080/", timeout=remaining) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            with error:
+                return error.code, json.load(error)
+        except urllib.error.URLError as error:
+            # Pod readiness may precede reachability from the verifier's network.
+            if not isinstance(error.reason, ConnectionRefusedError):
+                raise
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 good=request(os.environ["PRESENT_HOST"]);missing=request(os.environ["MISSING_HOST"])
 checks={"injected_value":good==(200,{"value":os.environ["EXPECTED_VALUE"]}),
         "missing_value_closed":missing==(503,{"missing":True})}
@@ -231,20 +245,6 @@ def verify_environment(kube, proposal, image):
                 evidence["namespace_deleted"] = False
     evidence["verifier_image"] = image
     return evidence
-
-
-def validate_result(result):
-    """Validate broker output once at each external boundary using the same contract."""
-    bundle = FailureBundle.model_validate(result["input"])
-    proposal = Proposal.model_validate(result["proposal"])
-    if (result.get("state") != "PROPOSAL_READY" or type(result.get("attempt")) is not int
-            or result["attempt"] != 1 or result.get("input_digest") != digest(bundle)
-            or result.get("proposal_digest") != digest(proposal)
-            or result.get("run_id") != bundle.run_id or proposal.run_id != bundle.run_id
-            or result.get("source_sha") != bundle.source_sha or proposal.source_sha != bundle.source_sha
-            or not re.fullmatch(r"[a-f0-9]{64}", result.get("snapshot_digest", ""))):
-        raise ValueError("unbound proposal result")
-    return bundle, proposal
 
 
 def integrate(bundle, manifest, snapshot_root, result, kube, image, *, run_id=None, proposal_digest=None):

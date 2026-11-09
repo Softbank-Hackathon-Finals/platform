@@ -1,7 +1,5 @@
 # bravo-cutover (T12)
 
-무결성 SQL의 생산·소비 방향은 [ADR-0013](../../docs/adr/0013-integrity-fingerprint-producer.md)을 따른다. 현재 Executor 내부 비교를 DB 내부 방식의 완료 구현으로 간주하지 않는다. T13이 계산·규칙 시험을 제공하고 T12 담당이 기존 `compare()`·영수증·실행 단계에 연결한 뒤, 사용하지 않는 비교 경로를 제거한다.
-
 Cutover Executor. 상태 머신(T10)의 호출을 받아 쓰기 정지 구간(DB 쓰기를 잠깐 멈추고 쓰기 대상을 출발지에서 목적지로 바꾸는 몇 초)을 8단계 순서대로 실행한다. 순서 · 실패 처리 · 호출 계약은 [설계 문서 8.6](../../docs/design.html), 언어 결정은 [ADR-0006](../../docs/adr/0006-cutover-executor-language.md).
 
 - **쓰기를 받는 DB는 어느 순간에도 최대 하나다.** 상태를 확인할 수 없으면 아무것도 열지 않고 SAFE_HOLD로 멈춘다.
@@ -13,21 +11,47 @@ Cutover Executor. 상태 머신(T10)의 호출을 받아 쓰기 정지 구간(DB
 uv sync
 uv run pytest
 uvx ruff check .
-uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 ```
 
-실행 설정: `EXECUTOR_DB`(실행 기록 DB), `EXECUTOR_RESOURCES`(환경별 실제 DB 자원 등록 파일).
+로컬 API는 실행 기록 DB(`EXECUTOR_DB`), [환경 설정](testing/mockenv.py)(`EXECUTOR_CONFIG`), 조회 토큰 파일(`EXECUTOR_API_TOKEN_FILE`)을 준비한 뒤 기동한다. 명령 접수를 시험할 때만 별도 파일을 `EXECUTOR_COMMAND_TOKEN_FILE`로 지정한다.
 
-```json
-{"env-aws": {"resource_id": "cnpg-aws/chat", "connection_ref": "secret/source"},
- "env-onprem": {"resource_id": "cnpg-onprem/chat", "connection_ref": "secret/target"}}
+```bash
+uv run uvicorn bravo_cutover.server:create_app --factory --host 127.0.0.1 --port 8080
 ```
 
 요청의 `environment_id` · `connection_ref`는 이 등록 정보와 맞아야 하고, lease · epoch는 `resource_id`마다 걸린다. 같은 DB를 다른 환경 이름으로 등록해도 같은 `resource_id`면 겹치는 실행으로 막힌다.
 
+## 조회와 컷오버 명령 자격
+
+- 기존 `api-token`은 조회용이다. 이 자격으로 GET을 허용하고 POST를 403으로 거부한다.
+  컷오버 접수에는 별도로 생성한 명령 토큰이 필요하다. 두 값이 같으면 실행기를 시작하지 않는다.
+  배포 전에 운영자는 `cutover-executor-command` Secret의 `token` 키를 준비한다.
+  조회 서비스에는 조회 값만 공급한다. 명령 토큰은 승인 실행 호스트와 Executor에만 제공한다.
+  이 버전의 서버를 기존 매니페스트로 기동해 `EXECUTOR_COMMAND_TOKEN_FILE`이 없으면 조회만 가능하다.
+  새 매니페스트에 명시한 파일이 없으면 시작을 중단한다.
+- 두 프로세스는 토큰을 기동 시 읽는다. 교체 전에 새 명령 접수를 중단하고 진행 중인 실행이 있는지 조회한다.
+  Secret 교체 후 Executor와 승인 실행 호스트를 새 자격으로 재기동한 뒤, 조회 자격의 GET 성공과 POST 거부를 확인한다.
+  구 이미지에서는 조회 자격으로도 명령을 보낼 수 있다. 그 이미지로 돌아가야 하면 먼저 읽기 전용 소비자의 접근을 차단하고 기존 공유 토큰을 폐기한다.
+
 ## DB 안 무결성 지문 (T13)
 
-`db_fingerprint.py`는 각 DB 안에서 지문을 계산하고 지문만 가져오는 비교기다. **아직 실행 단계에 연결하지 않았다.** 지금 기본 비교기는 아래 「T13 비교 규칙 v1」의 `integrity.py`다. 규칙 · 지원 타입 · 판정 · 연결 방법은 [계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)에, 시간과 전송량은 [로컬 측정 증거](../../docs/evidence/t13-db-fingerprint-2026-11-04/README.md)에 있다. `uv run python testing/measure_fingerprint.py --out results.json`으로 다시 잴 수 있다.
+compare 단계의 비교기는 `db_fingerprint.py`의 `DbFingerprintComparer`(규칙 `db-sql-v1`) 하나다. 각 DB 안에서 지문을 계산하고 지문만 가져온다. 생산·소비 방향은 [ADR-0013](../../docs/adr/0013-integrity-fingerprint-producer.md)을 따른다.
+
+- 진행은 전체 `verdict`가 `MATCH`일 때만이다. `MISMATCH` · `UNKNOWN` · 그 밖의 값은 영수증을 저장한 뒤 쓰기 전 실패(ABORT_PRE_WRITE)다.
+- 시퀀스는 비교가 `MATCH`일 때만 `correct_sequence`로 올린다(올리기만). 다시 읽어 확인하지 못하면 영수증 `sequence_error`에 고정 코드를 남기고 쓰기 전 실패다.
+- 행 수만 보는 임시 비교와 `allow_unverified_compare` 설정은 없다. 이 키가 남은 설정 파일은 불러오기에서 거부된다.
+
+규칙 · 지원 타입 · 판정 · 연결 방법은 [계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)에, 시간과 전송량은 [로컬 측정 증거](../../docs/evidence/t13-db-fingerprint-2026-11-04/README.md)에 있다. `uv run python testing/measure_fingerprint.py --out results.json`으로 다시 잴 수 있다.
+
+## 컷오버 전 데이터 준비 관찰 (T19 게이트 입력)
+
+`POST /v1/readiness`(명령 자격)는 GATE의 데이터 준비 판정에 쓸 T13 관찰을 돌려준다. 판정은 하지 않는다(`readiness.py`).
+
+- 요청: 등록된 출발지 · 목적지 환경, 표, 시퀀스 열, `max_age_seconds`. 설정(`settings.tables` · `sequences`)에 없는 표 · 열, 등록되지 않은 환경 · 방향은 DB에 닿기 전에 거부한다.
+- 스키마 · 기본 키는 표마다 두 번 읽어 그 사이 변경을 잡는다. 복제 지연은 사전 확인과 같은 계산이고, 정방향 구독이 돌지 않으면 값을 비운다.
+- 시퀀스는 계약대로 `correct_sequence`로 목적지를 올리기만 하고 다시 읽은 값(`readback_next`)을 낸다. 목적지 앱 역할이 로그인할 수 없고 붙은 세션이 없을 때만 올린다. 아니면 행을 빼고 `sequence_errors`에 코드를 남긴다.
+- 끝나지 않은 실행이 있으면 409(`execution_in_progress`), 관찰이 유효 시간(최대 30초) 안에 끝나지 않으면 503(`readiness_capture_expired`)이다. 실패는 고정 코드만 내보낸다.
+- 운영자는 `operations/gate/run.py capture`로 부른다. 승인 호스트(명령 자격 보유)가 이 경로를 부르고, GATE 릴레이가 현재 context에 묶어 기록한다.
 
 ## 모의 환경 (k3d)
 
@@ -47,11 +71,14 @@ python3 testing/mockenv.py down
 
 운영 시작점은 `bravo_cutover.server:create_app`이다. 이 factory는 등록된 **한 DB 쌍**,
 검증된 비교기, 파일에서 읽는 32자 이상의 API 토큰을 요구하고 시작 시 DDL을 실행하지 않는다.
-`api:create_app`의 실행기 없는 인스턴스는 조회만 가능하며 POST는 503이다.
+명령 자격을 인증했더라도 실행기나 등록 정보가 준비되지 않으면 POST는 503이다.
 
 - `env-aws` / `cutover/source`, `env-onprem` / `cutover/target`를 `sites.json`에 등록한다.
   `resource_id`로 실제 DB를 식별한다. `environment_id`와 `connection_ref`가 모두 일치하는 두 방향만 받는다. 별칭, 한쪽만 공유하는
   제3의 DB 쌍, 참조 교환은 기록/실행 전에 422로 거부한다. 이 배포는 다중 DB 쌍 서버가 아니다.
+- `sites.json` 최상위에 원래 출발지 `"origin": "env-aws"`를 둔다(T20). 없거나 등록된 환경이 아니면 시작을 거부한다.
+  설정은 `extra="forbid"`라서 옛 이미지는 `origin`이 있는 설정을, 새 이미지는 없는 설정을 거부한다(실행 중이면 재시작 판정도 못 한다).
+  이미지와 `cutover-executor-runtime` Secret의 `sites.json`은 같은 배포에서 함께 바꾸고, 끝나지 않은 실행이 없을 때만 교체한다.
 - 모든 `/v1/` 요청에 Bearer 인증을 적용한다. T10의 승인/현재 계획/게이트 검증은 별도 선행이며,
   API 토큰을 가졌다는 사실을 사람의 컷오버 승인으로 간주하지 않는다.
 - `python -m bravo_cutover.deploy --image <registry/repository@sha256:...>`는
@@ -84,17 +111,30 @@ python3 testing/mockenv.py down
   그 Pod의 `ADMIN_TOKEN`으로 호출하며, `{closed: nonnegative integer}` ACK 뒤 쓰기 차단을 해제한다.
   Pod 변경/응답 누락은 성공으로 세지 않는다. 기존 관리 API가 없는 앱 이미지는 통합 시험 대상이 아니다.
 
-## T13 비교 규칙 v1
+## 되돌리기 (T20)
 
-기본 비교기는 실제 행 수, PK 정렬 해시, 전체 행 내용 해시와 테이블/컬럼/제약 스키마 해시를 비교한다.
-콜레이션이 있는 PK는 `C` 순서이며, 타입과 NULL/텍스트/바이너리/숫자/시간/JSON은 별도 태그를 쓴다.
-문자열 컬럼의 비교 의미는 정렬 순서와 별도로 해시에 담는다. collation의 제공자·로케일·규칙·
-deterministic 여부·기록/실제 버전을 비교하며, default는 해당 DB의 로케일 설정으로 해석한다.
-이름과 클러스터별 OID는 제외한다. 기록 버전과 실제 제공자 버전이 다르거나 미지원 제공자면 UNKNOWN이다.
-정확한 숫자는 Decimal 전체 정밀도를 유지하고 UTC timestamp·정렬된 JSON 키·길이 접두어 SHA256을 사용한다.
-양쪽 업무 쓰기 차단과 복제 barrier 확인 뒤 각 연결의 repeatable-read/read-only snapshot을 비교한다.
-공간/확장 사용자 타입 등 미지원 값은 UNKNOWN으로 거부하며 전체 PostgreSQL 타입 호환을 주장하지 않는다.
-현재 demo-chat의 기본 타입·PK·컬럼·제약을 지원한다. DB 객체 소유자/ACL은 이 해시에 포함하지 않는다.
+되돌리기(failback)는 같은 9단계를 출발지 · 목적지를 뒤바꾼 요청으로 실행한다. 사이트마다 자기 쪽 구독(목적지가 받는 구독)을
+가지므로 사전 확인 · 원상 복구 · 재시작 판정이 방향과 상관없이 같다. lease와 epoch는 DB 쌍 단위라 되돌리기는 컷오버보다
+큰 epoch로 요청한다. 영수증의 `direction`은 설정의 `origin`으로 정한다: 원래 출발지를 떠나면 `cutover`, 돌아오면
+`failback`, 둘 다 아니면 원격 조작 없이 쓰기 전 실패다. 등록 조회(`GET /v1/resources`)도 같은 `origin`을 source로 공개한다
+(환경 이름은 고정하지 않는다. `origin`을 모르는 기록 전용 서버는 503). 승인 · Edge 복귀 · 기록은 상태 머신(T10)이 지휘한다.
+
+사전 확인 끝에 출발지 `cutover.barrier`에 시험 행을 넣고 목적지에 `path_probe_timeout_s`(기본 10초, 쓰기 정지 밖) 안에
+보이는지 확인한다([ADR-0016](../../docs/adr/0016-failback-replication-path-check.md)). 컷오버 방향에도 똑같이 적용한다.
+
+- 오지 않으면 진입점 · PAUSE · LOGIN · 구독을 바꾸지 않고 ABORT_PRE_WRITE, `reason_code=replication_path_unconfirmed`.
+  제한은 시험 행을 쓰기 전에 정하고, 제한을 넘긴 뒤 본 도착은 인정하지 않는다.
+- 시험 중 DB에 쓰거나 읽지 못하면 상태 불명이다: 바꾼 것 없이 SAFE_HOLD(사전 확인 규칙, lease 유지).
+- 결과의 `path_probe`에 도착 여부 · 소요 · 목적지 구독의 마지막 수신 시각을 남긴다. 수신 시각은 진단용이며 판정하지 않는다.
+- `remote_changes_started`는 복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작했는지다. 시험 행은 여기에 들지 않는다.
+- 쓰기를 막은 뒤 본 barrier가 오지 않으면 되돌아갈 쪽을 열지 않고 원상 복구한다(ABORT_PRE_WRITE). 확인하지 못하면 SAFE_HOLD.
+
+모의 시험은 `tests/test_failback_mockenv.py`다. 경로 단절은 publication에서 `cutover.barrier`를 잠시 빼서 만들고,
+빠진 동안 쓴 행은 시험 정리에서 지운 뒤 publication을 되돌린다. 실제 환경의 첫 되돌리기는 T25에서 한다.
+
+## 영수증과 실패 처리
+
+비교 규칙 · 지원 타입 · 판정은 [T13 계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)가 원문이다.
 
 비교 영수증은 **목적지 LOGIN 이전** 실행 DB에 저장되고 실패/재시작 결과에도 유지된다.
 MISMATCH면 전환을 취소하며 시퀀스는 감소시키지 않는다. 마지막 ACK 뒤 ConfigMap을 영속화한 후에도
@@ -108,7 +148,8 @@ pooler Pod identity·실제 목적지·RESUME 상태를 다시 읽고, 바뀌면
 
 현재 자동 시험은 임시 PostgreSQL과 원격 대역이다. `EXECUTOR_TEST_POSTGRES_IMAGE=postgres:18.4`
 로 실제 배포 버전의 SQL 경계를 시험할 수 있다. k3d 시험은 해당 환경이 있을 때만 실행한다.
-실제 T8/T30 happy path·ABORT_PRE_WRITE·SAFE_HOLD와 T15/T19/T31 선행을 충족해야 이슈를 닫는다.
+T12는 k3d 모의 환경의 정상 컷오버·ABORT_PRE_WRITE·SAFE_HOLD 시험으로 닫는다. 이미지 게시와 플랫폼 배포는 T7(#140),
+실제 T8/T30 환경의 첫 컷오버와 두 분기 확인은 T25에서 한다.
 
 실제 DB 준비는 `prepare.cluster_patch()`가 관측한 Cluster의 resourceVersion 조건으로
 `chat_app` 관리 항목만 제거하고 제한된 `cutover_control` managed role/전용 Secret 참조와

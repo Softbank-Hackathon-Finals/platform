@@ -1,0 +1,1288 @@
+{
+  "observed_at": "2026-11-06T14:29:58+09:00",
+  "finished_at": "2026-11-06T14:41:30+09:00",
+  "duration_s": 691.8,
+  "scope": "local only: single-node kind cluster, SeaweedFS 4.52 from objects.py; not the demo RKE2 target",
+  "source_revision": "a4cd3d0050bf3f3e33ffee50211850f309ec8b5a",
+  "private_raw_sha256": {
+    "results": "22e4cba09eb4f5bbdfe25cecaf1856666002b9abbdf564e84a8f8a4b4613e22d",
+    "run_log": "8a39ab6d867b56690fa389dd299fb2ed7dfc3ffd0eb7fb567746629ba34419c0"
+  },
+  "environment": {
+    "kind": "v0.32.0",
+    "kind_node_image": "kindest/node@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+    "kubernetes_server": "v1.36.1",
+    "node_os": "Debian GNU/Linux 13 (trixie)",
+    "node_arch": "arm64",
+    "container_runtime": "containerd://2.3.1",
+    "seaweedfs_image": "docker.io/chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59",
+    "seaweedfs_image_id": "docker.io/chrislusf/seaweedfs@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59",
+    "network_policy": "objects.py NetworkPolicies not applied; host reaches 8333 via test-only NodePort",
+    "not_applied": [
+      "NetworkPolicy/target-object-clients",
+      "NetworkPolicy/target-object-rehearsal-clients"
+    ],
+    "test_only_service": "NodePort seaweedfs-t9-nodeport 30833 -> host 127.0.0.1:18333",
+    "credentials": "random per run, memory only; reached the cluster only inside the Secret"
+  },
+  "rendered": {
+    "closed": {
+      "identities": [
+        "bootstrap",
+        "client",
+        "rehearsal-object-admin"
+      ],
+      "anonymous_actions": []
+    },
+    "open-demo": {
+      "identities": [
+        "bootstrap",
+        "client",
+        "anonymous",
+        "rehearsal-object-admin"
+      ],
+      "anonymous_actions": [
+        "Read:demo-chat-attachments"
+      ]
+    }
+  },
+  "s3_json_sha256": {
+    "closed": "d516004c24a48d029ed886bbccbd9727d9a4fa1906b9f3c4b72515303c79d68f",
+    "open-demo": "d78b4fb614cbd4911a7780fb413c0a7289ab1d58f5dcc6c5ecc613dd005814b2"
+  },
+  "objects": {
+    "probe_object_sha256": "4954e6bfa39ba4f37cb3d95d9ed439fecc0f231ced70c2958c17958661d187b9",
+    "other_object_sha256": "b013be5684ad9faf1ec889846861913f2883bb65c70b1b8c10fdede6414a0670"
+  },
+  "transitions": {
+    "open": {
+      "secret_applied_at": "2026-11-06T14:30:53+09:00",
+      "target_s3_json_sha256": "d78b4fb614cbd4911a7780fb413c0a7289ab1d58f5dcc6c5ecc613dd005814b2",
+      "no_restart": {
+        "mounted_file_updated_after_s": 83.2,
+        "state_changed_after_s": null,
+        "polled_for_s": 174.7,
+        "polls": 85,
+        "pod_unchanged": true,
+        "last_anonymous_get": "DENIED"
+      },
+      "restart": {
+        "rollout_status_done_after_s": 35.6,
+        "state_changed_after_s": 37.6,
+        "pod_replaced": true
+      },
+      "restart_needed": true,
+      "samples": [
+        [
+          0.1,
+          "DENIED",
+          false
+        ],
+        [
+          2.2,
+          "DENIED",
+          false
+        ],
+        [
+          4.2,
+          "DENIED",
+          false
+        ],
+        [
+          6.3,
+          "DENIED",
+          false
+        ],
+        [
+          8.4,
+          "DENIED",
+          false
+        ],
+        [
+          10.5,
+          "DENIED",
+          false
+        ],
+        [
+          12.5,
+          "DENIED",
+          false
+        ],
+        [
+          14.6,
+          "DENIED",
+          false
+        ],
+        [
+          16.7,
+          "DENIED",
+          false
+        ],
+        [
+          18.8,
+          "DENIED",
+          false
+        ],
+        [
+          20.9,
+          "DENIED",
+          false
+        ],
+        [
+          22.9,
+          "DENIED",
+          false
+        ],
+        [
+          25.0,
+          "DENIED",
+          false
+        ],
+        [
+          27.1,
+          "DENIED",
+          false
+        ],
+        [
+          29.2,
+          "DENIED",
+          false
+        ],
+        [
+          31.3,
+          "DENIED",
+          false
+        ],
+        [
+          33.3,
+          "DENIED",
+          false
+        ],
+        [
+          35.4,
+          "DENIED",
+          false
+        ],
+        [
+          37.5,
+          "DENIED",
+          false
+        ],
+        [
+          39.5,
+          "DENIED",
+          false
+        ],
+        [
+          41.6,
+          "DENIED",
+          false
+        ],
+        [
+          43.7,
+          "DENIED",
+          false
+        ],
+        [
+          45.8,
+          "DENIED",
+          false
+        ],
+        [
+          47.8,
+          "DENIED",
+          false
+        ],
+        [
+          49.9,
+          "DENIED",
+          false
+        ],
+        [
+          52.0,
+          "DENIED",
+          false
+        ],
+        [
+          54.1,
+          "DENIED",
+          false
+        ],
+        [
+          56.1,
+          "DENIED",
+          false
+        ],
+        [
+          58.2,
+          "DENIED",
+          false
+        ],
+        [
+          60.3,
+          "DENIED",
+          false
+        ],
+        [
+          62.4,
+          "DENIED",
+          false
+        ],
+        [
+          64.5,
+          "DENIED",
+          false
+        ],
+        [
+          66.6,
+          "DENIED",
+          false
+        ],
+        [
+          68.7,
+          "DENIED",
+          false
+        ],
+        [
+          70.8,
+          "DENIED",
+          false
+        ],
+        [
+          72.8,
+          "DENIED",
+          false
+        ],
+        [
+          74.9,
+          "DENIED",
+          false
+        ],
+        [
+          77.0,
+          "DENIED",
+          false
+        ],
+        [
+          79.1,
+          "DENIED",
+          false
+        ],
+        [
+          81.1,
+          "DENIED",
+          false
+        ],
+        [
+          83.2,
+          "DENIED",
+          true
+        ],
+        [
+          85.3,
+          "DENIED",
+          true
+        ],
+        [
+          87.4,
+          "DENIED",
+          true
+        ],
+        [
+          89.4,
+          "DENIED",
+          true
+        ],
+        [
+          91.5,
+          "DENIED",
+          true
+        ],
+        [
+          93.6,
+          "DENIED",
+          true
+        ],
+        [
+          95.7,
+          "DENIED",
+          true
+        ],
+        [
+          97.7,
+          "DENIED",
+          true
+        ],
+        [
+          99.8,
+          "DENIED",
+          true
+        ],
+        [
+          101.9,
+          "DENIED",
+          true
+        ],
+        [
+          104.0,
+          "DENIED",
+          true
+        ],
+        [
+          106.1,
+          "DENIED",
+          true
+        ],
+        [
+          108.1,
+          "DENIED",
+          true
+        ],
+        [
+          110.2,
+          "DENIED",
+          true
+        ],
+        [
+          112.3,
+          "DENIED",
+          true
+        ],
+        [
+          114.3,
+          "DENIED",
+          true
+        ],
+        [
+          116.4,
+          "DENIED",
+          true
+        ],
+        [
+          118.5,
+          "DENIED",
+          true
+        ],
+        [
+          120.6,
+          "DENIED",
+          true
+        ],
+        [
+          122.7,
+          "DENIED",
+          true
+        ],
+        [
+          124.7,
+          "DENIED",
+          true
+        ],
+        [
+          126.8,
+          "DENIED",
+          true
+        ],
+        [
+          128.9,
+          "DENIED",
+          true
+        ],
+        [
+          131.0,
+          "DENIED",
+          true
+        ],
+        [
+          133.1,
+          "DENIED",
+          true
+        ],
+        [
+          135.1,
+          "DENIED",
+          true
+        ],
+        [
+          137.2,
+          "DENIED",
+          true
+        ],
+        [
+          139.3,
+          "DENIED",
+          true
+        ],
+        [
+          141.4,
+          "DENIED",
+          true
+        ],
+        [
+          143.5,
+          "DENIED",
+          true
+        ],
+        [
+          145.6,
+          "DENIED",
+          true
+        ],
+        [
+          147.7,
+          "DENIED",
+          true
+        ],
+        [
+          149.8,
+          "DENIED",
+          true
+        ],
+        [
+          151.8,
+          "DENIED",
+          true
+        ],
+        [
+          153.9,
+          "DENIED",
+          true
+        ],
+        [
+          156.0,
+          "DENIED",
+          true
+        ],
+        [
+          158.0,
+          "DENIED",
+          true
+        ],
+        [
+          160.1,
+          "DENIED",
+          true
+        ],
+        [
+          162.2,
+          "DENIED",
+          true
+        ],
+        [
+          164.3,
+          "DENIED",
+          true
+        ],
+        [
+          166.4,
+          "DENIED",
+          true
+        ],
+        [
+          168.4,
+          "DENIED",
+          true
+        ],
+        [
+          170.5,
+          "DENIED",
+          true
+        ],
+        [
+          172.6,
+          "DENIED",
+          true
+        ],
+        [
+          174.7,
+          "DENIED",
+          true
+        ]
+      ],
+      "samples_columns": [
+        "t_s",
+        "anonymous_get",
+        "mounted_file_is_new"
+      ]
+    },
+    "close": {
+      "secret_applied_at": "2026-11-06T14:34:30+09:00",
+      "target_s3_json_sha256": "d516004c24a48d029ed886bbccbd9727d9a4fa1906b9f3c4b72515303c79d68f",
+      "no_restart": {
+        "mounted_file_updated_after_s": 56.2,
+        "state_changed_after_s": null,
+        "polled_for_s": 147.6,
+        "polls": 72,
+        "pod_unchanged": true,
+        "last_anonymous_get": "ALLOWED"
+      },
+      "restart": {
+        "rollout_status_done_after_s": 35.8,
+        "state_changed_after_s": 37.8,
+        "pod_replaced": true
+      },
+      "restart_needed": true,
+      "samples": [
+        [
+          0.1,
+          "ALLOWED",
+          false
+        ],
+        [
+          2.2,
+          "ALLOWED",
+          false
+        ],
+        [
+          4.2,
+          "ALLOWED",
+          false
+        ],
+        [
+          6.3,
+          "ALLOWED",
+          false
+        ],
+        [
+          8.4,
+          "ALLOWED",
+          false
+        ],
+        [
+          10.4,
+          "ALLOWED",
+          false
+        ],
+        [
+          12.5,
+          "ALLOWED",
+          false
+        ],
+        [
+          14.6,
+          "ALLOWED",
+          false
+        ],
+        [
+          16.7,
+          "ALLOWED",
+          false
+        ],
+        [
+          18.7,
+          "ALLOWED",
+          false
+        ],
+        [
+          20.8,
+          "ALLOWED",
+          false
+        ],
+        [
+          22.9,
+          "ALLOWED",
+          false
+        ],
+        [
+          24.9,
+          "ALLOWED",
+          false
+        ],
+        [
+          27.0,
+          "ALLOWED",
+          false
+        ],
+        [
+          29.1,
+          "ALLOWED",
+          false
+        ],
+        [
+          31.2,
+          "ALLOWED",
+          false
+        ],
+        [
+          33.3,
+          "ALLOWED",
+          false
+        ],
+        [
+          35.4,
+          "ALLOWED",
+          false
+        ],
+        [
+          37.4,
+          "ALLOWED",
+          false
+        ],
+        [
+          39.5,
+          "ALLOWED",
+          false
+        ],
+        [
+          41.6,
+          "ALLOWED",
+          false
+        ],
+        [
+          43.7,
+          "ALLOWED",
+          false
+        ],
+        [
+          45.8,
+          "ALLOWED",
+          false
+        ],
+        [
+          47.8,
+          "ALLOWED",
+          false
+        ],
+        [
+          49.9,
+          "ALLOWED",
+          false
+        ],
+        [
+          52.0,
+          "ALLOWED",
+          false
+        ],
+        [
+          54.1,
+          "ALLOWED",
+          false
+        ],
+        [
+          56.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          58.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          60.3,
+          "ALLOWED",
+          true
+        ],
+        [
+          62.4,
+          "ALLOWED",
+          true
+        ],
+        [
+          64.5,
+          "ALLOWED",
+          true
+        ],
+        [
+          66.6,
+          "ALLOWED",
+          true
+        ],
+        [
+          68.7,
+          "ALLOWED",
+          true
+        ],
+        [
+          70.7,
+          "ALLOWED",
+          true
+        ],
+        [
+          72.8,
+          "ALLOWED",
+          true
+        ],
+        [
+          74.9,
+          "ALLOWED",
+          true
+        ],
+        [
+          77.0,
+          "ALLOWED",
+          true
+        ],
+        [
+          79.0,
+          "ALLOWED",
+          true
+        ],
+        [
+          81.1,
+          "ALLOWED",
+          true
+        ],
+        [
+          83.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          85.3,
+          "ALLOWED",
+          true
+        ],
+        [
+          87.4,
+          "ALLOWED",
+          true
+        ],
+        [
+          89.4,
+          "ALLOWED",
+          true
+        ],
+        [
+          91.5,
+          "ALLOWED",
+          true
+        ],
+        [
+          93.6,
+          "ALLOWED",
+          true
+        ],
+        [
+          95.7,
+          "ALLOWED",
+          true
+        ],
+        [
+          97.7,
+          "ALLOWED",
+          true
+        ],
+        [
+          99.8,
+          "ALLOWED",
+          true
+        ],
+        [
+          101.9,
+          "ALLOWED",
+          true
+        ],
+        [
+          104.0,
+          "ALLOWED",
+          true
+        ],
+        [
+          106.0,
+          "ALLOWED",
+          true
+        ],
+        [
+          108.1,
+          "ALLOWED",
+          true
+        ],
+        [
+          110.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          112.3,
+          "ALLOWED",
+          true
+        ],
+        [
+          114.3,
+          "ALLOWED",
+          true
+        ],
+        [
+          116.4,
+          "ALLOWED",
+          true
+        ],
+        [
+          118.5,
+          "ALLOWED",
+          true
+        ],
+        [
+          120.6,
+          "ALLOWED",
+          true
+        ],
+        [
+          122.6,
+          "ALLOWED",
+          true
+        ],
+        [
+          124.7,
+          "ALLOWED",
+          true
+        ],
+        [
+          126.8,
+          "ALLOWED",
+          true
+        ],
+        [
+          128.9,
+          "ALLOWED",
+          true
+        ],
+        [
+          130.9,
+          "ALLOWED",
+          true
+        ],
+        [
+          133.0,
+          "ALLOWED",
+          true
+        ],
+        [
+          135.1,
+          "ALLOWED",
+          true
+        ],
+        [
+          137.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          139.2,
+          "ALLOWED",
+          true
+        ],
+        [
+          141.3,
+          "ALLOWED",
+          true
+        ],
+        [
+          143.4,
+          "ALLOWED",
+          true
+        ],
+        [
+          145.5,
+          "ALLOWED",
+          true
+        ],
+        [
+          147.6,
+          "ALLOWED",
+          true
+        ]
+      ],
+      "samples_columns": [
+        "t_s",
+        "anonymous_get",
+        "mounted_file_is_new"
+      ]
+    },
+    "leftover_policy_put": {
+      "anonymous_allowed_after_s": 0.0
+    },
+    "leftover_policy_restart": {
+      "rollout_and_answer_after_s": 37.8
+    },
+    "leftover_policy_delete": {
+      "anonymous_denied_after_s": 0.0
+    },
+    "sighup": {
+      "mounted_file_updated_after_s": 87.1,
+      "anonymous_before_hup": "DENIED",
+      "kill_exit": 0,
+      "anonymous_allowed_after_hup_s": 0.0,
+      "pod_unchanged": true
+    }
+  },
+  "probe_cli": {
+    "closed_initial": {
+      "anonymous_get": "DENIED",
+      "state_observed": "closed",
+      "key_suffix": "open-bucket-probe.txt"
+    },
+    "open_demo": {
+      "anonymous_get": "ALLOWED",
+      "state_observed": "open",
+      "key_suffix": "open-bucket-probe.txt"
+    },
+    "closed_again": {
+      "anonymous_get": "DENIED",
+      "state_observed": "closed",
+      "key_suffix": "open-bucket-probe.txt"
+    },
+    "leftover_policy": {
+      "anonymous_get": "ALLOWED",
+      "state_observed": "open",
+      "key_suffix": "open-bucket-probe.txt"
+    },
+    "after_policy_delete": {
+      "anonymous_get": "DENIED",
+      "state_observed": "closed",
+      "key_suffix": "open-bucket-probe.txt"
+    },
+    "final": {
+      "anonymous_get": "DENIED",
+      "state_observed": "closed",
+      "key_suffix": "open-bucket-probe.txt"
+    }
+  },
+  "events": [
+    {
+      "t": 48.7,
+      "event": "store_ready",
+      "waited_s": 2.0
+    },
+    {
+      "t": 229.1,
+      "event": "open_no_restart",
+      "file_s": 83.2,
+      "changed_s": null,
+      "polled_s": 174.7
+    },
+    {
+      "t": 266.8,
+      "event": "open_restart",
+      "rollout_status_done_after_s": 35.6,
+      "state_changed_after_s": 37.6,
+      "pod_replaced": true
+    },
+    {
+      "t": 419.3,
+      "event": "close_no_restart",
+      "file_s": 56.2,
+      "changed_s": null,
+      "polled_s": 147.6
+    },
+    {
+      "t": 457.2,
+      "event": "close_restart",
+      "rollout_status_done_after_s": 35.8,
+      "state_changed_after_s": 37.8,
+      "pod_replaced": true
+    },
+    {
+      "t": 582.8,
+      "event": "sighup",
+      "mounted_file_updated_after_s": 87.1,
+      "anonymous_before_hup": "DENIED",
+      "kill_exit": 0,
+      "anonymous_allowed_after_hup_s": 0.0,
+      "pod_unchanged": true
+    }
+  ],
+  "summary": {
+    "total": 49,
+    "failed": []
+  },
+  "cases": [
+    {
+      "name": "setup_bootstrap_put_object",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "setup_rehearsal_create_other_bucket",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "setup_rehearsal_put_other_object",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "closed_anonymous_get",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "closed_client_get",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "closed_anonymous_get_other_bucket",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "closed_bucket_policy_absent",
+      "expected": "404:NoSuchBucketPolicy",
+      "actual": "404:NoSuchBucketPolicy",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_closed_initial",
+      "expected": "closed",
+      "actual": "closed",
+      "pass": true
+    },
+    {
+      "name": "open_state_reached",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_get",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_get_same_bytes",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_head",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_put",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_put_absent",
+      "expected": "OTHER:404",
+      "actual": "OTHER:404",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_list_v2",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_list_v1",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_delete",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_object_survives_anonymous_delete",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_get_other_bucket",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_list_other_bucket",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_put_bucket_policy",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_create_bucket",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "open_anonymous_list_buckets_no_names",
+      "expected": true,
+      "actual": true,
+      "pass": true,
+      "note": "status 403"
+    },
+    {
+      "name": "open_client_get",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "open_client_put",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "open_bucket_policy_absent",
+      "expected": "404:NoSuchBucketPolicy",
+      "actual": "404:NoSuchBucketPolicy",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_open_demo",
+      "expected": "open",
+      "actual": "open",
+      "pass": true
+    },
+    {
+      "name": "close_state_reached",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "closed_again_anonymous_get",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "closed_again_client_get",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_closed_again",
+      "expected": "closed",
+      "actual": "closed",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_put_by_bootstrap",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_anonymous_get_with_closed_s3json",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true,
+      "note": "closed s3.json alone does not close the bucket"
+    },
+    {
+      "name": "leftover_policy_mounted_file_is_closed",
+      "expected": "d516004c24a48d029ed886bbccbd9727d9a4fa1906b9f3c4b72515303c79d68f",
+      "actual": "d516004c24a48d029ed886bbccbd9727d9a4fa1906b9f3c4b72515303c79d68f",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_leftover_policy",
+      "expected": "open",
+      "actual": "open",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_survives_restart",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_anonymous_list_still_denied",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_anonymous_get_other_bucket",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_present",
+      "expected": "200",
+      "actual": "200",
+      "pass": true
+    },
+    {
+      "name": "leftover_policy_delete_by_bootstrap",
+      "expected": "ALLOWED",
+      "actual": "ALLOWED",
+      "pass": true
+    },
+    {
+      "name": "after_policy_delete_anonymous_get",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "after_policy_delete_client_get",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "after_policy_delete_policy_absent",
+      "expected": "404:NoSuchBucketPolicy",
+      "actual": "404:NoSuchBucketPolicy",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_after_policy_delete",
+      "expected": "closed",
+      "actual": "closed",
+      "pass": true
+    },
+    {
+      "name": "client_cannot_put_bucket_policy",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "client_cannot_delete_bucket_policy",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "final_anonymous_get",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "pass": true
+    },
+    {
+      "name": "final_client_get",
+      "expected": "ALLOWED_SAME_BYTES",
+      "actual": "ALLOWED_SAME_BYTES",
+      "pass": true
+    },
+    {
+      "name": "probe_cli_final",
+      "expected": "closed",
+      "actual": "closed",
+      "pass": true
+    }
+  ]
+}

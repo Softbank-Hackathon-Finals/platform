@@ -1,0 +1,9 @@
+{
+  "env_id": "onprem-minimal",
+  "env_kind": "onprem",
+  "provides": {
+    "k8s": "k3s",
+    "postgres_operator": "cnpg"
+  },
+  "residual_dependencies": ["cloudflare (edge · tunnel)"]
+}

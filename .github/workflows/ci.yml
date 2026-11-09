@@ -3,6 +3,8 @@ name: ci
 # Required gates always report. Scope chooses work inside them, never skips the workflow.
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main, develop]
   schedule:
@@ -27,6 +29,7 @@ jobs:
       full: ${{ steps.plan.outputs.full }}
       infra: ${{ steps.plan.outputs.infra }}
       scripts: ${{ steps.plan.outputs.scripts }}
+      pins: ${{ steps.plan.outputs.pins }}
       projects: ${{ steps.plan.outputs.projects }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -38,10 +41,31 @@ jobs:
       - name: Plan affected checks
         id: plan
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
           EVENT: ${{ github.event_name }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_ACTION: ${{ github.event.action }}
+          TARGET_BRANCH: ${{ github.event.merge_group.base_ref }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = merge_group ]; then
+            # A queue result must describe this exact checkout and the entire group.
+            if [[ "$GROUP_ACTION" != checks_requested || ! "$BASE" =~ ^[0-9a-f]{40}$ || ! "$GROUP_HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+              echo '::error::Invalid merge group metadata'
+              exit 1
+            fi
+            if [[ "$(git rev-parse HEAD)" != "$GROUP_HEAD" ]] || ! git merge-base --is-ancestor "$BASE" "$GROUP_HEAD"; then
+              echo '::error::Merge group checkout/base mismatch'
+              exit 1
+            fi
+            # base_sha can be the previous queue group, so its diff omits earlier PRs. Scope by the whole group
+            # instead: everything between the target branch and the group head. Each PR ran its full PR checks.
+            target="${TARGET_BRANCH#refs/heads/}"
+            if [[ ! "$target" =~ ^[A-Za-z0-9._/-]+$ ]] || ! TARGET_SHA=$(git rev-parse --verify -q "refs/remotes/origin/$target" || git rev-parse --verify -q "refs/heads/$target"); then
+              echo '::error::Merge group target branch unavailable'
+              exit 1
+            fi
+            python3 scripts/ci_scope.py --base "$(git merge-base "$TARGET_SHA" "$GROUP_HEAD")" --queue > ci-plan.json
+          elif [ "$EVENT" = pull_request ]; then
             python3 scripts/ci_scope.py --base "$BASE" > ci-plan.json
           else
             python3 scripts/ci_scope.py --full > ci-plan.json
@@ -64,12 +88,26 @@ jobs:
             echo "::error::PR 제목은 [T번호]로 시작한다. 예: [T3] 리허설 네임스페이스 템플릿 추가"
             exit 1
           fi
-      - name: 시크릿 유출 검사 (gitleaks, 전체 이력)
+      - name: 시크릿 유출 검사 (병합 커밋의 전체 조상 이력)
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
-            detect --source /repo --redact --verbose
+          python3 scripts/ci_secrets.py --scope head --receipt "$RUNNER_TEMP/secret-scan.json"
+      - name: 실제 scanner 경계 회귀
+        env:
+          BRAVO_TEST_GITLEAKS: docker
+        run: python3 -m unittest discover -s scripts/tests -p test_ci_secrets.py -v
+      - name: 증빙 소스 해시 형식
+        env:
+          EVIDENCE_BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: python3 scripts/evidence_sources.py check --base "$EVIDENCE_BASE"
       - name: 공개 파일 개인정보·운영 식별자 검사
         run: python3 scripts/public_evidence.py check
+      - name: 검사 입력 기록
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/secret-scan.json
+          retention-days: 14
 
   infra:
     needs: scope
@@ -82,7 +120,14 @@ jobs:
           SCOPE_RESULT: ${{ needs.scope.result }}
         run: test "$SCOPE_RESULT" = success
       - uses: actions/checkout@v7
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
+        with:
+          fetch-depth: 0
+      - name: Registration promotion source
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
+        run: |
+          python3 scripts/registration_delivery.py check-promotion
+          python3 scripts/registration_delivery.py check-promotion --service product-reader
       - name: Workflow syntax
         if: needs.scope.outputs.infra == 'true'
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
@@ -92,6 +137,57 @@ jobs:
           while IFS= read -r -d '' file; do
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
           done < <(git ls-files -z ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
+      - name: Registration Helm contract
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
+        run: |
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/helm.tgz"
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz.sha256sum -o "$RUNNER_TEMP/helm.sha256"
+          (cd "$RUNNER_TEMP" && sed 's/helm-v4.0.0-linux-amd64.tar.gz/helm.tgz/' helm.sha256 | sha256sum --check)
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          export PATH="$RUNNER_TEMP/linux-amd64:$PATH"
+          python3 -m venv "$RUNNER_TEMP/helm-test"
+          "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3 cel-python==0.2.0
+          helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
+          helm dependency build infra/gitops/argocd
+          helm dependency build infra/iac/argocd
+          "$RUNNER_TEMP/helm-test/bin/python" infra/iac/test_customer_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/test_exec_guard.py
+          # The same guard on a real API server (throwaway k3s in Docker, server dry-run + exec).
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_workflow_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_iac_network_application.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_public_entry_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_security_findings_chart.py
+          # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
+          GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d
+          KUBEBUILDER_ASSETS="$("$RUNNER_TEMP/envtest-bin/setup-envtest" use 1.35.0 --bin-dir "$RUNNER_TEMP/envtest" -p path)" \
+            "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_gitops_admission_apiserver.py
+          mkdir "$RUNNER_TEMP/registration-rendered"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py --render > "$RUNNER_TEMP/registration-rendered/rehearsal-host.yaml"
+          helm template bravo-gitops infra/gitops/argocd --namespace bravo-gitops --kube-version 1.35.9 > "$RUNNER_TEMP/registration-rendered/argocd.yaml"
+      - name: Rendered registration security
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/registration.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+      - name: Rendered product reader security
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/product-reader.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - name: Terraform directories
         id: tf
         if: needs.scope.outputs.infra == 'true'
@@ -135,12 +231,19 @@ jobs:
     if: needs.scope.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read  # pull the org's GHCR CI mirrors (ci-mirror/*), not anonymous public registries
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+      - name: Log in to the org GHCR for CI image mirrors
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
       - if: matrix.kind == 'python'
         uses: astral-sh/setup-uv@v10.2.0
         with:

@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "environment",
+    "tailnet",
+    "repoURL",
+    "targetRevision",
+    "application"
+  ],
+  "properties": {
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "service": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+        }
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "autoSync",
+        "prune"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "autoSync": {
+          "type": "boolean"
+        },
+        "prune": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "prune": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enabled": {
+                "const": true
+              },
+              "autoSync": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "autoSync": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "source-dev",
+        "t49",
+        "target-dev",
+        "target-gce",
+        "target-gke"
+      ]
+    },
+    "tailnet": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.ts\\.net$"
+    },
+    "repoURL": {
+      "type": "string",
+      "pattern": "^https://github\\.com/Softbank-Hackathon-Finals/platform\\.git$"
+    },
+    "targetRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "autoSync",
+        "namespaces"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "autoSync": {
+          "type": "boolean"
+        },
+        "namespaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+          },
+          "contains": {
+            "const": "tailscale-system"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "autoSync": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}

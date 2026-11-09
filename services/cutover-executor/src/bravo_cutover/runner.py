@@ -12,11 +12,16 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Protocol
 from uuid import UUID
 
 from bravo_cutover.contract import CutoverRequest, Status, StepStatus
-from bravo_cutover.integrity import IntegrityComparer
+from bravo_cutover.db_fingerprint import (
+    DbFingerprintComparer,
+    FingerprintUnconfirmed,
+    correct_sequence,
+)
 from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
@@ -33,7 +38,14 @@ STEPS = ("precheck", "entry", "pause", "fence", "compare", "commit", "reconnect"
 
 
 class StepFailed(Exception):
-    """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다)."""
+    """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다). code는 결과의 reason_code로 남는다."""
+
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
+
+REPLICATION_PATH_UNCONFIRMED = "replication_path_unconfirmed"
 
 
 class OwnershipLost(Exception):
@@ -43,17 +55,6 @@ class OwnershipLost(Exception):
 
 class Comparer(Protocol):
     def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]: ...
-
-
-class RowCountComparer:
-    """T13 연결 전 임시 비교(spec D11). 행 수만 보므로 같아도 MATCH가 아니라 UNVERIFIED다."""
-
-    hash_rule = "none (T13 미연결: 행 수만 비교)"
-
-    def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]:
-        rows = [{"name": t, "rows_src": src.row_count(t), "rows_dst": dst.row_count(t)} for t in tables]
-        same = all(r["rows_src"] == r["rows_dst"] for r in rows)
-        return {"hash_rule": self.hash_rule, "tables": rows, "verdict": "UNVERIFIED" if same else "MISMATCH"}
 
 
 @dataclass
@@ -86,8 +87,55 @@ class Run:
     # 사전 확인 때 고정한 PgBouncer 파드 (이름, UID, 재시작 횟수). 실행 동안 바뀌면 상태 불명으로 본다.
     pools: dict[str, tuple[str, str, int]] = field(default_factory=dict)
     step: str | None = None
+    # 영수증의 방향(cutover | failback). 사전 확인에서 설정의 원래 출발지로 정한다.
+    direction: str | None = None
+    # 사전 확인의 복제 경로 왕복 시험 기록(ADR-0016). 복구 대상 효과가 아니다.
+    path_probe: dict[str, Any] | None = None
     committed: bool = False
     recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
+
+
+class _GuardedRaise:
+    """correct_sequence에 넘기는 목적지. 읽기는 그대로 넘기고, 시퀀스를 올리는 호출만 _act로 보내
+    실제 변경 직전에 소유를 확인한다(앞의 조회 도중 넘겨받혔으면 올리지 않는다)."""
+
+    def __init__(self, db: DbControl, act: Callable[..., Any]):
+        self._db, self._act = db, act
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._db, name)
+
+    def raise_sequence(self, sequence: str, next_value: int) -> int:
+        return self._act(self._db.raise_sequence, sequence, next_value)
+
+
+def _not_matched(result: dict[str, Any], tables: list[str]) -> str | None:
+    """진행해도 되는 비교 결과면 None, 아니면 이유. 허용 목록이다: 전체 · 표별 데이터 · 스키마 판정이 모두
+    MATCH이고 설정한 표마다 지문이 하나씩 있을 때만 진행한다. 판정 값 · 칸 누락 · 형식 오류는 모두 쓰기 전 실패다.
+    결과 모양은 T13 계약 문서 「결과 모양」."""
+    verdict = result.get("verdict")
+    if verdict == "MISMATCH":
+        return "integrity comparison: MISMATCH"
+    if verdict != "MATCH":
+        return f"integrity comparison returned an unexpected verdict {verdict!r}"
+    if not isinstance(result.get("hash_rule"), str) or not result["hash_rule"]:
+        return "integrity comparison has no hash_rule"
+    if result.get("data_verdict") != "MATCH" or result.get("schema_verdict") != "MATCH":
+        return "integrity comparison: overall data or schema verdict is not MATCH"
+    entries = result.get("tables")
+    if not isinstance(entries, list) or not all(isinstance(t, dict) and isinstance(t.get("name"), str) for t in entries):
+        return "integrity comparison: tables is not a list of named results"
+    names = [t["name"] for t in entries]
+    if missing := sorted(set(tables) - set(names)):
+        return f"integrity comparison does not cover {missing}"
+    if len(names) != len(set(names)):
+        return "integrity comparison: duplicate table results"
+    for t in entries:
+        if t.get("match") is not True or t.get("data_verdict") != "MATCH" or t.get("schema_verdict") != "MATCH":
+            return f"integrity comparison: table {t['name']} is not MATCH"
+        if not isinstance(t.get("source"), dict) or not isinstance(t.get("target"), dict):
+            return f"integrity comparison: table {t['name']} has no fingerprints"
+    return None
 
 
 def _describe(error: Exception) -> str:
@@ -99,7 +147,7 @@ class Cutover:
                  kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[["Run"], None]] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self._store, self._config, self._settings = store, config, config.settings
-        self._comparer = comparer or (RowCountComparer() if config.settings.allow_unverified_compare else IntegrityComparer())
+        self._comparer = comparer or DbFingerprintComparer()
         self._kube_factory, self._kubes = kube, {}
         # 장애 주입 지점(시험 · T25용). 함수는 Run을 받는다: "before:<단계>", "commit:forward_disabled",
         # "commit:subscriptions_changed", "reconnect:target_opened", "release:<환경>", "persist:read:<환경>"
@@ -169,6 +217,10 @@ class Cutover:
         """전환 확정 기록 전이면 원상 복구를 시도한다(ABORT_PRE_WRITE). 복구를 하나라도 확인하지 못하거나
         확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
         failure = {"failed_step": run.step, "error": _describe(error)}
+        if code := getattr(error, "code", None):
+            failure["reason_code"] = code
+        if run.path_probe is not None:
+            failure["path_probe"] = run.path_probe
         if not self._store.owns(run.execution_id):
             return
         if self._store.get(run.execution_id).committed_at is not None:
@@ -178,13 +230,15 @@ class Cutover:
             self._hold(run, failure, "no durable recovery baseline from this executor version")
             return
         if not run.recovery["effects"]:
-            # Read-only precheck (including a crash) never authorizes unblocking anything.
+            # A precheck failure (including a crash) never authorizes unblocking anything. The precheck
+            # writes only the path probe row (ADR-0016), which is not a recovery effect.
             if isinstance(error, Unconfirmed):
                 self._hold(run, failure, "precheck could not confirm remote state; no changes sent")
             else:
                 self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
                 self._store.finish(run.execution_id, Status.ABORT_PRE_WRITE, {
                     "outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": [],
+                    # 복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작하지 않았다. 경로 시험 행은 path_probe에 남는다.
                     "remote_changes_started": False,
                 })
             return
@@ -267,6 +321,11 @@ class Cutover:
                     "outcome": Status.SAFE_HOLD.value, "reason": "cannot read remote state after restart",
                     "error": _describe(e),
                 })
+                continue
+            # The previous owner records abort STARTED before sending source LOGIN.
+            # Its SQL can still arrive after takeover. Retain both leases until it is reconciled.
+            if "abort" in started:
+                self._hold(run, {"failed_step": "abort"}, "source restoration interrupted; remote effects unconfirmed")
                 continue
             self._fail(run, RuntimeError("executor restarted during execution"))
         return handled
@@ -407,6 +466,10 @@ class Cutover:
     # 1. 사전 확인 -----------------------------------------------------------
     def _precheck(self, run: Run) -> None:
         src, dst = run.src, run.dst
+        try:
+            run.direction = self._config.direction(src.site.environment_id, dst.site.environment_id)
+        except ValueError as e:
+            raise StepFailed(str(e)) from e
         entries = {}
         for side in (src, dst):
             # PgBouncer 파드가 정확히 하나이고 Ready. 이 파드를 실행 끝까지 고정한다.
@@ -433,6 +496,7 @@ class Cutover:
         lag = int(src.db.current_wal_lsn()) - int(received or 0)
         if received is None or lag > self._settings.max_lag_bytes:
             raise StepFailed(f"replication lag {lag} bytes exceeds {self._settings.max_lag_bytes}")
+        self._probe_path(run)
         run.recovery["baseline"] = {"pools": run.pools, "entries": entries,
                                     "source_login": True, "target_login": False,
                                     "forward_enabled": True, "reverse_enabled": False,
@@ -441,6 +505,35 @@ class Cutover:
         self._save_recovery(run)
         # 첫 쓰기 제한 직전에 타이머를 켠다
         run.t0 = self._clock()
+
+    def _probe_path(self, run: Run) -> None:
+        """쓰기를 막기 전에 출발지 → 목적지 복제 경로가 실제로 데이터를 옮기는지 본다(ADR-0016).
+        시험 행이 시간 안에 목적지에 보이지 않으면 확인된 실패로 끝낸다(아무것도 막지 않았다).
+        마지막 수신 시각은 진단용으로만 남긴다."""
+        src, dst = run.src, run.dst
+        probe = uuid.uuid4()
+        try:
+            receipt_time = dst.db.last_msg_receipt_time(dst.site.subscription)
+        except Exception:  # noqa: BLE001
+            receipt_time = "unknown"
+        run.path_probe = {"probe_id": str(probe), "arrived": False, "elapsed_ms": None,
+                          "last_msg_receipt_time": receipt_time}
+        # 제한은 시험 행을 쓰기 전에 정한다(쓰는 데 걸린 시간을 남은 deadline에서 두 번 빼지 않는다).
+        limit = min(self._settings.path_probe_timeout_s, self._remaining_s(run))
+        start = self._clock()
+        self._act(run, src.db.insert_path_probe, probe, run.request.epoch)
+        # 목적지 DB를 읽지 못하면(Unconfirmed) 상태 불명이다: 사전 확인 규칙대로 SAFE_HOLD(바꾼 것 없음).
+        while True:
+            arrived = dst.db.has_barrier(probe)
+            # 도착을 본 시각이 제한을 넘었으면 늦은 도착이다. 성공으로 치지 않는다.
+            if self._clock() - start > limit:
+                run.path_probe["elapsed_ms"] = self._ms(start)
+                raise StepFailed(f"replication path probe did not arrive at {dst.site.environment_id} "
+                                 f"within {limit:.3g}s", code=REPLICATION_PATH_UNCONFIRMED)
+            if arrived:
+                break
+            time.sleep(0.05)
+        run.path_probe.update(arrived=True, elapsed_ms=self._ms(start))
 
     # 2. 진입점 쓰기 차단 -------------------------------------------------------
     def _entry(self, run: Run) -> None:
@@ -513,18 +606,12 @@ class Cutover:
         if not isinstance(result, dict):
             raise StepFailed(f"integrity comparison returned {type(result).__name__}, not a result")
         tables = result.get("tables") if isinstance(result.get("tables"), list) else []
-        covered = {t.get("name") for t in tables if isinstance(t, dict)}
         verdict = result.get("verdict")
-        sequences = []
-        for name, (table, column) in self._settings.sequences.items():
-            src_next = src.db.sequence_next(name)
-            wanted = max(src_next, dst.db.max_value(table, column) + 1)
-            sequences.append({"name": name, "src_next": src_next,
-                              "dst_set": self._act(run, dst.db.raise_sequence, name, wanted)})
+        problem = _not_matched(result, self._settings.tables)
         run.receipt = {
             "receipt_id": str(uuid.uuid4()),
             "epoch": run.request.epoch,
-            "direction": "cutover",
+            "direction": run.direction,
             "source": src.site.environment_id,
             "target": dst.site.environment_id,
             "barrier_id": str(barrier),
@@ -532,26 +619,29 @@ class Cutover:
                           "received_lsn": int(dst.db.received_lsn(dst.site.subscription) or 0)},
             "hash_rule": result.get("hash_rule"),
             "tables": tables,
-            "sequences": sequences,
+            "sequences": [],
             "verdict": verdict,
+            "data_verdict": result.get("data_verdict"),
+            "schema_verdict": result.get("schema_verdict"),
             "write_pause_budget_ms": run.request.write_pause_budget_ms,
         }
+        # 시퀀스는 비교가 MATCH일 때만 올린다(spec D2). 중단될 실행에서는 목적지에 아무것도 쓰지 않는다.
+        sequence_error = None
+        if problem is None:
+            try:
+                for name, (table, column) in self._settings.sequences.items():
+                    run.receipt["sequences"].append(
+                        correct_sequence(src.db, _GuardedRaise(dst.db, partial(self._act, run)), name, table, column))
+            except FingerprintUnconfirmed as e:
+                sequence_error = e
+                run.receipt["sequence_error"] = {"code": e.code, "sqlstate": e.sqlstate}
         self._guard(run)
         if not self._store.record_receipt(run.execution_id, run.receipt):
             raise OwnershipLost(str(run.execution_id))
-        # 허용 목록: 명시적인 MATCH만 진행한다. UNVERIFIED(임시 비교)는 시험용 설정을 켰을 때만.
-        # 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
-        if missing := sorted(set(self._settings.tables) - covered):
-            raise StepFailed(f"integrity comparison does not cover {missing}")
-        if verdict == "MATCH":
-            return
-        if verdict == "UNVERIFIED" and self._settings.allow_unverified_compare:
-            return
-        if verdict == "MISMATCH":
-            raise StepFailed("integrity comparison: MISMATCH")
-        if verdict == "UNVERIFIED":
-            raise StepFailed("integrity comparison is not verified (T13 not connected)")
-        raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
+        if problem is not None:
+            raise StepFailed(problem)
+        if sequence_error is not None:
+            raise sequence_error
 
     # 6. 전환 확정 ------------------------------------------------------------
     def _commit(self, run: Run) -> None:
@@ -649,6 +739,7 @@ class Cutover:
             # 확정 뒤에 예산을 넘긴 경우: 전환은 끝냈지만(쓰기 DB는 목적지 하나) 예산 위반이다
             "write_pause_budget_exceeded": budget_exceeded,
             "stages_ms": run.stages_ms,
+            "path_probe": run.path_probe,
             "path_acks_ms": {path: int((t - run.t0) * 1000) for path, t in run.acks.items()},
             "receipt": run.receipt,
         }

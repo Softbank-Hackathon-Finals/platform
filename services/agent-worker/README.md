@@ -2,22 +2,36 @@
 
 플랫폼 워커가 실패 근거와 승인된 앱 소스만 읽고 수정 제안서를 낸다. 현재 정본의 S2 기능으로 구현했다. 11/2 회의에서 역할 세분화는 열어 두었으며, 별도 서비스 도입은 실제 격리·배포 책임이 달라질 때 판단한다. GitHub의 저장소 CI, T15의 리허설 실행·비공개 검증, 사람 승인, T31 반영은 각각의 담당 경로에 남는다.
 
-사용자의 11/3 요청에 따라 **관리자 ChatGPT 구독(SIWC)으로 OpenAI Responses를 호출하는 경로를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
+사용자의 11/3 요청에 따라 **관리자 ChatGPT 구독(SIWC)으로 OpenAI를 호출하는 경로를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
 
 | 모듈 | 책임 |
 |---|---|
 | `contracts.py` | 실패 입력·소스 목록·제안서·독립 검증 영수증의 Pydantic 계약 |
 | `tools.py` | 정확한 소스 경로·내용 해시 확인, 제안 제출, 도구 차단·기록 |
-| `coordinator.py` | run/revision/proposal/attempt 결속, 최대 3회, UNKNOWN 중단. LLM import 없음 |
-| `openai_provider.py` | OpenAI Responses 호출과 두 함수 도구. 기본 제공자 |
+| `coordinator.py` | run/revision/proposal/attempt 결속, 최대 3회, UNKNOWN 중단, 재시작용 상태 내보내기·복원. LLM import 없음 |
+| `openai_provider.py` | OpenAI Agents SDK `Runner`·함수 도구·구독 Responses 전송 어댑터. 기본 제공자 |
 | `sdk.py` | 선택 설치하는 Claude Agent SDK 어댑터 |
 | `runtime.py` | 전용 프로세스의 환경·모델 자격 선택 |
 | `subscription_auth.py` | 앱 소유 SIWC 등록·ID 검증·갱신·회수 |
 | `subscription_store.py` | 지정 VM 잠금·Secrets Manager 버전 결속 |
 | `subscription_admin.py` | 관리자 등록·상태·모델 목록·구독 워커 실행 |
 | `cli.py` | 플랫폼에서 한 번 실행하고 제안·감사 기록을 새 파일로 저장 |
+| `tool_events.py` | 한 시도의 도구 기록 추출·검증(T15·T38 공용 정본). LLM import 없음 |
 
-도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose` 두 개만 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`이며 Claude MCP 이름은 `mcp__bravo__repo_read`, `mcp__bravo__plan_propose`다. 같은 정책 핸들러를 사용한다. 아직 제공하지 않는 `inventory.describe`, `rehearsal.exec`, `rehearsal.run/result`, `policy.evaluate`를 동작한다고 표시하지 않는다.
+도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose`, `policy.evaluate`, `inventory.describe` 네 개를 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`, `policy_evaluate`, `inventory_describe`이며 Claude MCP 이름은 `mcp__bravo__` 접두사를 붙인 같은 이름이다. 모두 같은 정책 핸들러(`Tools.dispatch`)를 사용한다.
+
+| 도구 | 하는 일 | 경계 |
+|---|---|---|
+| `repo.read` | manifest에 있는 정확한 경로의 snapshot 파일 읽기 | 경로 정책 + 내용 해시 + 비밀 패턴 거부 |
+| `plan.propose` | 스키마에 맞는 제안서 1건 제출 | 파괴 명령 · wildcard 권한 · 비밀 패턴 거부, 수정 가능 경로만 |
+| `policy.evaluate` | 후보 정책 · 교체 텍스트를 `plan.propose`와 같은 검사로 미리 린트 | 부작용 없음. `PASS`는 "이 검사에서 거부되지 않음"이지 안전 증명이 아니다 |
+| `inventory.describe` | T16 인벤토리의 모델용 부분집합(항목 · 등급 · 코드 참조 위치) 읽기 | 제어 경로가 `InventorySummary`를 붙인 실행에서만 제공(`--inventory`, 아래 실행 절). snippet · 배포 속성 · 환경변수 값은 전달하지 않는다 |
+
+`rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다. 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
+
+OpenAI 경로(API 키 · 구독 · `account_smoke`)에서도 같은 분류를 쓴다. 예약 도구는 모델에 제공하지 않지만 모델이 `rehearsal_exec` · `rehearsal.exec` · `bravo.rehearsal_exec` · `bravo.rehearsal.exec` · `mcp__bravo__rehearsal_exec`(run/result도 같음) 중 하나로 호출하면 `mcp__bravo__rehearsal_*`로 정규화해 `Tools.dispatch`의 거부 분류를 거친다. 그 밖의 이름은 `unlisted`(`TOOL_NOT_ALLOWED`)다. JSON이 아닌 인자도 분류만 하고 저장하지 않는다. 구독 경로에서 `bravo` 네임스페이스 밖의 호출과 첫 읽기 전의 다른 호출은 기존대로 그 시도를 끝내며(NEEDS_HUMAN), 끝내기 전에 제공 도구가 아닌 호출의 거부를 같은 방식으로 기록한다. 네임스페이스 밖의 `repo_read` 같은 제공 도구 이름은 실행하지 않고 `unlisted`로 기록한다. 응답 종료 이벤트의 output이 비어 스트림 항목으로 복원하는 경우에는 `bravo` 네임스페이스 안의 예약 이름만 복원 대상이다.
+
+소스 경로 정책: 디렉터리 `secrets/` · `credentials/`, 키 파일(`.pem` · `.key` · `.p12` · `.tfstate`), 이름에 `credential` · `private_key`가 든 파일, 테스트 파일은 계속 거부한다. 이름에 `secret`이 든 **코드 파일**(`.py` · `.ts` · `.go` 등)은 읽을 수 있다. demo-chat의 `app/db_secret.py`가 Secrets Manager 직접 호출을 고쳐야 하는 바로 그 파일이기 때문이다. 내용은 여전히 `safe_text`를 거치므로 자격증명 리터럴이 들어 있으면 읽기가 거부된다(가리지 않고 거부한다: 가린 내용을 기준으로 제안하면 교체본과 원본 해시가 어긋난다).
 
 ## 실행
 
@@ -41,6 +55,14 @@ uv run bravo-subscription run \
   --model "$MODEL_ID" --output /private/path/new-proposal.json
 ```
 
+### T16 인벤토리 입력 (FR-4)
+
+`bravo-agent analyze`와 `bravo-subscription run`은 선택 인자 `--inventory /private/path/inventory.json`(T16 `bravo-inventory scan` 출력)을 받는다. 256 KiB까지만 읽고 `InventorySummary.from_document`로 모델용 부분집합만 남겨 `Coordinator`에 붙인다. 붙인 실행에서만 `inventory_describe`가 제공되고, 결과 파일에 `inventory_digest`(T16 문서의 `sha256:` digest)가 추가된다. 이 digest는 문서에 적힌 값을 그대로 믿지 않고, T16 `report.py`와 같은 규칙(`generated_at`·`digest`를 뺀 문서의 정렬 JSON의 sha256)으로 다시 계산해 같을 때만 받는다. 그래서 내용을 바꾼 문서는 원래 digest를 달고 들어올 수 없다. 값의 타입도 바꾸지 않고 그대로 엄격 검증한다. 붙이지 않으면 이 키는 없고 기존 출력과 같다. 인벤토리의 `app.source_sha`가 실패 요약·manifest와 다르거나, digest가 내용과 맞지 않거나, 형식이 맞지 않거나, 크기를 넘으면 다른 입력 오류와 같이 결과 파일 없이 `NEEDS_HUMAN`·종료 코드 2로 끝난다. 그래서 T16 scan은 같은 `--source-sha`로 실행해야 한다.
+
+`--iac-state infra/iac/environments/<환경>.json`(T44)을 주면 제어 경로가 그 원하는 상태로 계획 포트(`bravo_iac.agent.AgentPlanner`)를 만들어 붙이고, 그 실행에서만 `infra_plan` 도구가 제공된다. 모델이 요청한 계획은 시도 기록의 `infra_plans`(모듈 · 파라미터 · 결정적 plan)에 남아 T10이 `plan_digest`로 승인할 수 있다. 상태 파일은 256 KiB까지만 읽고 `check_state`를 통과해야 하며, 아니면 결과 파일 없이 `NEEDS_HUMAN`·종료 코드 2다. 브로커는 같은 SHA 저장소의 파일을 넘긴다(`bravo-subscription run --iac-state`가 아니라 호출자가 `args.iac_state`로 지정).
+
+T10의 최초 제안 입력은 바꾸지 않는다(11/6 류지환 확인: `failure_code=CODE_CHANGE_REQUIRED`, `summary`=항목 `rationale`, `evidence_digest`=T16 문서 digest에서 `sha256:`를 뺀 값). T38 제품 경로(`ProductInput` · `invoke_product_worker`)는 인벤토리를 아직 전달하지 않는다. `run_worker`는 `args.inventory`가 없으면 기존 명령을 그대로 만든다. 제품 경로에 붙일 때의 제안 필드는 [ADR-0019 4절](../../docs/adr/0019-agent-tool-boundary.md#4-결과-consequences)에 적었고 T38·T10 담당 합의 전에는 구현하지 않는다.
+
 관리자 등록·최소 AWS 권한·갱신·회수 절차는 [구독 연결 운영 가이드](subscription.md)를 따른다. 기본 `bravo-agent analyze`도 `chatgpt-plan`을 선택하며 호출 프로세스의 `ACCESS_TOKEN`을 요구한다. 별도 API 청구를 운영자가 명시적으로 선택할 때만 `--provider openai`와 `OPENAI_API_KEY`를 쓴다. 이 PR의 구독 실행은 API 키를 사용하지 않는다.
 
 Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provider claude`를 명시하며 플랫폼의 `ANTHROPIC_API_KEY`만 전달한다. 기본 production 이미지에는 Claude CLI를 포함하지 않는다.
@@ -58,7 +80,7 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 
 ## 도구와 입력 경계
 
-- OpenAI에는 strict 함수 도구 두 개만 제공하고 built-in shell·web·computer·code interpreter 도구는 제공하지 않는다. 모든 호출을 정확한 이름으로 분기하고 정책 핸들러에서 다시 검사한다. `parallel_tool_calls=False`, `store=False`, `max_retries=0`이며 API endpoint는 `https://api.openai.com/v1`로 고정한다.
+- OpenAI에는 위 표의 strict 함수 도구만 제공하고 built-in shell·web·computer·code interpreter 도구는 제공하지 않는다. 모든 호출을 정확한 이름으로 분기하고 정책 핸들러에서 다시 검사한다. `parallel_tool_calls=False`, `store=False`, `max_retries=0`이며 API endpoint는 `https://api.openai.com/v1`로 고정한다.
 - Claude 선택 경로는 `tools=[]`로 내장 도구를 제거한다. `allowed_tools`만으로는 배타적 화이트리스트가 되지 않는다. 모든 도구 호출의 `PreToolUse` 훅과 MCP 핸들러가 각각 검사한다. MCP 하나, `strict_mcp_config=True`, `setting_sources=[]`, `skills=[]`, 빈 플러그인·서브에이전트 설정, `dontAsk`, 실행별 빈 SDK 작업 디렉터리, 자동 메모리 끔을 사용한다.
 - SDK의 `env`는 부모 환경을 덮어쓰는 옵션일 뿐 대체하지 않는다. 전용 CLI 프로세스에서 PATH·locale·**선택한 제공자의** 모델 자격만 선택하고 HOME·설정 경로를 실행별 임시 디렉터리로 교체한다. AWS·GitHub·kubeconfig·개인 OAuth·다른 제공자의 키·사용자 지정 API endpoint 환경값은 전달하지 않는다. 라이브러리 호출은 공유 프로세스의 환경을 바꾸지 않으며, 격리되지 않은 환경에서 모델 호출을 거부한다.
 - 파일 목록은 최대 64개, 한 파일 32 KiB, 수정 가능 경로 최대 8개다. 정확한 manifest 경로만 읽으며 경로 탈출·숨김/테스트/자격증명 경로·심볼릭 링크·하드링크·변경된 바이트를 거부한다. 모델 입력에 비공개 테스트나 원시 운영 로그를 넣지 않는다.
@@ -88,24 +110,69 @@ Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지
 | 독립 결과 | 다음 상태 |
 |---|---|
 | 결속 일치, PASS, 효과 확인 | `AWAITING_APPROVAL` — 승인·반영은 별도 |
-| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달 |
+| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달. 모델 입력은 `task`(원 작업: 목적 · 수정 가능 파일) + `failure`(최신 검증 피드백) + `attempt` + `snapshot`이며 재시도에서도 `task`는 바뀌지 않는다(`Tools.model_input`) |
 | FAIL 3회, UNKNOWN, 효과 미확인, 결속 불일치 | `NEEDS_HUMAN` |
 
-실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
+실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. Coordinator는 원 작업 번들을 `task`로 보존하고 결과 · 각 시도에 `task_digest`를 남긴다. 러너가 재시작하면 확인되지 않은 시도를 자동 재실행하지 않고 사람에게 넘긴다(아래 [재시작과 상태 보존](#재시작과-상태-보존), 저장은 T10). 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
 
-허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다.
+결속이 어긋난 영수증(다른 `proposal_digest`·`attempt`·`run_id`·`source_sha`, 실패 증거 digest 불일치)은 시도 기록에 넣지 않고 감사 이벤트의 `RECEIPT_MISMATCH` 사유만 남긴다.
 
-이 coordinator는 프로세스 안의 상태다. T10은 동일 run의 단일 실행 권한·시도 수·이전 영수증을 영속화해야 하며 프로세스를 새로 띄워 시도 수를 초기화하면 안 된다. CLI는 최초 제안 한 번만 수행한다. T15의 실제 Job 실행, hidden-test 격리, 영수증의 인증된 전달·영속 저장, 승인 소비와 T31 반영은 구현하지 않았다.
+허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다. coordinator 자체의 중단 이벤트(`tool=coordinator`)도 그 시도의 `audit_event_count`에 더한다. 그래서 "그 시도의 `independent_verifier` 외 이벤트 수 = `audit_event_count`"라는 T15 `attempt_tool_events`의 검사가 중단 뒤에도 맞는다.
+
+### 재시작과 상태 보존
+
+coordinator는 프로세스 안의 객체지만 상태를 문서로 내보내고 새 프로세스에서 이어 갈 수 있다. 저장·잠금은 T10/T15 몫이고 T11은 API와 검사만 제공한다.
+
+- `Coordinator(..., checkpoint=fn)`: 상태가 바뀔 때마다 `fn(export_state())`를 부른다. 모델 호출 **전**에 `ANALYZING` 상태를 먼저 넘긴다(write-ahead). 이 저장이 실패하면 모델을 부르지 않고 `NEEDS_HUMAN`(`STATE_CHECKPOINT_FAILED`)으로 멈춘다. 호출 뒤·영수증 처리 뒤 저장 실패도 같은 사유로 멈춘다.
+- `Coordinator.export_state() -> dict`: JSON으로 그대로 저장할 수 있는 문서. `state_digest`는 나머지 필드의 T11 `digest`(정렬 키·구분자 고정 JSON의 SHA-256)다.
+- `Coordinator.restore(state, snapshot, inventory=None, checkpoint=None)`: 필드 집합·`state_digest`·버전·run/revision 결속·snapshot·inventory digest·시도 기록 수·상태와 기록의 일치를 확인한다. 저장된 영수증마다 `verify()`와 같은 규칙으로 판정을 다시 계산한다(`proposal_digest`·`attempt`·`source_sha`·효과 확인·실패 증거 digest). 앞선 시도는 모두 영수증이 있고 `RETRY_ALLOWED`로 끝나야 하며, 각 시도의 입력은 원 작업(1회째) 또는 직전 영수증의 `failure`와 같아야 하고, 기록된 상태·`bundle`도 다시 계산한 판정과 맞아야 한다. 하나라도 어긋나면 `StateRejected`이며 호출자는 새로 시작하지 않고 사람에게 넘긴다.
+- 복원 규칙: `ANALYZING`(모델 호출 중이라 결과 모름)은 `NEEDS_HUMAN`으로 바꾸고 그 시도를 쓴 것으로 센다(`RESTART_OUTCOME_UNKNOWN`). 다시 실행하지 않는다. 시도 수는 문서의 `attempt`를 이어 받으므로 재시작해도 합계 3회를 넘지 않고, 3회째의 `RETRY_ALLOWED` 문서는 거부한다. 복원한 `PROPOSAL_READY`의 `verify()`는 같은 `proposal_digest`·`attempt`·`run_id` 영수증만 받는다.
+- `bravo-agent analyze --state-output <새 파일>`은 같은 checkpoint를 남긴다. 경로가 이미 있으면(끊어진 심볼릭 링크 포함) 시작하지 않는다. 같은 디렉터리의 고유한 임시 파일(`mkstemp`, 0600)에 쓰고 fsync한 뒤, 첫 저장은 `os.link`(그사이 이름이 생겼으면 실패), 이후 저장은 `os.replace`로 바꾸고 디렉터리도 fsync한다. 고정 이름 임시 파일이 없어 중단된 실행이 다음 실행을 막지 않는다.
+
+T10/T15가 저장할 필드(`schema_version` 1, `kind=bravo.t11.coordinator_state`):
+
+| 필드 | 뜻 |
+|---|---|
+| `run_id`, `source_sha` | 원 작업의 결속 값 |
+| `snapshot_digest`, `inventory_digest` | 복원할 때 넘기는 snapshot manifest와 T16 요약의 digest(없으면 `null`) |
+| `revision` | 상태 전이마다 1 증가. 저장소는 `revision`이 정확히 1 큰 문서만 받는 비교 후 쓰기로 동시 실행·오래된 쓰기를 막는다 |
+| `attempt`, `state` | 쓴 시도 수(0~3)와 `READY`·`ANALYZING`·`PROPOSAL_READY`·`RETRY_ALLOWED`·`AWAITING_APPROVAL`·`NEEDS_HUMAN` |
+| `task`, `bundle` | 원 작업 `FailureBundle`과 최신 검증 피드백 |
+| `proposal`, `proposal_digest` | 마지막 제안서와 digest |
+| `attempts`, `audit` | 시도별 정리된 입력·제안·영수증(있으면 OTEL 추적 참조 `observability`도 그대로), 코드가 정한 감사 이벤트 |
+| `state_digest` | 위 필드 전체의 digest |
+
+`state_digest`는 손상·부분 수정 탐지이며 서명이 아니다. digest를 다시 계산해 넣은 문서는 내용 규칙(시도 수와 기록 수, 3회 상한, 영수증 재판정과 상태·입력 일치)으로만 막힌다. 내용 규칙으로 막을 수 없는 변조도 있다. 예를 들어 3회째 시도 기록과 그 감사 이벤트를 함께 지우고 `attempt`를 2로 낮춰 2회째 `RETRY_ALLOWED` 문서로 되돌리면, 그 문서는 정상 경로가 실제로 만든 문서와 같아 구별할 수 없다. 위조 방지·단일 실행 권한·되돌리기 금지는 T10 저장소의 접근 제어와 `revision` 비교로 보장해야 한다. 문서에는 모델 자격·원시 인자·provider 오류 문자열이 없다(결과 파일과 같은 내용). T10 저장·T15 영수증의 인증된 전달과 실제 재시작 운영은 연결하지 않았다. CLI는 최초 제안 한 번만 수행하며 재시도 실행 경로는 T10 제어 경로가 `restore()`로 연다. T15의 실제 Job 실행, hidden-test 격리, 승인 소비와 T31 반영은 구현하지 않았다.
 
 ## 플랫폼 배포 조건과 현재 증거
 
 워커는 플랫폼에서 비루트 사용자·읽기 전용 root filesystem으로 실행한다. `/tmp`만 실행별 임시 쓰기를 허용하고 snapshot은 읽기 전용 볼륨으로 준다. 서비스 계정 token 자동 마운트, hostPath, host network, privileged, 운영 kubeconfig·DB 자격증명을 금지한다. CPU·메모리·시간 한도를 두고 모델 endpoint로의 송신만 허용해야 한다. 리허설 guest와 검증 Job은 T3/T15의 별도 격리 공간이다.
 
-`Dockerfile`은 잠긴 의존성을 설치하고 UID/GID 10001로 CLI를 실행한다. 실행할 때 `--read-only`, `/tmp`의 제한된 tmpfs, 입력 볼륨 `:ro`, 별도 결과 볼륨, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, PID·CPU·메모리 한도를 적용해야 한다. Kubernetes Job의 구체적인 namespace·이미지 digest·Secret 참조·송신 정책은 T7 플랫폼 배포에서 결속한다. 임의 Secret 이름이나 열린 네트워크 정책을 기본 배포로 추가하지 않았다.
+`Dockerfile`은 잠긴 의존성을 설치하고 UID/GID 10001로 CLI를 실행한다. T44 계획 라이브러리(`../iac`)가 path 의존성이므로 저장소 루트에서 `docker build -f services/agent-worker/Dockerfile .`로 빌드한다. 실행할 때 `--read-only`, `/tmp`의 제한된 tmpfs, 입력 볼륨 `:ro`, 별도 결과 볼륨, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, PID·CPU·메모리 한도를 적용해야 한다. Kubernetes Job의 구체적인 namespace·이미지 digest·Secret 참조·송신 정책은 T7 플랫폼 배포에서 결속한다. 임의 Secret 이름이나 열린 네트워크 정책을 기본 배포로 추가하지 않았다.
 
 로컬 시험은 설치된 OpenAI SDK 3.42.1·Claude Agent SDK 0.2.177과 가짜 API/provider를 사용하는 기능/공격 입력 검증이다. OpenAI 함수 스키마·요청 옵션, Claude CLI 인자 생성도 확인한다. 로컬 시험만으로 실제 모델·클라우드 동작을 검증했다고 주장하지 않는다. 별도 [AWS 실행 기록](../../docs/evidence/t11-ci-2026-11-03/README.md)에는 같은 코드의 74개 시험, arm64 이미지 빌드, 제한된 컨테이너 5개 시나리오 결과가 있다. 별도 [공식 CLI 계정 검증](../../docs/evidence/t11-ci-2026-11-03/openai-account-local.md)에서는 기존 ChatGPT 로그인으로 실제 모델 응답을 받아 제안서 정책을 통과했다. 이후 [AWS 구독 진단](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)에서 실제 모델의 읽기·제안 도구와 제안서 수집도 확인했다. 이후 [관리자 SIWC와 Secrets 경로](../../docs/evidence/t11-subscription-2026-11-03/README.md)에서도 AWS 실제 제안 2회와 재로그인 없는 세션 재사용, 로컬·AWS 177개 시험을 확인했다. 일반 API 키 인증·실제 갱신/회수·GCP·상시 무인 배포·T15 검증 Job은 별도 미검증이다. T7 런타임·T15 검증 경로와 통합하기 전에는 T11 전체 완료로 체크하지 않는다.
 
 근거: [팀 설계 8.3](../../docs/design.html#s8-3), [T11·T15 작업 계획](../../docs/tasks.md), [OpenAI 함수 호출](https://developers.openai.com/api/docs/guides/function-calling), [Responses 상태 보관](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Claude SDK Python 문서](https://code.claude.com/docs/en/agent-sdk/python), [Claude SDK 권한 평가 순서](https://code.claude.com/docs/en/agent-sdk/permissions). SDK 버전과 전이 의존성은 `uv.lock`에 고정했다.
+
+## 시도별 도구 기록 내보내기 (T15 · T38)
+
+`tool_events.py`는 한 시도의 도구 기록을 꺼내는 T11의 정본 함수다. 기록에는 코드가 정한 값(도구 이름·결과·사유·`category`·digest)만 있고 모델 인자는 없다. 의심스러우면 목록 전체를 내보내지 않으며, 일부만 걸러 내지 않는다(T24가 위치로 색인한다).
+
+- `attempt_tool_events(source, attempt, *, run_id=None) -> tuple[dict, ...]`: `source`는 살아 있는 `Coordinator` 또는 그 `result()` dict다(JSON 왕복 뒤 포함, T38 제품 경로는 워커 결과 dict만 가진다). 그 시도의 이벤트 중 `independent_verifier`를 뺀 것을 원래 순서대로 돌려준다. 그 시도 기록이 정확히 하나이고 `audit_truncated is False`이며 `audit_event_count`가 이벤트 수와 같을 때만이다. coordinator 중단 이벤트(`tool=coordinator`, PR #372)는 그 시도의 수에 들어가므로 #372 병합 전후 모두 맞다. 어긋나면 `ToolEventsUnavailable`(`ValueError`)이다. `run_id`를 주면 결과의 run과 같아야 한다.
+- `validate_tool_events(events, run_id, attempt) -> tuple[dict, ...]`: 최대 256개(T15 `collect_tool_events`와 같은 상한), 이벤트마다 필드 16개 이하·이름 `[a-z][a-z0-9_]{0,31}`, 필수 `run_id`·`attempt`·`tool`·`outcome`·`reason`, `run_id`·`attempt`가 인자와 같아야 한다. `tool`은 `[a-z][a-z0-9_.]{0,63}`이고 `independent_verifier`가 아니다. `outcome`·`reason`은 대문자 코드다. 값은 str(출력 가능한 ASCII 256자 이하)·int(±2^53-1)·bool만 허용한다. 같은 규칙의 JSON Schema(draft 2020-12)가 `TOOL_EVENTS_SCHEMA`이며, run·attempt 결속과 `1.0` 같은 실수 거부는 스키마로 표현되지 않아 함수가 따로 확인한다. 검사한 사본을 돌려준다.
+- `tool_events_projection(source, attempt, *, run_id=None) -> dict`: `{"tool_events_status": "COMPLETE", "tool_events": [...]}` 또는 `{"tool_events_status": "UNAVAILABLE"}`. T15 `collect_tool_events`의 출력 모양과 같다.
+
+T15 `bucket_proposer.attempt_tool_events`와 선택·순서·개수 검사가 같다(`tests/test_tool_events.py`가 T15 함수 사본을 기준으로 OpenAI 모의 전송의 실제 coordinator 실행에서 비교한다). 다른 점은 더 엄격하다는 것뿐이다: 다른 run의 이벤트, bool `attempt`, 스칼라가 아닌 값은 T11에서 거부한다(다른 run과 스칼라가 아닌 값은 T15 `collect_tool_events`도 서명 전에 거부한다). T15 코드는 바꾸지 않았고, 이 함수로 바꿀지는 T15 담당이 정한다.
+
+### T38 응답 연결 제안 (미구현, T38 담당 동의 필요)
+
+지금 T38 `proposal_result`는 `tool_events_status: "UNAVAILABLE"`로 고정하고 `validate_bound_product_response`도 그 값만 받는다. 아래는 **제안**이며 T38 코드는 바꾸지 않았다.
+
+- `proposal_result`: `**tool_events_projection(result, 1, run_id=bundle.run_id)`를 더한다. 완전하면 `tool_events_status: "COMPLETE"`와 `tool_events`(배열), 아니면 `"UNAVAILABLE"`이고 `tool_events` 키가 없다.
+- `validate_bound_product_response`: 응답 필드에 선택 키 `tool_events`를 두고, `COMPLETE`면 `validate_tool_events(result["tool_events"], result["run_id"], result["attempt"])`, `UNAVAILABLE`이면 `tool_events`가 없어야 한다. 다른 값은 거부한다.
+- 저널의 `result_digest`와 멱등 재응답이 이 필드를 포함하게 되므로, 기존 저널 기록과의 호환은 T38에서 정한다.
+
+알려진 한계: 구독 경로(`chatgpt-plan`, T38이 쓰는 경로)는 첫 응답 진단 이벤트 `FIRST_RESPONSE_SHAPE`(`tool=model`, `outcome=OBSERVED`)에 중첩 카운터(`stream_added`·`stream_done`·`terminal_items`, 경우에 따라 `rejected_event`)와 `null`(`bravo_namespace_matches`)을 남긴다. str/int/bool 계약 밖이므로 **지금은 구독 경로의 시도가 모두 `UNAVAILABLE`**이다(시험으로 고정). 그 이벤트만 빼지 않는다. 진단 이벤트를 스칼라 필드로 펴는 것은 후속 T11 작업이다. API 키 경로와 Claude SDK 경로의 기록은 계약 안이다.
 
 ## 운영자가 직접 수행하는 구독 계정 검증
 
@@ -130,3 +197,30 @@ uv run python -m bravo_agent.account_smoke \
 - 계정 인증 성공, 모델 응답 성공, 정책을 통과한 제안서를 별도로 확인한다. `usageLimitExceeded` 등은 원문·계정 정보 없이 허용된 오류 분류만 기록하고 `NEEDS_HUMAN`으로 종료한다. 이 결과는 T15 검증·승인·배포 성공이 아니다.
 
 실측 결과와 실행 소스 결속은 [클라우드 계정 검증 기록](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)을 따른다.
+
+## SDK 실행 추적
+
+OpenAI API 키·SIWC 구독 모두 `openai-agents==0.24.0`의 `Agent`, `Runner`,
+`FunctionTool`을 사용한다. `BoundedResponsesModel`은 기존 구독 네임스페이스와
+완결 스트림만 수락하는 전송 계약을 유지한다. SDK가 실행 반복·함수 호출·이력을
+관리하며 최대 8회, 180초, 누적 32,000 토큰의 기존 한도를 유지한다. 같은 호출 ID를
+다른 동작에 재사용하는 응답도 SDK가 거부한다. 모델/인증 제공자 자동 전환은 없다.
+
+`telemetry.py`는 OpenAI SDK의 task/turn/agent/generation/function span을 플랫폼 OTEL로
+보내고 Claude SDK의 도구·결과 사용량도 같은 실행 추적에 묶는다. 결과의 각 attempt에
+`observability.trace_id`, `sdk`, `sdk_trace_id`가 붙는다. OpenAI SDK trace ID는
+`trace_`와 동일 OTEL trace ID를 결합하므로 실행 기록과 저장소의 trace를 바로 대조할 수 있다.
+프롬프트·응답 본문·도구 인자/출력·원시 오류·자격증명은 추적에 넣지 않는다.
+
+전용 프로세스에 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`를 설정하면 제한된 배치 큐로
+OTLP/HTTP 전송한다. HTTPS 또는 클러스터 내부 `.svc`/`.svc.cluster.local` HTTP의 `/v1/traces`만
+수락한다. TLS를 사용할 때에는 `OTEL_EXPORTER_OTLP_CERTIFICATE`,
+`OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_KEY` 파일 참조를
+선택한다. 이 네 설정만 격리 환경에 추가 전달하며 trace exporter에 SIWC/API 키를
+전달하지 않는다. SDK 기본 OpenAI trace exporter는 플랫폼 OTEL processor로 대체한다.
+설정이 없으면 로컬 span 문맥·상관 ID만 생성하고 외부 전송은 하지 않는다.
+
+공식 인터페이스: [Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk),
+[SDK 관측](https://developers.openai.com/api/docs/guides/agents/integrations-observability).
+
+OTEL 설정이 잘못되면 exporter만 비활성화하고 `TELEMETRY_EXPORT_DISABLED` 코드를 남긴다. 모델 시도·도구 정책은 계속 실행하며 원시 설정값은 감사에 넣지 않는다.

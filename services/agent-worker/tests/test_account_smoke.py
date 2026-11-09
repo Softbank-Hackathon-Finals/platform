@@ -101,8 +101,20 @@ def test_subscription_tools_share_existing_policy(context, tmp_path):
     assert [e["tool"] for e in result["audit"]] == ["repo.read", "plan.propose", "model"]
     thread = session.sent[0][1]
     assert thread["environments"] == [] and thread["ephemeral"]
-    assert {tool["name"] for tool in thread["dynamicTools"]} == {"repo_read", "plan_propose"}
+    assert {tool["name"] for tool in thread["dynamicTools"]} == {"repo_read", "plan_propose", "policy_evaluate"}
     assert not thread["allowProviderModelFallback"]
+
+
+def test_reserved_dynamic_tool_call_is_audited_like_other_paths(context, tmp_path):
+    bundle, snapshot, proposal, _ = context
+    session = Session(tmp_path, [tool_event("rehearsal_exec", {"command": "terraform destroy -auto-approve"}),
+                                tool_event("rehearsal_result", {"job": "j"}), tool_event("plan_propose", proposal),
+                                usage(), completed()])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(AccountSmokeProvider(session, "test-model")))
+    assert result["state"] == "PROPOSAL_READY"
+    assert [(e["tool"], e["reason"], e.get("category")) for e in result["audit"][:2]] == [
+        ("rehearsal.exec", "DESTRUCTIVE_ATTEMPT_BLOCKED", "terraform_destroy"), ("rehearsal.result", "TOOL_NOT_PROVIDED", None)]
+    assert "terraform destroy" not in json.dumps(result)
 
 
 @pytest.mark.parametrize("event", [

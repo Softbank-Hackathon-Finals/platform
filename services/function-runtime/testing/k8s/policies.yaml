@@ -1,0 +1,25 @@
+# 앞단 보완의 접근 제어. 수신을 기본 거부하고 두 경로만 연다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny-ingress, namespace: t46-queue-sec }
+spec: { podSelector: {}, policyTypes: [Ingress] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: elasticmq-from-tls-proxy-only, namespace: t46-queue-sec }
+spec:
+  podSelector: { matchLabels: { app: elasticmq } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app: queue-tls } } }]
+      ports: [{ port: 9324, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: tls-proxy-from-queue-clients-only, namespace: t46-queue-sec }
+spec:
+  podSelector: { matchLabels: { app: queue-tls } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { role: queue-client } } }]
+      ports: [{ port: 9443, protocol: TCP }]

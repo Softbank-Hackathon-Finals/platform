@@ -1,0 +1,734 @@
+{
+ "baseline_passed": true,
+ "total": 121,
+ "caught": 121,
+ "survived": [],
+ "results": [
+  {
+   "file": "policy.py",
+   "removed": "DB Pod를 고르는 선택자 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_selector_shared_with_db_pods_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "복제 경로에 건 차단 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_block_declared_on_the_replication_path_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "허용 목록에도 있는 차단 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_destination_both_allowed_and_blocked_is_refused[local0-blocked0]"
+  },
+  {
+   "file": "policy.py",
+   "removed": "차단 경로로만 의존성 측정 인정",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_role_on_a_kept_route_does_not_count_as_measured"
+  },
+  {
+   "file": "policy.py",
+   "removed": "계획 해시에 후보 포함",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_editing_any_part_of_the_plan_breaks_it[candidate]"
+  },
+  {
+   "file": "policy.py",
+   "removed": "경로 주인 역할 검사",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_replication_owned_by_app_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "기존 허용(합집합) 거부",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_render_refusal_lists_codes_and_exits_1"
+  },
+  {
+   "file": "policy.py",
+   "removed": "이미 막힌 복제 경로 거부",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_replication_kept_only_through_own_namespace_label_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "hostNetwork Pod 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_host_network_pod_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "명세에 없는 Pod 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_unclassified_running_pod_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "정책을 앱 역할에만 만들기",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_manifests_select_only_app_role_workloads"
+  },
+  {
+   "file": "policy.py",
+   "removed": "송신만 다루기",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_manifests_change_egress_only_so_ingress_replication_stays"
+  },
+  {
+   "file": "policy.py",
+   "removed": "클러스터 밖으로 나가는 허용 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_local_route_that_leaves_the_cluster_is_refused[to0]"
+  },
+  {
+   "file": "policy.py",
+   "removed": "계획 해시에 결정 포함",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_editing_any_part_of_the_plan_breaks_it[decisions]"
+  },
+  {
+   "file": "policy.py",
+   "removed": "아무것도 안 고르는 선택자 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_selector_that_matches_nothing_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "대조군이 차단되는 선택자 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_control_selected_by_policy_is_refused"
+  },
+  {
+   "file": "policy.py",
+   "removed": "복제 경로는 5432만",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_replication_must_stay_postgres_over_tailnet"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "포트를 비운 허용 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_wider_port_on_a_declared_peer_is_refused"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "matchExpressions 해석",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_selector_matches[selector5-labels5-False]"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "모르는 선택자 연산 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_snapshot_item_stops[bad_item1]"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "다른 네임스페이스 읽기 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_snapshot_of_another_namespace_stops"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "ipBlock으로 복제 경로를 단정하지 않기",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_ip_block_cannot_prove_a_path_in_the_same_namespace_either"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "자기 네임스페이스만 가리키는 peer 해석",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_same_labels_in_own_namespace_is_not_the_proxy"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "수신 경로의 포트 확인",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_ingress_rule_on_another_port_does_not_admit"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "이름을 안 보는 네임스페이스 선택자 거부",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_namespace_selector_that_does_not_name_the_namespace_cannot_be_proven[selector0]"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "빈 egress는 송신 제한이 아님",
+   "caught": true,
+   "first_failure": "tests/test_cluster.py::test_missing_types_with_empty_egress_does_not_limit_egress"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "제한 정책이 없으면 기본 허용",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_render_prints_plan"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "policyTypes 생략 시 기본 해석",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_policy_without_types_always_limits_ingress"
+  },
+  {
+   "file": "policy.py",
+   "removed": "역방향 복제를 수신으로 보기",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_egress_policy_allowing_the_outgoing_channel_passes"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "끊긴 내부 · 복제 경로를 실패로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_broken_local_path_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "실패한 새 연결을 실패로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_failed_new_connection_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "새 연결 결과가 참일 때만 통과",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_non_boolean_ok_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 전 복제 동작 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_stream_not_running_before_block_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "Pod가 없으면 실패",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_no_pods_after_restart_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "정책이 이미 있는 차단 전 측정 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_baseline_taken_with_policy_in_place_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "계획 밖 Pod를 통과로 안 치기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_pod_outside_the_plan_is_unknown"
+  },
+  {
+   "file": "observation.py",
+   "removed": "계획 밖 Pod 기록",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_pod_outside_every_workload_is_listed"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "컨테이너 재시작 없이는 시작 증거로 안 치기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_pod_replacement_alone_does_not_prove_startup"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "대상 컨테이너 상태를 모르면 판정 보류",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_name]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "이름 없는 대상과 이름 없는 관측을 같다고 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_plan_without_container_name_cannot_pass"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "계획이 정한 이름의 컨테이너인지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_name]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "지금 도는 컨테이너 ID가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_id]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "빈 컨테이너 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>2-container_id]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "공백뿐인 컨테이너 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_blank_ids_in_record_and_last_state_prove_nothing["
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재시작 기록의 빈 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_blank_ids_in_record_and_last_state_prove_nothing[]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "대상 컨테이너 재시작 횟수가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-restarts]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "다른 컨테이너 재시작 횟수가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-other_restarts]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 아래에서 다시 뜬 사이드카를 통과로 안 치기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_sidecar_crash_beside_the_approved_restart_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재시작 기록과 관측 대조",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[1]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "기록의 컨테이너 이름 대조",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[record4]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "기록한 컨테이너가 실제로 끝났는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[record6]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "지금 도는 컨테이너가 기록과 다른지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_container_that_kept_its_id_did_not_restart"
+  },
+  {
+   "file": "observation.py",
+   "removed": "첫 컨테이너를 앱으로 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "같은 이름이 둘이면 모른다고 두기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_missing_or_duplicate_name_gives_no_evidence[containers3]"
+  },
+  {
+   "file": "observation.py",
+   "removed": "컨테이너 재시작 횟수를 합산하지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "가장 늦은 컨테이너 시작을 앱 시작으로 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "끝난 컨테이너 ID 읽기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_replaced_container_id_comes_from_the_last_state"
+  },
+  {
+   "file": "observation.py",
+   "removed": "재시작 가능한 사이드카도 세기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_other_restarts_count_init_containers"
+  },
+  {
+   "file": "observation.py",
+   "removed": "다른 컨테이너 재시작 기록",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "policy.py",
+   "removed": "계획에 대상 컨테이너 결속",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_plan_names_the_container_to_judge_for_each_app_role"
+  },
+  {
+   "file": "policy.py",
+   "removed": "Pod에 없는 컨테이너 이름 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_named_container_missing_from_a_pod_is_refused"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "Pod의 컨테이너 이름 읽기",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_render_prints_plan"
+  },
+  {
+   "file": "spec.py",
+   "removed": "앱 역할 밖의 컨테이너 이름 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_spec_stops[<lambda>30]"
+  },
+  {
+   "file": "spec.py",
+   "removed": "앱 역할은 컨테이너 이름 필수",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_spec_stops[<lambda>27]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "Pod가 정책에 묶인 뒤의 재시작인지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_in_place_restart_too_soon_after_pod_start_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "정책 생성 시각과 재시작 대조",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_policy_created_after_the_restart_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "정책 생성 시각을 모르면 판정 보류",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_unknown_policy_creation_time_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 뒤 hostNetwork Pod 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_host_network_pod_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "모양이 틀린 관측을 UNKNOWN으로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_values_of_the_wrong_type_are_unknown_not_a_crash[<lambda>0]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "오래된 차단 전 측정 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_baseline_from_long_ago_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "LSN 표본을 시간순으로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_stream_samples_are_ordered_by_time_not_by_text"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "알아볼 수 없는 Pod 항목 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_garbage_pod_entry_is_not_dropped"
+  },
+  {
+   "file": "spec.py",
+   "removed": "새 연결 시험 이름 중복 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_spec_stops[<lambda>26]"
+  },
+  {
+   "file": "cli.py",
+   "removed": "처리 못 한 입력이 FAIL로 읽히지 않게",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_probe_with_bad_request_exits_2_not_1[not"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "시키지 않은 재시작 구분",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_induced_record_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "컨테이너 재시작 뒤의 새 연결인지 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_connection_before_the_in_place_restart_is_not_new"
+  },
+  {
+   "file": "observation.py",
+   "removed": "재시작 기록 전달",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_assemble_builds_observation"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "열린 AWS 경로를 실패로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_open_aws_path_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "대조군 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_failed_positive_control_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 전 열림 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_path_never_open_before_block_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "이름 풀이 실패를 거부로 안 세기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_ambiguous_failure_is_not_denial[dns_failure]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "실제 재시작 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_pods_that_did_not_restart_are_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "준비 안 된 Pod를 실패로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_pod_not_ready_after_restart_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "LSN이 안 움직이면 판정 보류",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_idle_stream_is_unknown_not_pass"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "LSN을 수로 비교",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_lsn_compares_as_number_not_text"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "끊긴 복제를 실패로",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_stopped_stream_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "쓰기 대상 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_cutover_not_confirmed_is_unknown[cutover0]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 뒤 합집합 재확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_wider_policy_found_after_block_fails"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "측정 중 정책 변경 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_policy_changed_during_observation_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "다른 네임스페이스의 정책 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_same_named_policy_in_another_namespace_is_not_the_plan"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "손으로 고친 계획 판정 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_hand_edited_plan_is_unknown"
+  },
+  {
+   "file": "cli.py",
+   "removed": "손으로 고친 계획 사용 거부",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_hand_edited_plan_cannot_be_used[command0]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 전 측정값 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_after_measured_before_block_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "UNKNOWN을 통과로 안 세기",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_check_with_no_usable_evidence_is_unknown_exit_3"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재시작 뒤의 새 연결인지 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_connection_from_before_restart_is_not_new"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재는 Pod 신원 확인",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_complete_good_evidence_passes"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "잴 수 없는 의존성 표시",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_dependency_that_cannot_be_probed_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "적용된 정책이 계획과 같은지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_policy_differing_from_plan_is_unknown"
+  },
+  {
+   "file": "inventory_input.py",
+   "removed": "T16 버전 확인",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_render_with_broken_contract_exits_2"
+  },
+  {
+   "file": "inventory_input.py",
+   "removed": "다른 종류 후보의 목적지 구현 안 쓰기",
+   "caught": true,
+   "first_failure": "tests/test_inventory_input.py::test_target_implementation_of_another_kind_is_not_used"
+  },
+  {
+   "file": "inventory_input.py",
+   "removed": "AWS가 아닌 출발지 구분",
+   "caught": true,
+   "first_failure": "tests/test_inventory_input.py::test_source_other_than_aws_has_no_aws_services"
+  },
+  {
+   "file": "inventory_input.py",
+   "removed": "T16 해시 확인",
+   "caught": true,
+   "first_failure": "tests/test_inventory_input.py::test_tampered_document_stops"
+  },
+  {
+   "file": "inventory_input.py",
+   "removed": "후보 환경 고르기",
+   "caught": true,
+   "first_failure": "tests/test_inventory_input.py::test_candidate_selects_its_own_residuals"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "드릴 전체 통과 조건",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_open_aws_path_means_the_dependency_remains"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "다른 후보로 지도 만들기 거부",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_map_refuses_candidate_other_than_the_plans"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "끊긴 복제를 유지로 안 보이기",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_broken_channel_is_not_shown_as_kept"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "모르는 판정값을 통과로 안 치기",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_unrecognized_check_result_is_not_a_pass"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "차단 안 한 워크로드 표시",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_workload_the_drill_did_not_block_is_listed"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "대체 없음은 남음",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_grade_none_remains_even_when_drill_passed"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "에이전트 확인 대기 표시",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_rule_grade_waiting_for_agent_stays_unknown"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "외부 서비스 표시",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_residual_services_remain_with_source_recorded"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "남긴 복제 채널 표시",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_replication_channels_are_shown_as_kept"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "다른 시험의 판정 거부",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_map_with_foreign_report_exits_2"
+  },
+  {
+   "file": "residual_map.py",
+   "removed": "다른 인벤토리 거부",
+   "caught": true,
+   "first_failure": "tests/test_residual_map.py::test_map_refuses_inventory_other_than_the_plans"
+  },
+  {
+   "file": "probe.py",
+   "removed": "데이터를 보내지 않기",
+   "caught": true,
+   "first_failure": "tests/test_probe.py::test_tcp_probe_sends_no_data"
+  },
+  {
+   "file": "probe.py",
+   "removed": "대상 개수 제한",
+   "caught": true,
+   "first_failure": "tests/test_probe.py::test_run_refuses_to_become_a_port_scanner"
+  },
+  {
+   "file": "probe.py",
+   "removed": "이름 풀이 실패 구분",
+   "caught": true,
+   "first_failure": "tests/test_probe.py::test_name_failure_is_not_denial"
+  },
+  {
+   "file": "observation.py",
+   "removed": "모르는 준비 상태를 모른다고 두기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_missing_condition_stays_unknown"
+  },
+  {
+   "file": "observation.py",
+   "removed": "끝난 Pod 빼기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_terminating_and_finished_pods_are_not_counted"
+  },
+  {
+   "file": "observation.py",
+   "removed": "hostNetwork 기록",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_host_network_pod_is_marked"
+  },
+  {
+   "file": "cli.py",
+   "removed": "판정을 종료 코드로 알리기",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_check_with_no_usable_evidence_is_unknown_exit_3"
+  }
+ ]
+}

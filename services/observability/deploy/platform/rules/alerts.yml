@@ -1,0 +1,199 @@
+# T37 관측 경로 알림. 런북: docs/observability/runbooks.md
+# 모두 Collector가 출처 라벨을 붙인 지표만 본다: 수집 경로는 bravo_signal="collector-self", DB는 bravo_signal="cnpg-scrape".
+# 앱 경로는 이 라벨을 지우므로 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
+# 환경 이름(aws · onprem · platform)은 데모에 등록한 환경이다. platform은 플랫폼 클러스터 자신이다. 환경을 추가하면 absent 줄도 추가한다.
+groups:
+  - name: bravo-telemetry
+    rules:
+      - alert: BravoEnvUnobservable
+        # 최근 수신이 30초를 넘었거나(수집 간격 10초의 3배), 5분 조회 범위 안에 아예 없으면 확인 불가
+        expr: |
+          max by (bravo_env) (
+            (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) > 30
+            or (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) < 0
+            or max by (bravo_env) (up{bravo_signal="collector-self"}) != 1
+            or absent(up{bravo_signal="collector-self", bravo_env="aws"})
+            or absent(up{bravo_signal="collector-self", bravo_env="onprem"})
+            or absent(up{bravo_signal="collector-self", bravo_env="platform"})
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }} 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+          runbook: docs/observability/runbooks.md#bravoenvunobservable
+      - alert: BravoTelemetryExportFailing
+        expr: sum by (bravo_env) (increase(otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self"}[5m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector가 플랫폼 전송에 실패했다 (최근 5분)"
+          runbook: docs/observability/runbooks.md#bravotelemetryexportfailing
+      - alert: BravoTelemetryQueueFilling
+        expr: max by (bravo_env) (otelcol_exporter_queue_size{bravo_signal="collector-self"} / otelcol_exporter_queue_capacity{bravo_signal="collector-self"}) > 0.5
+        for: 1m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector 전송 대기열이 절반을 넘었다. 가득 차면 지표를 버린다"
+          runbook: docs/observability/runbooks.md#bravotelemetryqueuefilling
+      - alert: BravoTelemetryRefused
+        expr: sum by (bravo_env) (increase(otelcol_receiver_refused_metric_points_total{bravo_signal="collector-self"}[5m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector가 앱 지표를 거부했다 (메모리 상한 등, 최근 5분)"
+          runbook: docs/observability/runbooks.md#bravotelemetryrefused
+  # DB(CNPG) 알림. 지표 이름은 k3s 실측으로 확인했다(counter는 저장소에서 _total이 붙는다).
+  # 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6). 아래는 운영 알림이다.
+  - name: bravo-database
+    rules:
+      - alert: BravoDatabaseDown
+        expr: |
+          max by (bravo_env, cnpg_cluster, pod) (cnpg_collector_up{bravo_signal="cnpg-scrape"}) == 0
+          or max by (bravo_env, cnpg_cluster, pod) (up{bravo_signal="cnpg-scrape"}) == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} {{ $labels.pod }} DB에 접속할 수 없거나 지표를 긁을 수 없다"
+          runbook: docs/observability/runbooks.md#bravodatabasedown
+      # 64MiB: 설계 5.3 데이터 크기(200MB 이하)의 약 3분의 1. 이만큼 밀리면 따라잡는 데 쓰기 정지 예산을 넘긴다(제안값)
+      # 구독이 켜진 DB(지금 받는 쪽)의 논리 슬롯은 컷오버 뒤에 켜질 되돌리기(역방향) 대기 슬롯이다(docs/operations/t8-replication-health.md).
+      # 대기 중의 지연 · 비활성은 정상이라 아래 두 알림에서 빼고, 쌓이는 WAL은 BravoStandbySlotWalHigh가 본다.
+      # 컷오버로 그 DB의 구독이 꺼지면 다시 이 알림의 대상이 된다.
+      - alert: BravoReplicationSlotLagHigh
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 64 * 1024 * 1024
+          unless on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 64MiB 넘게 밀렸다"
+          runbook: docs/observability/runbooks.md#bravoreplicationslotlaghigh
+      - alert: BravoReplicationSlotInactive
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", slot_type="logical"}) == 0
+          unless on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 10분 넘게 비활성이다. WAL이 쌓인다"
+          runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      # 1GiB: 목적지 DB 볼륨(8Gi)의 8분의 1. 대기 슬롯은 지우지 않고(되돌리기 경로) 담당(T8)이 판단한다
+      - alert: BravoStandbySlotWalHigh
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 1024 * 1024 * 1024
+          and on (bravo_env, cnpg_cluster) (max by (bravo_env, cnpg_cluster) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape"}) == 1)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 되돌리기 대기 슬롯 {{ $labels.slot_name }}이 WAL을 1GiB 넘게 붙잡고 있다"
+          runbook: docs/observability/runbooks.md#bravostandbyslotwalhigh
+      - alert: BravoWalArchivingFailing
+        expr: sum by (bravo_env, cnpg_cluster) (increase(cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} WAL 보관이 실패했다 (최근 10분). 백업 · 복원(DR-01)에 영향"
+          runbook: docs/observability/runbooks.md#bravowalarchivingfailing
+  # PgBouncer 알림. 모두 PgBouncer 긁기 경로(bravo_signal="pgbouncer-scrape")의 지표만 보고, 관리 DB(pgbouncer)는 뺀다.
+  # 컷오버의 PAUSE · RESUME 판정은 Executor가 PgBouncer에서 직접 읽는다(설계 8.6). 아래는 운영 알림이다.
+  - name: bravo-pgbouncer
+    rules:
+      - alert: BravoPgBouncerDown
+        expr: |
+          max by (bravo_env, pooler) (pgbouncer_up{bravo_signal="pgbouncer-scrape"}) == 0
+          or max by (bravo_env, pooler) (up{bravo_signal="pgbouncer-scrape"}) == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} PgBouncer에 접속할 수 없거나 통계를 긁을 수 없다"
+          runbook: docs/observability/runbooks.md#bravopgbouncerdown
+      # 컷오버의 PAUSE는 몇 초다. 2분 넘게 이어지면 앱 요청이 응답 없이 대기 중이다
+      - alert: BravoPgBouncerPausedTooLong
+        expr: max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", name!="pgbouncer"}) == 1
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} {{ $labels.name }} PAUSE가 2분 넘게 이어진다. 앱 요청이 대기 중이다"
+          runbook: docs/observability/runbooks.md#bravopgbouncerpausedtoolong
+      # PAUSE가 아닌데 서버 연결을 기다리는 클라이언트: 풀 고갈이나 DB 지연. 풀의 database는 PgBouncer DB 항목 이름(name)이다
+      - alert: BravoPgBouncerClientsWaiting
+        expr: |
+          sum by (bravo_env, pooler, database) (pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", database!="pgbouncer"}) > 0
+          and on (bravo_env, pooler, database)
+            label_replace(max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape"}) == 0, "database", "$1", "name", "(.*)")
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} {{ $labels.database }} 풀에서 클라이언트가 2분 넘게 서버 연결을 기다린다(PAUSE 아님)"
+          runbook: docs/observability/runbooks.md#bravopgbouncerclientswaiting
+
+  # T8 정방향 운영 감시. 의도적으로 OFF인 역방향은 대상이 아니다.
+  # 컷오버 뒤 정방향 OFF는 계획된 경보일 수 있으므로 런북에서 실행 상태와 대조한다.
+  - name: bravo-forward-replication
+    rules:
+      - alert: BravoForwardSubscriptionOff
+        expr: max by (bravo_env, cnpg_cluster, subname) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독이 2분 넘게 꺼져 있다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoff
+      - alert: BravoForwardSubscriptionError
+        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "정방향 구독 적용 오류가 증가했다 (최근 10분)"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionerror
+      - alert: BravoForwardSubscriptionRetrying
+        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[5m])) >= 5
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독 오류가 5분 안에 5건 이상 발생했다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionretrying
+      - alert: BravoForwardReplicationNotRecovering
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 복제 슬롯이 2분 넘게 비활성이다"
+          runbook: docs/observability/runbooks.md#bravoforwardreplicationnotrecovering
+      - alert: BravoForwardSubscriptionUnobservable
+        # Exporter TTL 30s + scrape 15s + batch 지연을 넘겨 75s로 판정한다.
+        # DB 자체는 살아 있어도 사용자 쿼리가 빠지면 enabled/error 한쪽 부재를 알린다.
+        expr: |
+          max by (bravo_env, cnpg_cluster, subname) (
+            (time() - timestamp(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or (time() - timestamp(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or absent(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
+            or absent(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
+          )
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독 상태 또는 오류 지표를 확인할 수 없다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservable
+      - alert: BravoForwardSlotUnobservable
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (
+            (time() - timestamp(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})) > 75
+            or absent(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})
+          )
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "출발지 정방향 슬롯 지표를 확인할 수 없다"
+          runbook: docs/observability/runbooks.md#bravoforwardslotunobservable

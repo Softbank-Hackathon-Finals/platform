@@ -1,0 +1,131 @@
+productReader:
+  enabled: false
+  runtime: {}
+
+initialProposal:
+  enabled: false
+  # Public broker CA certificate only; the broker key never enters Git or values.
+  brokerCaPem: ""
+  # Existing registry pull Secret in bravo-initial (kubelet only; the Job container gets no Secret).
+  registry: platform-ghcr-reader
+  # T49: the workflow host creates the initial-proposal Job itself (Role in bravo-initial for its ServiceAccount).
+  hostCreatesJobs: false
+workflowHost:
+  enabled: false
+  # Protected operator input: existing config/claim/Secret references only (ADR-0031).
+  runtime: {}
+
+rehearsalHost:
+  enabled: false
+  # Protected operator input: existing config/claim/Secret references only.
+  runtime: {}
+
+securityReview:
+  enabled: false
+  # Protected operator input: existing Secret/ConfigMap names and explicit API/DB network endpoints.
+  runtime: {}
+
+iacNetwork:
+  # T44 platform tailnet routes (infra/iac/charts/platform). Needs the reviewed commit SHA and the
+  # tailnet suffixes (never committed) and the controller permissions noted in the template.
+  enabled: false
+  targetRevision: ""
+  tailnet: ""
+  tailnets: {}
+
+# Platform public entry (infra/envs/public-entry): Git-declared hostnames -> Cloudflare Access, Tunnel route and DNS.
+# Turned on with the UI by infra/gitops/environments/development/public-entry.json (bootstrap passes it).
+publicEntry:
+  enabled: false
+
+# Platform metrics store and the platform's own Collector (services/observability/deploy/platform-gitops).
+# Turned on by the development values; needs clusterCredentials.platform.namespaces to include its namespaces.
+observability:
+  enabled: false
+
+# T33 security findings API (services/security-findings/deploy/platform-gitops) in its own namespace bravo-security.
+# Turn on only after the host prerequisites (infra/envs/platform-security) and a pinned image digest exist, together
+# with bravo-security in clusterCredentials.platform.namespaces.
+securityFindings:
+  enabled: false
+
+registration:
+  enabled: false
+  # Protected operator input: existing config/Secret references and host aliases only.
+  runtime: {}
+
+argo-cd:
+  fullnameOverride: bravo-gitops
+  createClusterRoles: false
+  crds:
+    install: true
+    keep: true
+  global:
+    image:
+      tag: v3.6.1
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+  configs:
+    cm:
+      admin.enabled: false
+      exec.enabled: false
+      timeout.reconciliation: 60s
+      timeout.reconciliation.jitter: 15s
+      resource.respectRBAC: strict
+      application.resourceTrackingMethod: annotation
+      resource.inclusions: |
+        - apiGroups: [apps]
+          kinds: [Deployment, ReplicaSet]
+          clusters: ['*']
+        - apiGroups: [batch]
+          kinds: [CronJob, Job]
+          clusters: ['*']
+        - apiGroups: ['']
+          kinds: [Pod, Service, ServiceAccount, ConfigMap, PersistentVolumeClaim]
+          clusters: ['*']
+        - apiGroups: [networking.k8s.io]
+          kinds: [NetworkPolicy]
+          clusters: ['*']
+        - apiGroups: [external-secrets.io]
+          kinds: [ExternalSecret]
+          clusters: ['*']
+    clusterCredentials:
+      platform:
+        server: https://kubernetes.default.svc
+        namespaces: platform-state
+        clusterResources: false
+        config:
+          tlsClientConfig:
+            insecure: false
+  controller:
+    serviceAccount:
+      name: bravo-gitops-application-controller
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  repoServer:
+    automountServiceAccountToken: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 768Mi}
+  redis:
+    resources:
+      requests: {cpu: 50m, memory: 96Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+  server:
+    enabled: false
+  dex:
+    enabled: false
+  applicationSet:
+    replicas: 0
+  redisSecretInit:
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+  notifications:
+    enabled: false

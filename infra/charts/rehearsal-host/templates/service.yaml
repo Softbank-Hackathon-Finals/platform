@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: t15-rehearsal-host
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+  # Fixed operator entry on the platform tailnet (same grant as sova-mcp: tcp:443). Pod restarts keep the name;
+  # ingress from its proxy is infra/envs/operator-entry/network.yaml.
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: bravo-approval
+    tailscale.com/tags: tag:bravo-platform-operator
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+    - name: tailnet
+      port: 443
+      targetPort: https

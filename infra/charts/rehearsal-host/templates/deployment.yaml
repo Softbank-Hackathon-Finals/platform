@@ -1,0 +1,207 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: t15-rehearsal-host
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+spec:
+  # One writer per records volume; never two hosts on the same plan.
+  replicas: 1
+  revisionHistoryLimit: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: t15-rehearsal-host
+      component: platform
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: t15-rehearsal-host
+        component: platform
+        bravo.dev/db-client: runtime
+        bravo.dev/target-api-client: rehearsal
+      annotations:
+        bravo.dev/reviewed-source: {{ .Values.sourceRevision | quote }}
+        bravo.dev/config-sha256: {{ .Values.configuration.sha256 | quote }}
+    spec:
+      serviceAccountName: t15-rehearsal-host
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      imagePullSecrets:
+        - name: {{ .Values.secrets.registry }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # The host resolves STS by name; NetworkPolicy opens only the pinned address.
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: host
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: Always
+          # The operator approval API (change, SHIFT, cutover approvals) and T15 rehearsal in one host:
+          # operator_ports builds the Executor client, T19 cutover authority and the T15 rehearsal ports.
+          command: [python, -m, bravo_platform_events.approval_server]
+          args: [--config, /rehearsal/host.json, --ports, "bravo_platform_events.operator_ports:create",
+                 --tls-cert, /tls/tls.crt, --tls-key, /tls/tls.key]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: BRAVO_PLATFORM_SOURCE_REVISION
+              value: {{ .Values.sourceRevision | quote }}
+          ports:
+            - name: https
+              containerPort: 8443
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+          volumeMounts:
+            - {name: credential, mountPath: /credential, readOnly: true}
+            - {name: database-ca, mountPath: /ca, readOnly: true}
+            - {name: config, mountPath: /rehearsal, readOnly: true}
+            - {name: reader-config, mountPath: /product-read, readOnly: true}
+            - {name: catalog, mountPath: /catalog, readOnly: true}
+            - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: executor, mountPath: /executor, readOnly: true}
+            {{- if .Values.secrets.securityReview }}
+            - {name: security-review-ca, mountPath: /security-review, readOnly: true}
+            - {name: security-review-token, mountPath: /var/run/secrets/security-review, readOnly: true}
+            {{- end }}
+            {{- if .Values.secrets.edge }}
+            - {name: edge, mountPath: /edge, readOnly: true}
+            {{- end }}
+            - {name: record-key, mountPath: /record-key, readOnly: true}
+            - {name: intake-token, mountPath: /var/run/secrets/t10-intake, readOnly: true}
+            - {name: records, mountPath: /records}
+            - {name: staging, mountPath: /staging}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: credential
+          secret:
+            secretName: {{ .Values.secrets.database }}
+            defaultMode: 0440
+            items:
+              - {key: username, path: username}
+              - {key: password, path: password}
+        - name: database-ca
+          secret:
+            secretName: {{ .Values.secrets.databaseCA }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+        - name: config
+          configMap:
+            name: {{ .Values.configuration.existingConfigMap }}
+            defaultMode: 0444
+            items:
+              - {key: host.json, path: host.json}
+              - {key: ports.json, path: ports.json}
+              - {key: operator.json, path: operator.json}
+              - {key: grants.json, path: grants.json}
+              - {key: workload-jwks.json, path: workload-jwks.json}
+              - {key: profile.env, path: profile.env}
+              - {key: openbao-ca.crt, path: openbao-ca.crt}
+              - {key: manager-registration.json, path: access/manager.json}
+              - {key: runner-registration.json, path: access/runner.json}
+              - {key: manager-kubeconfig, path: access/manager.kubeconfig}
+              - {key: runner-kubeconfig, path: access/runner.kubeconfig}
+        - name: reader-config
+          configMap:
+            name: {{ .Values.reader.existingConfigMap }}
+            defaultMode: 0444
+        - name: catalog
+          persistentVolumeClaim:
+            claimName: {{ .Values.reader.catalogClaim }}
+            readOnly: true
+        - name: catalog-key
+          secret:
+            secretName: {{ .Values.secrets.catalogKey }}
+            defaultMode: 0440
+            items:
+              - {key: key, path: key}
+        - name: tls
+          secret:
+            secretName: {{ .Values.secrets.host }}
+            defaultMode: 0440
+            items:
+              - {key: tls_crt, path: tls.crt}
+              - {key: tls_key, path: tls.key}
+        - name: executor
+          secret:
+            secretName: {{ .Values.secrets.executor }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+              - {key: read-token, path: read-token}
+              - {key: command-token, path: command-token}
+        {{- if .Values.secrets.securityReview }}
+        # T31 security review (#924): only once the review service and its CA Secret exist.
+        - name: security-review-ca
+          secret:
+            secretName: {{ .Values.secrets.securityReview }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+        - name: security-review-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: registered-security-review-audience
+                  expirationSeconds: 600
+                  path: token
+        {{- end }}
+        {{- if .Values.secrets.edge }}
+        # T17 Cloudflare token for FailbackEdge and the in-Pod SHIFT CLI (one LB journal under /records).
+        - name: edge
+          secret:
+            secretName: {{ .Values.secrets.edge }}
+            defaultMode: 0440
+            items:
+              - {key: token, path: token}
+        {{- end }}
+        - name: record-key
+          secret:
+            secretName: {{ .Values.secrets.host }}
+            defaultMode: 0440
+            items:
+              - {key: record_key, path: key}
+        - name: intake-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: bravo-t10-rehearsal-intake
+                  expirationSeconds: 600
+                  path: token
+        - name: records
+          persistentVolumeClaim:
+            claimName: {{ .Values.recordsClaim }}
+        - name: staging
+          emptyDir: {sizeLimit: 256Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 128Mi}

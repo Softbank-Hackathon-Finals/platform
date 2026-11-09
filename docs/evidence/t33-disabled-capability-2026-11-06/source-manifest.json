@@ -1,0 +1,25 @@
+{
+  "source_revision": "c42033c69741e7ec33add6f60f9bcbf79680d0e4",
+  "source_files": [
+    {
+      "path": "services/security-findings/src/bravo_findings/aws_pull.py",
+      "sha256": "ef502074beb3f7127ff99c2f47bd1b98a4c85a71dd53c4b8bc59e2775cc3c4ba"
+    },
+    {
+      "path": "services/security-findings/src/bravo_findings/guardduty.py",
+      "sha256": "563d70fa162eb91cff52f638c2983548b141f87134b5caff8ce0422f6166c5a6"
+    },
+    {
+      "path": "services/security-findings/src/bravo_findings/store.py",
+      "sha256": "a5e1c76247ac8179c336bcb8ed08d181b504d71e03da65b4ba0bab0ea19b0804"
+    },
+    {
+      "path": "services/security-findings/src/bravo_findings/view.py",
+      "sha256": "f834203e7c9b788f5dc97d461679db70da6133ba99dd4fe9b58695da2350047b"
+    },
+    {
+      "path": "services/security-findings/tests/test_pipeline.py",
+      "sha256": "04c73df705a7ba41057bb00952d4d7e8cccf1ef04f52cf3e32de74d2a65490c7"
+    }
+  ]
+}

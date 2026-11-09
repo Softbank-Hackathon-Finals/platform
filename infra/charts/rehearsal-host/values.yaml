@@ -1,0 +1,31 @@
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-rehearsal-host
+  digest: ""
+sourceRevision: ""
+# Protected host inputs: host.json, ports.json, grants, keys and the two T7 registrations.
+configuration:
+  existingConfigMap: ""
+  sha256: ""
+# The Product Reader's own configuration, catalog and key; mounted read-only.
+reader:
+  existingConfigMap: ""
+  catalogClaim: ""
+recordsClaim: ""
+# STS is reachable only at the address pinned in rehearsal-access/rehearsal-host-network.yaml.
+hostAliases: []
+secrets:
+  database: platform-runtime-db
+  databaseCA: platform-db-ca
+  catalogKey: ""
+  # record_key, tls_crt, tls_key (same properties as the planned OpenBao t15/host entry).
+  host: ""
+  registry: platform-ghcr-reader
+  # Cutover Executor: ca.crt, read-token and the separate command-token (approval host submits cutovers).
+  executor: ""
+  # Security review service TLS root (key: ca.crt). Workload identity is a separate projected token.
+  securityReview: ""
+  # Optional T17 Cloudflare token (key: token) for FailbackEdge; empty = FAILBACK holds before Edge.
+  edge: ""
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {cpu: "1", memory: 768Mi}

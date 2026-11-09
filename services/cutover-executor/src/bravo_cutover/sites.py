@@ -7,7 +7,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Site(BaseModel):
@@ -52,6 +52,8 @@ class Settings(BaseModel):
     long_transaction_ms: int = 200
     pause_timeout_s: float = 3
     barrier_timeout_s: float = 10
+    # 사전 확인의 복제 경로 왕복 시험 대기(ADR-0016). 실제 값은 T8 복제 지연 실측 뒤 정한다.
+    path_probe_timeout_s: float = 10
     fence_timeout_s: float = 3
     # 복구 뒤 출발지 쓰기 확인을 기다리는 시간. PgBouncer는 서버 로그인 실패를 server_login_retry(기본 15초)
     # 동안 기억하고 바로 거절하므로, 펜싱 중 로그인을 시도한 PgBouncer는 복구 직후 잠시 쓰기를 거절한다.
@@ -59,8 +61,6 @@ class Settings(BaseModel):
     # 비교 대상과 시퀀스(올리기만). 시퀀스는 {이름: [테이블, 열]}
     tables: list[str] = ["public.attachments", "public.messages"]
     sequences: dict[str, tuple[str, str]] = {"public.messages_id_seq": ("public.messages", "id")}
-    # T13 연결 전 임시 비교(UNVERIFIED)를 통과로 볼지. 모의 환경에서만 켠다(spec D11).
-    allow_unverified_compare: bool = False
 
 
 class Config(BaseModel):
@@ -68,22 +68,39 @@ class Config(BaseModel):
 
     settings: Settings = Settings()
     sites: dict[str, Site]
+    # 이전 전 주본이던 환경(원래 출발지). 요청의 목적지가 이 환경이면 되돌리기다(영수증 direction, T20).
+    origin: str
+
+    @model_validator(mode="after")
+    def _origin_is_registered(self) -> "Config":
+        if self.origin not in self.sites:
+            raise ValueError(f"origin {self.origin!r} is not a registered environment")
+        return self
+
+    def direction(self, source: str, target: str) -> str:
+        """영수증의 방향. 원래 출발지에서 나가면 cutover, 원래 출발지로 돌아오면 failback."""
+        if source == self.origin and target != self.origin:
+            return "cutover"
+        if target == self.origin and source != self.origin:
+            return "failback"
+        raise ValueError(f"request {source} -> {target} does not leave or return to origin {self.origin}")
 
     def deployment_registry(self):
         if len(self.sites) != 2 or any(k != s.environment_id for k, s in self.sites.items()):
             raise ValueError("the deployed executor requires one fixed pair of environments")
         if len({s.resource_id for s in self.sites.values()}) != 2:
             raise ValueError("deployment requires two distinct database resources")
-        return registry_from_sites(self.sites)
+        return registry_from_sites(self.sites, origin=self.origin)
 
 
 def load_config(path: str | Path) -> Config:
     return Config.model_validate(json.loads(Path(path).read_text()))
 
 
-def registry_from_sites(sites: dict[str, Site]):
-    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다)."""
+def registry_from_sites(sites: dict[str, Site], origin: str | None = None):
+    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다).
+    origin은 설정의 원래 출발지다. 등록 조회가 이 값을 source로 공개한다."""
     from bravo_cutover.resources import Registry, Resource
 
     return Registry([Resource(environment_id=s.environment_id, resource_id=s.resource_id,
-                              connection_ref=s.connection_ref) for s in sites.values()])
+                              connection_ref=s.connection_ref) for s in sites.values()], origin=origin)

@@ -1,0 +1,184 @@
+"""Two independent, local TLS PG servers → T13 receipts → T19 readiness.
+
+Local Docker bridge and loopback ports, independent server CAs/passwords.
+Only generated fixture credentials enter containers; no team/cloud access.
+This tests transport and readiness, not application fencing or RPO 0 cutover.
+"""
+import json
+import os
+import secrets
+import time
+from datetime import UTC, datetime, timedelta
+
+import psycopg
+import pytest
+from bravo_cutover.db_fingerprint import (
+    HASH_RULE,
+    correct_sequence,
+    fingerprint,
+    next_safe_value,
+    sequence_state,
+)
+from bravo_cutover.remote.db import DbControl
+from fixture_process import OwnedDocker
+from fixture_process import run as tool
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from test_t13_capture import IMAGE
+
+from bravo_gate.readiness import ReadinessPolicy, assess_readiness
+from bravo_gate.t13 import DatabaseRegistration, assemble_snapshot, collect_schema
+
+
+def await_condition(predicate, seconds=30):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.2)
+    raise AssertionError("local_tls_pair_condition_timeout")
+
+
+@pytest.fixture
+def tls_pair(tmp_path):
+    __tracebackhide__ = True
+    endpoint = os.environ.get("DOCKER_HOST") or json.loads(tool("docker", "context", "inspect"))[0]["Endpoints"]["docker"]["Host"]
+    if not endpoint.startswith("unix://"):
+        pytest.fail("local_unix_docker_required", pytrace=False)
+    root = tmp_path / "certificates"
+    root.mkdir(mode=0o755)
+    for side in ("source", "target"):
+        tool("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+             "-subj", "/CN=t19-local-" + side, "-addext",
+             "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:" + side,
+             "-keyout", str(root / (side + ".key")), "-out", str(root / (side + ".crt")))
+        (root / (side + ".crt")).chmod(0o644)
+        (root / (side + ".key")).chmod(0o600)
+    network = "t19-pair-" + secrets.token_hex(6)
+    parameters = {}
+    with OwnedDocker() as owned:
+        owned.network(network)
+        for side in ("source", "target"):
+            password = secrets.token_urlsafe(32)
+            # Only this container's private key is mounted; peer CA is public.
+            cid = owned.container( "-d", "--network", network,
+                "--network-alias", side, "--name", network + "-" + side,
+                "--memory", "384m", "--cpus", "1", "-p", "127.0.0.1::5432",
+                "--tmpfs", "/var/lib/postgresql:rw,size=268435456",
+                "-e", "POSTGRES_PASSWORD", "--mount",
+                f"type=bind,src={root / (side + '.key')},dst=/certs/server.key,readonly",
+                "--mount", f"type=bind,src={root / (side + '.crt')},dst=/certs/server.crt,readonly",
+                "--mount", f"type=bind,src={root / 'source.crt'},dst=/certs/source-ca.crt,readonly",
+                "--entrypoint", "sh", IMAGE, "-c",
+                "cp /certs/server.key /tmp/server.key && chown postgres /tmp/server.key && chmod 600 /tmp/server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key",
+                env=dict(os.environ, POSTGRES_PASSWORD=password))
+            inspected = json.loads(tool("docker", "inspect", cid))[0]
+            assert inspected["HostConfig"]["Tmpfs"].get("/var/lib/postgresql") == "rw,size=268435456"
+            assert not any(mount["Type"] == "volume" for mount in inspected["Mounts"])
+            try:
+                port = int(tool("docker", "port", cid, "5432/tcp").split(":")[-1])
+            except (RuntimeError, ValueError):
+                (tmp_path / (side + "-boot.log")).write_text(tool("docker", "logs", cid))
+                raise
+            params = dict(host="127.0.0.1", port=port, dbname="postgres", user="postgres",
+                          password=password, sslmode="verify-full", sslrootcert=str(root / (side + ".crt")),
+                          connect_timeout=2, autocommit=True)
+
+            def reachable(params=params):
+                try:
+                    with psycopg.connect(**params):
+                        return True
+                except psycopg.OperationalError:
+                    return False
+
+            await_condition(reachable)
+            with psycopg.connect(**params) as conn:
+                conn.execute("CREATE DATABASE app")
+                conn.execute(sql.SQL("CREATE ROLE reader LOGIN PASSWORD {}").format(sql.Literal(password)))
+                conn.execute("ALTER ROLE reader SET default_transaction_read_only=on")
+            params["dbname"] = "app"
+            with psycopg.connect(**params) as conn:
+                conn.execute("CREATE TABLE public.messages (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, body text NOT NULL)")
+                conn.execute("GRANT USAGE ON SCHEMA public TO reader")
+                conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO reader")
+                conn.execute("GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO reader")
+            parameters[side] = params
+        yield parameters
+
+
+def test_two_tls_servers_replication_loss_and_sequence_readback(service, tls_pair, tmp_path):
+    _, state = service
+    ctx = state["context"]
+    policy = ReadinessPolicy("local-pair.v1", HASH_RULE, ("public.messages",),
+                             (("public.messages", "id"),), 1024 * 1024, 30)
+    regs = {side: DatabaseRegistration(getattr(ctx, side + "_environment_id"),
+            getattr(ctx, side + "_environment_ref"), "local-pg-" + side, "app", "reader")
+            for side in ("source", "target")}
+
+    def connect(reg):
+        side = "source" if reg == regs["source"] else "target"
+        return psycopg.connect(**(tls_pair[side] | {"user": "reader"}))
+
+    with psycopg.connect(**tls_pair["source"]) as source, psycopg.connect(**tls_pair["target"]) as target:
+        assert source.execute("SELECT system_identifier FROM pg_control_system()").fetchone() != target.execute("SELECT system_identifier FROM pg_control_system()").fetchone()
+        source.execute(sql.SQL("CREATE ROLE replication_reader LOGIN REPLICATION PASSWORD {}").format(sql.Literal(tls_pair["source"]["password"])))
+        source.execute("GRANT SELECT ON public.messages TO replication_reader")
+        source.execute("CREATE PUBLICATION pair_pub FOR TABLE public.messages")
+        source.execute("INSERT INTO public.messages(body) SELECT 'local-'||i FROM generate_series(1,50) i")
+        connection = make_conninfo(host="source", dbname="app", user="replication_reader",
+            password=tls_pair["source"]["password"], sslmode="verify-full",
+            sslrootcert="/certs/source-ca.crt", connect_timeout=3)
+        target.execute(sql.SQL("CREATE SUBSCRIPTION pair_sub CONNECTION {} PUBLICATION pair_pub").format(sql.Literal(connection)))
+        try:
+            await_condition(lambda: target.execute("SELECT count(*) FROM public.messages").fetchone()[0] == 50)
+            assert fingerprint(source, "public.messages") == fingerprint(target, "public.messages")
+            assert source.execute("SELECT s.ssl FROM pg_stat_replication r JOIN pg_stat_ssl s USING(pid) WHERE r.application_name='pair_sub'").fetchone() == (True,)
+            a = sequence_state(source, "public.messages_id_seq", "public.messages", "id")
+            b = sequence_state(target, "public.messages_id_seq", "public.messages", "id")
+            desired = next_safe_value(a, b)
+            proposal = dict(table="public.messages", column="id", source_next=a.next_value,
+                target_next=b.next_value, target_max_id=b.max_id, proposed_next=desired,
+                readback_next=b.next_value, increment=1, cycle=False)
+
+            def evaluate(sequence):
+                captures = [collect_schema(ctx, policy, regs[side], side=side, connect=connect,
+                            clock=lambda: datetime.now(UTC)) for side in ("source", "target")]
+                active, lag = source.execute("SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)::bigint FROM pg_replication_slots WHERE slot_name='pair_sub'").fetchone()
+                now = datetime.now(UTC)
+                times = dict(observed_at=now.isoformat(), expires_at=(now + timedelta(seconds=20)).isoformat())
+                rep = dict(source_database_ref=regs["source"].database_ref,
+                           target_database_ref=regs["target"].database_ref,
+                           lag_bytes=lag if active else None, **times)
+                binding, snapshot = assemble_snapshot(ctx, policy, *captures, snapshot_ref="local-pair",
+                    replication=rep, sequences=[sequence | times])
+                return assess_readiness(ctx, binding, snapshot, now=now)
+
+            assert evaluate(proposal)["decision"] == "BLOCK"
+            # No application is running: only this fixture owns both writers.
+            # Production fencing/drain is T12's responsibility, not this test.
+            receipt = correct_sequence(*[DbControl(make_conninfo(**{k: v for k, v in tls_pair[side].items() if k != "autocommit"})) for side in ("source", "target")],
+                                       "public.messages_id_seq", "public.messages", "id")
+            repaired = proposal | {"readback_next": receipt["dst_set"]}
+            assert evaluate(repaired)["decision"] == "PASS"
+            # Registered target CA cannot authenticate the other server, even
+            # though DB name and reader role intentionally match on both sides.
+            def misrouted(_):
+                return psycopg.connect(**(tls_pair["target"] | {"user": "reader", "port": tls_pair["source"]["port"]}))
+            wrong = collect_schema(ctx, policy, regs["target"], side="target", connect=misrouted,
+                                   clock=lambda: datetime.now(UTC))
+            assert wrong.errors == (("public.messages", "SCHEMA_CAPTURE_UNAVAILABLE"),)
+            target.execute("ALTER SUBSCRIPTION pair_sub DISABLE")
+            await_condition(lambda: source.execute("SELECT active FROM pg_replication_slots WHERE slot_name='pair_sub'").fetchone() == (False,))
+            source.execute("INSERT INTO public.messages(body) VALUES ('after-replication-loss')")
+            assert source.execute("SELECT count(*) FROM public.messages").fetchone() == (51,)
+            assert target.execute("SELECT count(*) FROM public.messages").fetchone() == (50,)
+            blocked = evaluate(repaired)
+            assert blocked["decision"] == "BLOCK"
+            assert any(row["reason"] == "UNKNOWN" for row in blocked["rows"] if row["test_id"] == "replication:lag")
+            (tmp_path / "two-server-result.json").write_text(json.dumps(dict(
+                scope="two independent local Docker PostgreSQL servers; fixture authority",
+                tls_replication=True, copied_rows=50, proposal_blocked=True,
+                readback_ready=True, wrong_server_rejected=True, replication_loss_blocked=True,
+                cloud_migration_verified=False, rpo_zero_claimed=False), indent=2))
+        finally:
+            target.execute("DROP SUBSCRIPTION pair_sub")

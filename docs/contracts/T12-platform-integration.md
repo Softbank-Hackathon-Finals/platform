@@ -174,6 +174,13 @@ Executor가 모든 앱 파드에 호출하므로 이미지의 Python과 localhos
 poll마다 현재 시각을 붙여 같은 producer key로 재전송하지 않는다. 최초 관측 기록을
 영속화하거나 Executor의 안정된 단계 이벤트 식별자를 사용해 T10 재전송 계약을 만족시킨다.
 
+### 등록된 출발지와 목적지 조회
+
+T10은 Executor 서비스에 Bearer 토큰을 보내 `GET /v1/resources`로 배포 시 등록된 DB 쌍을 읽는다.
+응답의 `source`와 `target`은 각각 `environment_id`, `resource_id`, `connection_ref`를 담는다. 현재 데모 등록은 `source=env-aws`, `target=env-onprem`이다.
+이 값은 실행 요청을 검증하는 서버의 등록 정보에서 읽는다. 컷오버 후 실제로 쓰기를 받는 환경은 실행 결과에서 확인한다.
+인증 실패는 401, 두 등록을 구분할 수 없거나 공개 식별자로 반환하기에 부적합한 설정은 503이다.
+
 ## 실행 프로세스와 배포 전 확인
 
 `EXECUTOR_DB`는 Executor 소유 `executor.executions` / `executor.fences`와 DB 잠금에

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bravo-control-gate"
+version = "0.1.0"
+description = "T19 deterministic security gate and T10 consumption boundary"
+requires-python = ">=3.12"
+dependencies = ["jsonschema>=4.26,<5", "cryptography>=46,<51", "rfc3339-validator>=0.1.4,<0.2"]
+
+[project.optional-dependencies]
+t10 = ["bravo-platform-events==0.1.0"]
+t13 = ["bravo-cutover==0.1.0"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.14,<0.18", "jsonpatch>=1.33,<2", "bravo-platform-events==0.1.0", "psycopg[binary]>=3.2,<4", "bravo-cutover==0.1.0"]
+
+[tool.uv.sources]
+bravo-platform-events = { path = "../platform-events" }
+bravo-cutover = { path = "../cutover-executor" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bravo_gate = ["contracts/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

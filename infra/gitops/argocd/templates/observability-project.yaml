@@ -1,0 +1,21 @@
+{{- if .Values.observability.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-observability
+spec:
+  description: Platform metrics store and the platform's own Collector (services/observability/deploy/platform-gitops)
+  sourceRepos:
+    - https://github.com/Softbank-Hackathon-Finals/platform.git
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: bravo-observability}
+    - {server: https://kubernetes.default.svc, namespace: platform-telemetry}
+    - {server: https://kubernetes.default.svc, namespace: platform-state}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: ConfigMap}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+{{- end }}

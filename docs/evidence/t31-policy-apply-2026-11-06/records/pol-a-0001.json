@@ -1,0 +1,85 @@
+{
+  "application_id": "pol-a-0001",
+  "approval_id": "approval-pol-a-0001",
+  "change": {
+    "change_kind": "bucket_policy",
+    "diff_hash": "sha256:5895af9d6e8288232ce5c79187e9aa478fc55d60c0973161736c4616dbc22d75",
+    "image_digest": "sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a",
+    "policy_digest": "sha256:e05558070484d2b50b9486d68a076c0a158642731b43a419c1df561bbf6c649b"
+  },
+  "cluster": "kubectl",
+  "cluster_mutation_attempted": true,
+  "deadline_at": null,
+  "deployed_digest": null,
+  "finished_at": "2026-11-05T18:13:00.110853Z",
+  "gate_recheck": {
+    "application_id": "pol-a-0001",
+    "image_digest": "sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a",
+    "plan_id": "plan-kind",
+    "policy_digest": "sha256:e05558070484d2b50b9486d68a076c0a158642731b43a419c1df561bbf6c649b",
+    "tests": [
+      "IAM-01.1"
+    ]
+  },
+  "job_passed": true,
+  "observed_digests": [],
+  "outcome": "APPLIED",
+  "plan_id": "plan-kind",
+  "policy": {
+    "anonymous_get": "DENIED",
+    "applied_s3_json_sha256": "96a86e478169f4260dd90f7b6b7446f1684457890e78874b55e33dfb6332d004",
+    "authenticated_get": "ALLOWED",
+    "previous_s3_json_sha256": "44cda0b9680acd100bd039da8846ea1802bbd1fbbfcc59e11d8efdd23cd06bcc",
+    "renderer_sha256": "e60bd48a7aa08779b421ea62a6176006465be8cd826bc90aef38fef1adb697c2",
+    "state": "closed"
+  },
+  "previous_image": "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1",
+  "reason": "APPLIED_AS_APPROVED",
+  "schema_version": "1.2",
+  "started_at": "2026-11-05T18:12:35.674581Z",
+  "steps": [
+    {
+      "detail": "1 approved path(s)",
+      "status": "ok",
+      "step": "binding"
+    },
+    {
+      "detail": "T9 state closed",
+      "status": "ok",
+      "step": "policy_translate"
+    },
+    {
+      "detail": "bucket-policy change: app image unchanged",
+      "status": "skipped",
+      "step": "image"
+    },
+    {
+      "detail": "durable record before any cluster call",
+      "status": "ok",
+      "step": "started"
+    },
+    {
+      "detail": "anonymous GET denied, app identity GET allowed",
+      "status": "ok",
+      "step": "policy_apply"
+    },
+    {
+      "detail": "IAM-01.1",
+      "status": "ok",
+      "step": "gate_recheck"
+    }
+  ],
+  "target": {
+    "bucket": "demo-chat-attachments",
+    "container": "seaweedfs",
+    "endpoint": "RESOURCE_NAME_001",
+    "kind": "bucket_policy",
+    "namespace": "target-dev",
+    "policy_bucket": "bravo-rehearsal-objects",
+    "probe_key": "t31/probe.txt",
+    "secret": "target-seaweedfs-auth",
+    "secret_key": "s3.json",
+    "workload": "target-seaweedfs"
+  },
+  "verification_id": "verify-pol-a-0001"
+}

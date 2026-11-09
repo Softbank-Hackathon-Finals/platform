@@ -3,6 +3,7 @@
 # BRAVO_VM_ARCH=arm64|x86_64 (기본: 호스트 CPU). brew install qemu가 필요하다.
 #
 #   ./local-vm.sh up             새 VM을 만들고 cloud-init이 끝날 때까지 기다린다
+#   ./local-vm.sh start          꺼진 기존 VM을 같은 디스크·UUID·포트로 다시 켠다 (재부팅 뒤)
 #   ./local-vm.sh run <스크립트>  VM 안에서 스크립트를 root로 실행한다 (예: verify-node.sh)
 #   ./local-vm.sh ssh [명령]      VM에 접속하거나 명령 하나를 실행한다
 #   ./local-vm.sh down           VM과 디스크를 지운다 (내려받은 이미지는 남긴다)
@@ -71,10 +72,14 @@ EOF
   hdiutil makehybrid -quiet -iso -joliet -default-volume-name cidata -o "$VM/seed.iso" "$VM/seed"
 }
 
+create_disk() {
+  qemu-img create -q -f qcow2 -F qcow2 -b "$STATE/$IMAGE_NAME" "$VM/disk.qcow2" 40G
+}
+
+# Boots whatever disk is already there; only create_disk makes a new one.
 start_qemu() {
   local platform_args=(-M "$MACHINE" -accel "$ACCEL" -cpu "$CPU")
   if [ "$ARCH" = arm64 ]; then platform_args+=(-bios "$(brew --prefix)/share/qemu/edk2-aarch64-code.fd"); fi
-  qemu-img create -q -f qcow2 -F qcow2 -b "$STATE/$IMAGE_NAME" "$VM/disk.qcow2" 40G
   "$QEMU" "${platform_args[@]}" -smp 4 -m 8192 \
     -drive "file=$VM/disk.qcow2,if=virtio" \
     -drive "file=$VM/seed.iso,if=virtio,format=raw,readonly=on" \
@@ -101,8 +106,25 @@ wait_for_cloud_init() {
 }
 
 prepare() {
+  # Recheck the recorded explicit exception even for direct _prepare invocation.
+  ACCEL=$(python3 "$HERE/local_vm.py" prepare-profile "$STATE")
   fetch_image
   write_seed
+  create_disk
+  start_qemu "$1"
+}
+
+# Restart the recorded VM. local_vm.py start has already checked its identity,
+# ports and that no other process uses the disk; this never creates a disk or seed.
+resume() {
+  ACCEL=$(python3 "$HERE/local_vm.py" prepare-profile "$STATE")
+  local file
+  for file in disk.qcow2 seed.iso; do
+    if [ ! -f "$VM/$file" ] || [ -L "$VM/$file" ]; then
+      echo "기존 VM의 $file 이 없다. 새로 만들지 않는다." >&2
+      exit 1
+    fi
+  done
   start_qemu "$1"
 }
 
@@ -113,8 +135,13 @@ wait_ready() {
 }
 
 case "${1:-}" in
-  up|down) exec python3 "$HERE/local_vm.py" "$1" "$STATE" ;;
+  up|start|down|measurement)
+    action=$1
+    shift
+    exec python3 "$HERE/local_vm.py" "$action" "$STATE" "$@"
+    ;;
   _prepare) prepare "${2:?launch UUID required}" ;;
+  _start) resume "${2:?launch UUID required}" ;;
   _wait) wait_ready ;;
   run) "${SSH[@]}" sudo bash -s <"$2" ;;
   ssh)
@@ -122,7 +149,7 @@ case "${1:-}" in
     exec "${SSH[@]}" "$@"
     ;;
   *)
-    sed -n '5,8p' "$0"
+    sed -n '5,9p' "$0"
     exit 2
     ;;
 esac

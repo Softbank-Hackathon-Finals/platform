@@ -45,6 +45,21 @@ def test_schema_and_published_examples():
         assert json.loads(wire.splitlines()[2].removeprefix("data: ")) == event
 
 
+@pytest.mark.parametrize("phase,application_id", [("initial", None), ("post_apply", "application-1")])
+def test_cutover_phase_and_application_are_a_strict_pair(phase, application_id):
+    event = deepcopy(EXAMPLES[2])
+    event["data"]["binding"].update(gate_phase=phase, application_id=application_id)
+    validate_event(event)
+    for field in ("gate_phase", "application_id"):
+        partial = deepcopy(event)
+        partial["data"]["binding"].pop(field)
+        with pytest.raises(ValidationError):
+            validate_event(partial)
+    event["data"]["binding"]["application_id"] = "unexpected" if phase == "initial" else None
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -294,3 +309,83 @@ def test_live_stream_sees_later_commit_and_closes_after_access_revocation(store)
             await anext(stream)
 
     asyncio.run(scenario())
+
+
+# T20 되돌리기: 승인 종류 failback, 전용 binding, DONE_ROLLED_BACK, failback.recorded ---------------
+
+FAILBACK = json.loads((Path(__file__).parents[1] / "examples/failback-events.json").read_text())
+FAILBACK_APPROVAL, FAILBACK_DECIDED, _, EDGE_PENDING, ROLLED_BACK, _ = FAILBACK
+
+
+def test_failback_examples_are_valid_wire_events():
+    for event in FAILBACK:
+        validate_event(event)
+        assert json.loads(encode_sse(event).splitlines()[2].removeprefix("data: ")) == event
+
+
+@pytest.mark.parametrize("missing", [
+    "plan_digest", "source_environment_id", "target_environment_id", "cutover_execution_id",
+    "cutover_epoch", "integrity_receipt_id", "expires_at",
+])
+def test_failback_binding_requires_every_value(missing):
+    for template in (FAILBACK_APPROVAL, FAILBACK_DECIDED):
+        event = deepcopy(template)
+        del event["data"]["binding"][missing]
+        with pytest.raises(ValidationError):
+            validate_event(event)
+
+
+def test_binding_shape_follows_the_approval_kind():
+    # 되돌리기 승인에 컷오버 binding, 컷오버 승인에 되돌리기 binding은 둘 다 거부한다
+    cutover_shape = deepcopy(FAILBACK_APPROVAL)
+    cutover_shape["data"]["binding"] = deepcopy(EXAMPLES[2]["data"]["binding"])
+    failback_shape = deepcopy(EXAMPLES[2])
+    failback_shape["data"]["binding"] = deepcopy(FAILBACK_APPROVAL["data"]["binding"])
+    mixed = deepcopy(FAILBACK_APPROVAL)
+    mixed["data"]["binding"]["diff_hash"] = "sha256:" + "1" * 64
+    for event in (cutover_shape, failback_shape, mixed):
+        with pytest.raises(ValidationError):
+            validate_event(event)
+
+
+def test_failback_binding_must_reverse_a_registered_pair():
+    event = deepcopy(FAILBACK_APPROVAL)
+    event["data"]["binding"]["target_environment_id"] = event["data"]["binding"]["source_environment_id"]
+    with pytest.raises(ValueError, match="failback_direction_invalid"):
+        validate_event(event)
+    event = deepcopy(FAILBACK_DECIDED)
+    event["data"]["binding"]["plan_id"] = "plan-other"
+    with pytest.raises(ValueError, match="binding_plan_mismatch"):
+        validate_event(event)
+
+
+@pytest.mark.parametrize("missing", ["finished_at", "recovery_ms", "execution_id", "integrity_receipt_id"])
+def test_rolled_back_record_carries_the_s4_audit_values(missing):
+    event = deepcopy(ROLLED_BACK)
+    del event["data"][missing]
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda d: d.update(finished_at="2026-11-04T10:01:09Z"),  # 대기 중인데 끝난 시각
+    lambda d: d.update(recovery_ms=1),
+    lambda d: d.pop("integrity_receipt_id"),  # Edge 호출 전에 일치 증거가 저장돼 있어야 한다
+    lambda d: d.update(status="held"),
+    lambda d: d.update(edge_weight=100),
+])
+def test_edge_pending_record_is_not_a_completion(mutation):
+    event = deepcopy(EDGE_PENDING)
+    mutation(event["data"])
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
+def test_aborted_record_needs_the_execution_and_end_time():
+    event = deepcopy(EDGE_PENDING)
+    event["data"].update(status="aborted", finished_at="2026-11-04T10:01:05Z")
+    del event["data"]["integrity_receipt_id"]
+    validate_event(event)
+    del event["data"]["finished_at"]
+    with pytest.raises(ValidationError):
+        validate_event(event)

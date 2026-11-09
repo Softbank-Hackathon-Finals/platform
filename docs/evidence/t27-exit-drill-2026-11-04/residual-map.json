@@ -1,0 +1,236 @@
+{
+ "app": "demo-chat",
+ "candidate": "onprem-demo",
+ "candidate_verdict": "needs_work",
+ "drill_verdict": "PASS",
+ "entries": [
+  {
+   "category": "source_dependency",
+   "check_verdict": "PASS",
+   "evidence": [
+    "block:pooler-to-source:pooler"
+   ],
+   "found_in": "both",
+   "grade": "config_swap",
+   "grade_by": "rule",
+   "id": "item-001",
+   "name": "db (db)",
+   "risk": "",
+   "role": "db",
+   "source": "inventory",
+   "status": "blocked_app_ok",
+   "target_impl": "cnpg"
+  },
+  {
+   "category": "source_dependency",
+   "check_verdict": "PASS",
+   "evidence": [
+    "block:aws-iam:app",
+    "block:aws-sts:app"
+   ],
+   "found_in": "both",
+   "grade": "adapter",
+   "grade_by": "rule",
+   "id": "item-002",
+   "name": "iam (iam)",
+   "risk": "",
+   "role": "iam",
+   "source": "inventory",
+   "status": "blocked_app_ok",
+   "target_impl": "k8s-rbac+openbao+seaweedfs-policy"
+  },
+  {
+   "category": "source_dependency",
+   "check_verdict": "PASS",
+   "evidence": [
+    "block:aws-kms:app"
+   ],
+   "found_in": "deploy",
+   "grade": "code_change",
+   "grade_by": "rule",
+   "id": "item-003",
+   "name": "kms (kms)",
+   "risk": "migration_omission",
+   "role": "kms",
+   "source": "inventory",
+   "status": "unknown",
+   "target_impl": "openbao-transit"
+  },
+  {
+   "category": "source_dependency",
+   "check_verdict": "PASS",
+   "evidence": [
+    "block:aws-s3:app"
+   ],
+   "found_in": "both",
+   "grade": "config_swap",
+   "grade_by": "rule",
+   "id": "item-004",
+   "name": "object_store (s3)",
+   "risk": "",
+   "role": "object_store",
+   "source": "inventory",
+   "status": "blocked_app_ok",
+   "target_impl": "seaweedfs"
+  },
+  {
+   "category": "source_dependency",
+   "check_verdict": "PASS",
+   "evidence": [
+    "block:aws-secretsmanager:app"
+   ],
+   "found_in": "both",
+   "grade": "code_change",
+   "grade_by": "rule",
+   "id": "item-005",
+   "name": "secrets (secretsmanager)",
+   "risk": "",
+   "role": "secrets",
+   "source": "inventory",
+   "status": "blocked_app_ok",
+   "target_impl": "openbao+eso"
+  },
+  {
+   "category": "replication_channel",
+   "check_verdict": "PASS",
+   "evidence": [
+    "keep:replication-forward:db"
+   ],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "channel:replication-forward",
+   "name": "복제 채널 replication-forward (Tailscale로 출발지 DB와 연결)",
+   "risk": "",
+   "role": "",
+   "source": "drill-plan",
+   "status": "kept",
+   "target_impl": ""
+  },
+  {
+   "category": "replication_channel",
+   "check_verdict": "PASS",
+   "evidence": [
+    "keep:replication-reverse:stream"
+   ],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "channel:replication-reverse",
+   "name": "복제 채널 replication-reverse (Tailscale로 출발지 DB와 연결)",
+   "risk": "",
+   "role": "",
+   "source": "drill-plan",
+   "status": "kept",
+   "target_impl": ""
+  },
+  {
+   "category": "unblocked_workload",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "workload:objects",
+   "name": "objects (app.kubernetes.io/name=target-seaweedfs)",
+   "risk": "",
+   "role": "",
+   "source": "drill-plan",
+   "status": "not_blocked",
+   "target_impl": ""
+  },
+  {
+   "category": "external_service",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "residual:cloudflare (edge · tunnel)",
+   "name": "cloudflare (edge · tunnel)",
+   "risk": "",
+   "role": "",
+   "source": "inventory",
+   "status": "remains",
+   "target_impl": ""
+  },
+  {
+   "category": "external_service",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "residual:ghcr.io (image pull)",
+   "name": "ghcr.io (image pull)",
+   "risk": "",
+   "role": "",
+   "source": "inventory",
+   "status": "remains",
+   "target_impl": ""
+  },
+  {
+   "category": "external_service",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "residual:github (코드 · 이미지 빌드)",
+   "name": "github (코드 · 이미지 빌드)",
+   "risk": "",
+   "role": "",
+   "source": "drill-spec",
+   "status": "remains",
+   "target_impl": ""
+  },
+  {
+   "category": "external_service",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "residual:tailscale (복제 · 제어 경로)",
+   "name": "tailscale (복제 · 제어 경로)",
+   "risk": "",
+   "role": "",
+   "source": "drill-spec",
+   "status": "remains",
+   "target_impl": ""
+  },
+  {
+   "category": "external_service",
+   "check_verdict": "NOT_RUN",
+   "evidence": [],
+   "found_in": "",
+   "grade": "not_graded",
+   "grade_by": "",
+   "id": "residual:모델 공급자 (플랫폼의 에이전트 워커)",
+   "name": "모델 공급자 (플랫폼의 에이전트 워커)",
+   "risk": "",
+   "role": "",
+   "source": "drill-spec",
+   "status": "remains",
+   "target_impl": ""
+  }
+ ],
+ "inventory_digest": "sha256:55271b9513e48c23c1a730faeebd44fc6831a1e1e57c9ef14d59641b60ccbc01",
+ "plan_digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
+ "schema_version": "exit-drill-residual-map/v1",
+ "summary": {
+  "grade": {
+   "adapter": 1,
+   "code_change": 2,
+   "config_swap": 2,
+   "not_graded": 8
+  },
+  "status": {
+   "blocked_app_ok": 4,
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1
+  }
+ }
+}

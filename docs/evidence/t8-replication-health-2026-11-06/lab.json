@@ -1,0 +1,1387 @@
+{
+  "stand_ins": [
+    "plain PostgreSQL 18.4 containers instead of CNPG",
+    "netem 100 Mbps RTT 30 ms is assumed",
+    "no TLS",
+    "no seed data"
+  ],
+  "exporter_session": "non-superuser pg_monitor member on the postgres database, read-only transaction, CNPG's search_path",
+  "machine": {
+    "before": {
+      "load_avg_1m": 4.78,
+      "other_running_containers": 3,
+      "other_containers_cpu_pct": 7.5
+    },
+    "after": {
+      "load_avg_1m": 7.5,
+      "other_running_containers": 8,
+      "other_containers_cpu_pct": 147.1
+    }
+  },
+  "link_trials": [
+    {
+      "disable_on_error": true,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "stopped",
+      "stopped_after_s": 5.62,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 30,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 0.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 1.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "stopped",
+      "stopped_after_s": 5.63,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 19,
+      "samples": 76,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 1.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 2.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "stopped",
+      "stopped_after_s": 5.56,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 156,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 2.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 3.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "stopped",
+      "stopped_after_s": 18.21,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 64,
+      "samples": 117,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 3.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 4.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 0.78,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 79,
+      "samples": 93,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 6.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 7.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 5.36,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 82,
+      "samples": 159,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 7.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 8.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 1.79,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 82,
+      "samples": 223,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 8.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 9.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 0,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 2.81,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 173,
+      "samples": 188,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 9.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 10.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "stopped",
+      "stopped_after_s": 5.48,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 31,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 20.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 21.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "stopped",
+      "stopped_after_s": 5.46,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 77,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 21.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 22.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "stopped",
+      "stopped_after_s": 5.58,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 156,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 22.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 23.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 3.37,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 190,
+      "samples": 190,
+      "apply_errors_added": 0.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 23.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 23.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 0.52,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 79,
+      "samples": 93,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 25.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 26.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 5.63,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 81,
+      "samples": 160,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 26.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 27.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 2.08,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 82,
+      "samples": 224,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 27.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 28.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 2.3,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 187,
+      "samples": 187,
+      "apply_errors_added": 0.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 28.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 28.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "stopped",
+      "stopped_after_s": 5.66,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 32,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 38.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 39.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "stopped",
+      "stopped_after_s": 5.51,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 78,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 39.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 40.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "stopped",
+      "stopped_after_s": 5.72,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 20,
+      "samples": 155,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 40.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 41.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "stopped",
+      "stopped_after_s": 17.67,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 80,
+      "samples": 118,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 41.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 42.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_8s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 1.02,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 81,
+      "samples": 95,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 44.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 45.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_20s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 5.62,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 81,
+      "samples": 160,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 45.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 46.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_40s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 1.8,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 81,
+      "samples": 223,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 46.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 47.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "loss30_30s",
+      "writes": true,
+      "repetition": 2,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 2.42,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 185,
+      "samples": 185,
+      "apply_errors_added": 0.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 47.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 47.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    }
+  ],
+  "idle_trials": [
+    {
+      "disable_on_error": true,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 0,
+      "outcome": "stopped",
+      "stopped_after_s": 3.03,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 11,
+      "samples": 31,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 4.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 5.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 0,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 1.04,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 79,
+      "samples": 95,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 10.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 11.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 1,
+      "outcome": "stopped",
+      "stopped_after_s": 4.57,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 16,
+      "samples": 30,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 23.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 24.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 1,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 1.02,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 80,
+      "samples": 96,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 28.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 29.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 2,
+      "outcome": "stopped",
+      "stopped_after_s": 3.18,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 12,
+      "samples": 31,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 42.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 0.0,
+        "apply_error_count": 43.0,
+        "apply_workers": 0.0
+      },
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "idle_cut_8s",
+      "writes": false,
+      "repetition": 2,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": 0.77,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 1.0,
+      "slot_active_samples": 78,
+      "samples": 94,
+      "apply_errors_added": 1.0,
+      "before": {
+        "enabled": 1.0,
+        "apply_error_count": 47.0,
+        "apply_workers": 1.0
+      },
+      "after": {
+        "enabled": 1.0,
+        "apply_error_count": 48.0,
+        "apply_workers": 1.0
+      },
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    }
+  ],
+  "conflict_trials": [
+    {
+      "disable_on_error": true,
+      "failure": "conflict",
+      "repetition": 0,
+      "seconds": 30,
+      "outcome": "stopped",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 1,
+      "samples": 117,
+      "apply_errors_added": 1.0,
+      "healed_after_removing_the_row": false,
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "conflict",
+      "repetition": 0,
+      "seconds": 30,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 4,
+      "samples": 117,
+      "apply_errors_added": 7.0,
+      "healed_after_removing_the_row": true,
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "conflict",
+      "repetition": 1,
+      "seconds": 30,
+      "outcome": "stopped",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 1,
+      "samples": 117,
+      "apply_errors_added": 1.0,
+      "healed_after_removing_the_row": false,
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "conflict",
+      "repetition": 1,
+      "seconds": 30,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 1,
+      "samples": 118,
+      "apply_errors_added": 7.0,
+      "healed_after_removing_the_row": true,
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "conflict",
+      "repetition": 2,
+      "seconds": 30,
+      "outcome": "stopped",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 0.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 1,
+      "samples": 116,
+      "apply_errors_added": 1.0,
+      "healed_after_removing_the_row": false,
+      "settings_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "conflict",
+      "repetition": 2,
+      "seconds": 30,
+      "outcome": "recovered",
+      "stopped_after_s": null,
+      "rows_flowing_after_heal_s": null,
+      "enabled_lowest": 1.0,
+      "workers_lowest": 0.0,
+      "slot_active_samples": 1,
+      "samples": 116,
+      "apply_errors_added": 7.0,
+      "healed_after_removing_the_row": true,
+      "settings_after": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    }
+  ],
+  "live_alter": [
+    {
+      "repetition": 0,
+      "worker_kept_on_off": true,
+      "settings_off": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      },
+      "recovered_with_off": true,
+      "enabled_after_cut": 1.0,
+      "errors_added_with_off": 1.0,
+      "worker_kept_on_rollback": true,
+      "stopped_after_rollback": true,
+      "reverse_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "repetition": 1,
+      "worker_kept_on_off": true,
+      "settings_off": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      },
+      "recovered_with_off": true,
+      "enabled_after_cut": 1.0,
+      "errors_added_with_off": 1.0,
+      "worker_kept_on_rollback": true,
+      "stopped_after_rollback": true,
+      "reverse_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    },
+    {
+      "repetition": 2,
+      "worker_kept_on_off": true,
+      "settings_off": {
+        "forward_enabled": true,
+        "forward_disable_on_error": false,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      },
+      "recovered_with_off": true,
+      "enabled_after_cut": 1.0,
+      "errors_added_with_off": 1.0,
+      "worker_kept_on_rollback": true,
+      "stopped_after_rollback": true,
+      "reverse_after": {
+        "forward_enabled": false,
+        "forward_disable_on_error": true,
+        "reverse_enabled": false,
+        "reverse_disable_on_error": true
+      }
+    }
+  ],
+  "columns_match_query": true,
+  "postgres": "18.4 (Debian 18.4-1.pgdg13+1)",
+  "timeouts": {
+    "wal_receiver_timeout": "5s",
+    "wal_sender_timeout": "5s"
+  },
+  "summary": [
+    {
+      "disable_on_error": true,
+      "failure": "cut_8s",
+      "runs": 3,
+      "stopped": 3,
+      "recovered": 0,
+      "neither": 0,
+      "enabled_during": [
+        0.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": null
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_20s",
+      "runs": 3,
+      "stopped": 3,
+      "recovered": 0,
+      "neither": 0,
+      "enabled_during": [
+        0.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": null
+    },
+    {
+      "disable_on_error": true,
+      "failure": "cut_40s",
+      "runs": 3,
+      "stopped": 3,
+      "recovered": 0,
+      "neither": 0,
+      "enabled_during": [
+        0.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": null
+    },
+    {
+      "disable_on_error": true,
+      "failure": "loss30_30s",
+      "runs": 3,
+      "stopped": 2,
+      "recovered": 1,
+      "neither": 0,
+      "enabled_during": [
+        0.0,
+        1.0
+      ],
+      "workers_lowest": [
+        0.0,
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 0.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 3.37,
+        "max": 3.37
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_8s",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 0.78,
+        "max": 1.02
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_20s",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 5.62,
+        "max": 5.63
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "cut_40s",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 1.8,
+        "max": 2.08
+      }
+    },
+    {
+      "disable_on_error": false,
+      "failure": "loss30_30s",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        0.0,
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 0.0,
+        "median": 0.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 2.42,
+        "max": 2.81
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "idle_cut_8s",
+      "runs": 3,
+      "stopped": 3,
+      "recovered": 0,
+      "neither": 0,
+      "enabled_during": [
+        0.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": null
+    },
+    {
+      "disable_on_error": false,
+      "failure": "idle_cut_8s",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        1.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": {
+        "median": 1.02,
+        "max": 1.04
+      }
+    },
+    {
+      "disable_on_error": true,
+      "failure": "conflict",
+      "runs": 3,
+      "stopped": 3,
+      "recovered": 0,
+      "neither": 0,
+      "enabled_during": [
+        0.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 1.0,
+        "median": 1.0,
+        "max": 1.0
+      },
+      "rows_flowing_after_heal_s": null
+    },
+    {
+      "disable_on_error": false,
+      "failure": "conflict",
+      "runs": 3,
+      "stopped": 0,
+      "recovered": 3,
+      "neither": 0,
+      "enabled_during": [
+        1.0
+      ],
+      "workers_lowest": [
+        0.0
+      ],
+      "apply_errors_added": {
+        "min": 7.0,
+        "median": 7.0,
+        "max": 7.0
+      },
+      "rows_flowing_after_heal_s": null
+    }
+  ]
+}

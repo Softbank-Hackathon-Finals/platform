@@ -1,0 +1,53 @@
+{
+  "kind": "gate_comparison",
+  "schema_version": "1",
+  "gate_id": "gate-0001",
+  "profile": {
+    "id": "demo-gate",
+    "version": "1"
+  },
+  "app": "demo-chat",
+  "evaluated_at": "2026-11-04T09:06:00Z",
+  "source_run_id": "run-src-0001",
+  "target_run_id": "run-tgt-0001",
+  "source_environment_id": "env-aws",
+  "target_environment_id": "env-onprem",
+  "run_issues": [],
+  "decision": "BLOCK",
+  "rows": [
+    {
+      "test_id": "IAM-01.1",
+      "control_id": "IAM-01",
+      "question": "인증 없이 첨부 저장소 객체를 읽을 수 있는가?",
+      "source_verdict": "PASS",
+      "target_verdict": "FAIL",
+      "decision": "BLOCK",
+      "reason": "TARGET_FAIL",
+      "improved": false,
+      "exception": null
+    },
+    {
+      "test_id": "SEC-01.1",
+      "control_id": "SEC-01",
+      "question": "다른 서비스 계정으로 채팅 DB Secret을 읽을 수 있는가?",
+      "source_verdict": "PASS",
+      "target_verdict": "PASS",
+      "decision": "PASS",
+      "reason": "BOTH_PASS",
+      "improved": false,
+      "exception": null
+    },
+    {
+      "test_id": "AUD-01.1",
+      "control_id": "AUD-01",
+      "question": "관리자 로그인 이벤트가 감사 로그에서 검색되는가?",
+      "source_verdict": "PASS",
+      "target_verdict": "UNKNOWN",
+      "decision": "BLOCK",
+      "reason": "TARGET_UNKNOWN",
+      "improved": false,
+      "exception": null
+    }
+  ],
+  "context_digest": "8002456d2350ce0028ac2ea04ebc0d882dffc6ee0558c45d4b4fb67dfeee7e7e"
+}

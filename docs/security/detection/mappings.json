@@ -18,7 +18,31 @@
       "field": "Severity",
       "map": {},
       "default": 0,
-      "note": "숫자 등급 경계는 공식 문서로 확인한 뒤 채운다. 확정 전에는 Security Hub 경유만 쓴다"
+      "note": "AWS severity bands: Low [1,4), Medium [4,7), High [7,9), Critical [9,10]. Invalid values remain Unknown.",
+      "ranges": [
+        {
+          "min": 1,
+          "max_exclusive": 4,
+          "severity_id": 2
+        },
+        {
+          "min": 4,
+          "max_exclusive": 7,
+          "severity_id": 3
+        },
+        {
+          "min": 7,
+          "max_exclusive": 9,
+          "severity_id": 4
+        },
+        {
+          "min": 9,
+          "max_exclusive": 10,
+          "max_inclusive": true,
+          "severity_id": 5
+        }
+      ],
+      "source": "https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings-severity.html"
     },
     "gcp_scc": {
       "field": "severity",
@@ -171,7 +195,7 @@
         {
           "field": "Service.Archived",
           "equals": true,
-          "status_id": 4
+          "status_id": 3
         }
       ],
       "default": 1

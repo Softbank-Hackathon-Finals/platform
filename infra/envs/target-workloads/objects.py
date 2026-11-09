@@ -5,8 +5,20 @@ import json
 
 from render import LABELS, database, resource
 
-IMAGE = "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1"
+# The 4.52 release index, so each node runs its own platform's child: linux/amd64 a54ba35b (the earlier pin)
+# or linux/arm64 18a805c8 (what the target node has run since it moved to arm64 on 2026-11-06).
+IMAGE = "docker.io/chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59"
 SELECTOR = {"app.kubernetes.io/name": "target-seaweedfs"}
+# T3's namespace template and T9's rehearsal delivery use this label. NetworkPolicy cannot match a
+# namespace-name prefix, so this label is what identifies a rehearsal namespace, not "rehearsal-*".
+REHEARSAL_NAMESPACE = {"app.kubernetes.io/part-of": "bravo-rehearsal"}
+REHEARSAL_CLIENTS = (
+    # T15 verification Job (services/rehearsal-runner/src/rehearsal_runner/bucket_job.py).
+    {"matchLabels": {"role": "bucket-verifier"}},
+    # T3 isolation probe: its P4 control must reach 8333, or the gate stops before the Job runs.
+    {"matchLabels": {"app.kubernetes.io/component": "probe"},
+     "matchExpressions": [{"key": "bravo.dev/isolation-run", "operator": "Exists"}]},
+)
 
 
 def objects(node_name):
@@ -28,6 +40,7 @@ def objects(node_name):
         "selector": {"matchLabels": SELECTOR},
         "template": {"metadata": {"labels": {**LABELS, **SELECTOR}}, "spec": {
             "automountServiceAccountToken": False,
+            "serviceAccountName": "target-seaweedfs",
             "securityContext": {"runAsNonRoot": True, "runAsUser": 1000,
                                 "runAsGroup": 1000, "fsGroup": 1000,
                                 "seccompProfile": {"type": "RuntimeDefault"}},
@@ -62,11 +75,24 @@ def objects(node_name):
     })
     policy = resource("networking.k8s.io/v1", "NetworkPolicy", "target-object-clients", spec={
         "podSelector": {"matchLabels": SELECTOR}, "policyTypes": ["Ingress", "Egress"],
-        "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}}],
+        "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}},
+                              # ADR-0044: the T31 close check from the platform arrives through the tailnet device
+                              # bravo-target-objects (infra/iac target-dev tailnet-ingress); only its proxy pod.
+                              {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tailscale-system"}},
+                               "podSelector": {"matchLabels": {"tailscale.com/parent-resource": "target-objects-tailnet",
+                                                               "tailscale.com/parent-resource-ns": "target-dev",
+                                                               "tailscale.com/parent-resource-type": "svc"}}}],
                      "ports": [{"protocol": "TCP", "port": 8333}]}],
         "egress": [],
     })
-    return [volume, claim, service, deploy, policy]
+    rehearsal_policy = resource("networking.k8s.io/v1", "NetworkPolicy", "target-object-rehearsal-clients", spec={
+        "podSelector": {"matchLabels": SELECTOR}, "policyTypes": ["Ingress"],
+        # Each peer pairs both selectors: as separate peers they would mean "either", not "both".
+        "ingress": [{"from": [{"namespaceSelector": {"matchLabels": REHEARSAL_NAMESPACE}, "podSelector": clients}
+                              for clients in REHEARSAL_CLIENTS],
+                     "ports": [{"protocol": "TCP", "port": 8333}]}],
+    })
+    return [volume, claim, service, deploy, policy, rehearsal_policy]
 
 
 if __name__ == "__main__":

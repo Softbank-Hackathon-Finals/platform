@@ -2,6 +2,7 @@ import copy
 import json
 import time
 import uuid
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
@@ -314,6 +315,77 @@ def test_broker_child_receives_only_access_token_and_fixed_inputs(tmp_path, monk
     assert options["timeout"] == 210 and options["capture_output"]
     output = capsys.readouterr().out
     assert "PROPOSAL_READY" in output and "private-" not in output and "fixture" not in output
+    assert "--inventory" not in command  # T38 bridges build ``args`` without an inventory
+    args.inventory = tmp_path / "inventory.json"
+    assert subscription_admin.run_worker(store, directory, args) == 0
+    command = calls[1][0]
+    assert command[command.index("--inventory") + 1] == str(args.inventory.absolute())
+
+
+KEY = "sk-ant-api03-" + "x" * 40  # Synthetic; not a credential.
+
+
+def test_claude_child_receives_only_the_api_key(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(KEY + "\n")
+    key_file.chmod(0o600)
+    monkeypatch.setenv("OPENAI_API_KEY", "never-fallback-fixture")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "cloud-fixture")
+    calls = []
+
+    def run(command, **options):
+        calls.append((command, options))
+        return SimpleNamespace(returncode=0, stdout="private-provider-detail", stderr="private-error")
+    monkeypatch.setattr(subscription_admin.subprocess, "run", run)
+    args = SimpleNamespace(model="claude-opus-5-5", **{k: tmp_path / k for k in
+        ("bundle", "manifest", "snapshot", "output")})
+    assert subscription_admin.run_claude_worker(key_file, tmp_path / "broker", args) == 0
+    command, options = calls[0]
+    assert command[1:6] == ["-m", "bravo_agent.cli", "analyze", "--provider", "claude"]
+    assert options["env"]["ANTHROPIC_API_KEY"] == KEY
+    assert set(options["env"]) == {"PATH", "LANG", "HOME", "TMPDIR", "ANTHROPIC_API_KEY", "PYTHONDONTWRITEBYTECODE"}
+    output = capsys.readouterr().out
+    assert '"provider": "claude"' in output and KEY not in output and "private-" not in output
+
+
+def test_the_worker_receives_the_iac_state_only_when_the_caller_names_one(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(KEY + "\n")
+    key_file.chmod(0o600)
+    calls = []
+    monkeypatch.setattr(subscription_admin.subprocess, "run",
+                        lambda command, **options: calls.append(command) or SimpleNamespace(returncode=0))
+    files = {k: tmp_path / k for k in ("bundle", "manifest", "snapshot", "output")}
+    subscription_admin.run_claude_worker(key_file, tmp_path / "broker", SimpleNamespace(model="m", **files))
+    subscription_admin.run_claude_worker(key_file, tmp_path / "broker", SimpleNamespace(
+        model="m", iac_state=Path("target-dev.json"), **files))
+    assert "--iac-state" not in calls[0]
+    assert calls[1][calls[1].index("--iac-state") + 1] == str(Path("target-dev.json").absolute())
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("mode,content", [(0o644, KEY), (0o600, "not-a-key"), (0o600, "")])
+def test_claude_key_file_must_be_private_and_well_formed(tmp_path, monkeypatch, mode, content):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(content)
+    key_file.chmod(mode)
+    monkeypatch.setattr(subscription_admin.subprocess, "run", lambda *a, **k: pytest.fail("model started"))
+    args = SimpleNamespace(model="claude-opus-5-5", **{k: tmp_path / k for k in
+        ("bundle", "manifest", "snapshot", "output")})
+    with pytest.raises(AuthFailure):
+        subscription_admin.run_claude_worker(key_file, tmp_path / "broker", args)
 
 
 def test_model_catalog_uses_subscription_access_and_filters_hidden_models():
@@ -341,3 +413,25 @@ def test_large_model_catalog_is_separate_from_small_auth_response_limit():
     assert oauth.models("access-fixture") == ["fixture-model"]
     with pytest.raises(AuthFailure, match="AUTH_RESPONSE_TOO_LARGE"):
         oauth._json(response)
+
+
+def test_openai_worker_gets_only_its_api_key(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "openai"
+    key_file.write_text("sk-proj-" + "a" * 40 + "\n")
+    key_file.chmod(0o600)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "never-fallback-fixture")
+    calls = []
+    monkeypatch.setattr(subscription_admin.subprocess, "run",
+                        lambda command, **options: calls.append((command, options)) or SimpleNamespace(returncode=0))
+    args = SimpleNamespace(model="gpt-test", **{k: tmp_path / k for k in ("bundle", "manifest", "snapshot", "output")})
+    assert subscription_admin.run_openai_worker(key_file, tmp_path / "broker", args) == 0
+    command, options = calls[0]
+    assert command[3:6] == ["analyze", "--provider", "openai"]
+    assert options["env"]["OPENAI_API_KEY"] == "sk-proj-" + "a" * 40 and "ANTHROPIC_API_KEY" not in options["env"]
+    key_file.write_text("sk-ant-" + "a" * 40)  # an Anthropic key is not an OpenAI key
+    with pytest.raises(subscription_admin.AuthFailure):
+        subscription_admin.run_openai_worker(key_file, tmp_path / "broker", args)

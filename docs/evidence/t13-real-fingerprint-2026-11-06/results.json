@@ -1,0 +1,59 @@
+{
+  "kind": "t13_db_fingerprint_real_run",
+  "recorded": "2026-11-06T18:47+09:00",
+  "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
+  "source_revision": "04a612617a4acfe1218cf13b42f24e55cf0bcb6a",
+  "verdict": "MATCH",
+  "data_verdict": "MATCH",
+  "schema_verdict": "MATCH",
+  "tables": [
+    {
+      "name": "public.attachments",
+      "rows_source": 1,
+      "rows_target": 1,
+      "data_verdict": "MATCH",
+      "schema_verdict": "MATCH",
+      "server_major": [
+        18,
+        18
+      ],
+      "schema_hash_equal": true,
+      "pk_hash_equal": true,
+      "content_hash_equal": true
+    },
+    {
+      "name": "public.messages",
+      "rows_source": 2,
+      "rows_target": 2,
+      "data_verdict": "MATCH",
+      "schema_verdict": "MATCH",
+      "server_major": [
+        18,
+        18
+      ],
+      "schema_hash_equal": true,
+      "pk_hash_equal": true,
+      "content_hash_equal": true
+    }
+  ],
+  "sequence_read_only": {
+    "source": {
+      "last_value": 12,
+      "is_called": true,
+      "max_id": 4,
+      "next_value": 13
+    },
+    "target": {
+      "last_value": 7,
+      "is_called": true,
+      "max_id": 4,
+      "next_value": 8
+    },
+    "next_safe_value": 13,
+    "corrected": false
+  },
+  "omitted": [
+    "pk_hash and content_hash values (only equality is published)",
+    "schema_hash values"
+  ]
+}

@@ -1,0 +1,643 @@
+{
+ "schema_version": "1.0",
+ "app": {
+  "id": "demo-chat",
+  "repo": "tests/fixtures/demo-chat",
+  "app_path": "app",
+  "source_sha": "1111111111111111111111111111111111111111"
+ },
+ "source": {
+  "env_id": "aws-seoul",
+  "env_kind": "aws",
+  "namespace": "chat"
+ },
+ "generated_at": "2026-11-05T02:21:40Z",
+ "inputs": {
+  "repo_digest": "sha256:e27978c6b73d95528f925bfc0ec8547689d21aa6e7b77a2c199cd801cd880fb6",
+  "deploy_digest": "sha256:10a8f72b9b99bbedcaf3d57c2258e316d26469397bc55ee60d35656986fda49f",
+  "api_calls": [
+   "file:aws.json",
+   "file:clusters.json",
+   "file:deployments.json",
+   "file:serviceaccounts.json"
+  ]
+ },
+ "items": [
+  {
+   "id": "item-001",
+   "role": "db",
+   "service": "db",
+   "found_in": "both",
+   "grade": "config_swap",
+   "grade_by": "rule",
+   "rationale": "같은 엔진(CNPG). 접속 주소만 교체, 데이터는 복제로 이전",
+   "agent_needed": false,
+   "code_refs": [
+    {
+     "id": "dep-0002",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 27,
+     "snippet": "db_host=env[\"DB_HOST\"],",
+     "detail": {
+      "name": "DB_HOST",
+      "how": "os.environ[]"
+     }
+    },
+    {
+     "id": "dep-0003",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 28,
+     "snippet": "db_port=int(env.get(\"DB_PORT\", \"5432\")),",
+     "detail": {
+      "name": "DB_PORT",
+      "how": "os.environ.get"
+     }
+    },
+    {
+     "id": "dep-0004",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 29,
+     "snippet": "db_name=env.get(\"DB_NAME\", \"chat\"),",
+     "detail": {
+      "name": "DB_NAME",
+      "how": "os.environ.get"
+     }
+    },
+    {
+     "id": "dep-0013",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 38,
+     "snippet": "db_wait_seconds=float(env.get(\"DB_WAIT_SECONDS\", \"5\")),",
+     "detail": {
+      "name": "DB_WAIT_SECONDS",
+      "how": "os.environ.get"
+     }
+    }
+   ],
+   "deploy_refs": [
+    {
+     "kind": "cnpg_cluster",
+     "name": "chat-db",
+     "via": "Namespace/chat",
+     "actions": [],
+     "attributes": {
+      "instances": "2",
+      "wal_level": "logical"
+     }
+    }
+   ],
+   "target": {
+    "env_kind": "onprem",
+    "impl": "cnpg",
+    "verify": "무결성 영수증 (복제로 이전)"
+   },
+   "risk": ""
+  },
+  {
+   "id": "item-002",
+   "role": "iam",
+   "service": "iam",
+   "found_in": "both",
+   "grade": "adapter",
+   "grade_by": "rule",
+   "rationale": "IAM 역할·정책은 목적지 RBAC·저장소 정책으로 번역한다",
+   "agent_needed": false,
+   "code_refs": [
+    {
+     "id": "dep-0024",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 16,
+     "snippet": "AWS_DEFAULT_REGION: ap-northeast-1",
+     "detail": {
+      "name": "AWS_DEFAULT_REGION",
+      "value": "ap-northeast-1"
+     }
+    },
+    {
+     "id": "dep-0025",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 17,
+     "snippet": "AWS_ACCESS_KEY_ID: <masked>",
+     "detail": {
+      "name": "AWS_ACCESS_KEY_ID"
+     }
+    },
+    {
+     "id": "dep-0027",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 43,
+     "snippet": "AWS_ENDPOINT_URL: <masked>",
+     "detail": {
+      "name": "AWS_ENDPOINT_URL",
+      "endpoint": "http://aws:5000"
+     }
+    },
+    {
+     "id": "dep-0028",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 44,
+     "snippet": "AWS_REGION: ap-northeast-1",
+     "detail": {
+      "name": "AWS_REGION",
+      "value": "ap-northeast-1"
+     }
+    },
+    {
+     "id": "dep-0029",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 45,
+     "snippet": "AWS_ACCESS_KEY_ID: <masked>",
+     "detail": {
+      "name": "AWS_ACCESS_KEY_ID"
+     }
+    }
+   ],
+   "deploy_refs": [
+    {
+     "kind": "iam_role",
+     "name": "arn:aws:iam::000000000000:role/chat-irsa",
+     "via": "Deployment/chat → ServiceAccount/chat",
+     "actions": [],
+     "attributes": {}
+    }
+   ],
+   "target": {
+    "env_kind": "onprem",
+    "impl": "k8s-rbac+openbao+seaweedfs-policy",
+    "verify": "허용 · 거부 실제 시험"
+   },
+   "risk": ""
+  },
+  {
+   "id": "item-003",
+   "role": "kms",
+   "service": "kms",
+   "found_in": "deploy",
+   "grade": "code_change",
+   "grade_by": "rule",
+   "rationale": "배포에만 있음(코드 밖에서 만든 설정). 이전에서 빠뜨리기 쉬운 항목. 코드에 호출이 없으므로 암묵적 사용 여부를 에이전트가 확인한다. 카탈로그 기본 등급 적용",
+   "agent_needed": true,
+   "code_refs": [],
+   "deploy_refs": [
+    {
+     "kind": "kms_key",
+     "name": "00000000-0000-0000-0000-00000000abcd",
+     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-kms",
+     "actions": [
+      "kms:Decrypt"
+     ],
+     "attributes": {
+      "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/00000000-0000-0000-0000-00000000abcd",
+      "key_manager": "CUSTOMER"
+     }
+    }
+   ],
+   "target": {
+    "env_kind": "onprem",
+    "impl": "openbao-transit",
+    "verify": "키 접근 분리 · 저장 암호화"
+   },
+   "risk": "migration_omission"
+  },
+  {
+   "id": "item-004",
+   "role": "object_store",
+   "service": "s3",
+   "found_in": "both",
+   "grade": "config_swap",
+   "grade_by": "rule",
+   "rationale": "S3 SDK 호출 1건 모두 endpoint_url이 설정에서 오므로 S3 호환 저장소로 주소만 교체",
+   "agent_needed": false,
+   "code_refs": [
+    {
+     "id": "dep-0006",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 31,
+     "snippet": "s3_bucket=env[\"S3_BUCKET\"],",
+     "detail": {
+      "name": "S3_BUCKET",
+      "how": "os.environ[]"
+     }
+    },
+    {
+     "id": "dep-0007",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 32,
+     "snippet": "s3_endpoint_url=env.get(\"S3_ENDPOINT_URL\") or None,",
+     "detail": {
+      "name": "S3_ENDPOINT_URL",
+      "how": "os.environ.get"
+     }
+    },
+    {
+     "id": "dep-0008",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 33,
+     "snippet": "s3_force_path_style=env.get(\"S3_FORCE_PATH_STYLE\", \"false\") == \"true\",",
+     "detail": {
+      "name": "S3_FORCE_PATH_STYLE",
+      "how": "os.environ.get"
+     }
+    },
+    {
+     "id": "dep-0018",
+     "kind": "sdk_call",
+     "file": "app/storage.py",
+     "line": 10,
+     "snippet": "self.client = boto3.client(",
+     "detail": {
+      "factory": "boto3.client",
+      "endpoint_url": "configurable"
+     }
+    },
+    {
+     "id": "dep-0020",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 12,
+     "snippet": "S3_BUCKET: demo-chat-attachments",
+     "detail": {
+      "name": "S3_BUCKET",
+      "value": "demo-chat-attachments"
+     }
+    },
+    {
+     "id": "dep-0021",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 13,
+     "snippet": "S3_ENDPOINT_URL: <masked>",
+     "detail": {
+      "name": "S3_ENDPOINT_URL",
+      "endpoint": "http://aws:5000"
+     }
+    },
+    {
+     "id": "dep-0022",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 14,
+     "snippet": "S3_FORCE_PATH_STYLE: \"true\"",
+     "detail": {
+      "name": "S3_FORCE_PATH_STYLE",
+      "value": "true"
+     }
+    }
+   ],
+   "deploy_refs": [
+    {
+     "kind": "s3_bucket",
+     "name": "demo-chat-attachments.example.invalid",
+     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-s3",
+     "actions": [
+      "s3:GetObject",
+      "s3:PutObject"
+     ],
+     "attributes": {
+      "arn": "arn:aws:s3:::demo-chat-attachments.example.invalid/*",
+      "public": "False",
+      "region": "ap-northeast-2"
+     }
+    },
+    {
+     "kind": "s3_bucket",
+     "name": "demo-chat-attachments.example.invalid",
+     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-s3",
+     "actions": [
+      "s3:GetObject",
+      "s3:PutObject"
+     ],
+     "attributes": {
+      "arn": "arn:aws:s3:::demo-chat-attachments.example.invalid",
+      "public": "False",
+      "region": "ap-northeast-2"
+     }
+    },
+    {
+     "kind": "s3_bucket",
+     "name": "chat-audit-archive.example.invalid",
+     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy legacy-audit",
+     "actions": [
+      "s3:GetObject"
+     ],
+     "attributes": {
+      "arn": "arn:aws:s3:::chat-audit-archive.example.invalid/*",
+      "public": "False",
+      "region": "ap-northeast-2"
+     }
+    }
+   ],
+   "target": {
+    "env_kind": "onprem",
+    "impl": "seaweedfs",
+    "verify": "무인증 접근 거부 · 버킷 권한"
+   },
+   "risk": ""
+  },
+  {
+   "id": "item-005",
+   "role": "secrets",
+   "service": "secretsmanager",
+   "found_in": "both",
+   "grade": "code_change",
+   "grade_by": "rule",
+   "rationale": "openbao+eso로 바꾸려면 SDK 직접 호출을 주입 방식으로 고쳐야 한다",
+   "agent_needed": false,
+   "code_refs": [
+    {
+     "id": "dep-0005",
+     "kind": "env_ref",
+     "file": "app/config.py",
+     "line": 30,
+     "snippet": "db_secret_id=env[\"DB_SECRET_ID\"],",
+     "detail": {
+      "name": "DB_SECRET_ID",
+      "how": "os.environ[]"
+     }
+    },
+    {
+     "id": "dep-0015",
+     "kind": "sdk_call",
+     "file": "app/db_secret.py",
+     "line": 15,
+     "snippet": "client = boto3.client(\"secretsmanager\")",
+     "detail": {
+      "factory": "boto3.client"
+     }
+    },
+    {
+     "id": "dep-0019",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 11,
+     "snippet": "DB_SECRET_ID: <masked>",
+     "detail": {
+      "name": "DB_SECRET_ID"
+     }
+    },
+    {
+     "id": "dep-0023",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 15,
+     "snippet": "AWS_ENDPOINT_URL_SECRETS_MANAGER: <masked>",
+     "detail": {
+      "name": "AWS_ENDPOINT_URL_SECRETS_MANAGER",
+      "endpoint": "http://aws:5000"
+     }
+    },
+    {
+     "id": "dep-0026",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 18,
+     "snippet": "AWS_SECRET_ACCESS_KEY: <masked>",
+     "detail": {
+      "name": "AWS_SECRET_ACCESS_KEY"
+     }
+    },
+    {
+     "id": "dep-0030",
+     "kind": "config_env",
+     "file": "compose.yaml",
+     "line": 46,
+     "snippet": "AWS_SECRET_ACCESS_KEY: <masked>",
+     "detail": {
+      "name": "AWS_SECRET_ACCESS_KEY"
+     }
+    }
+   ],
+   "deploy_refs": [
+    {
+     "kind": "secret",
+     "name": "demo-chat/db-AbCdEf",
+     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-secrets",
+     "actions": [
+      "secretsmanager:GetSecretValue"
+     ],
+     "attributes": {
+      "arn": "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:demo-chat/db-AbCdEf",
+      "rotation_enabled": "True"
+     }
+    }
+   ],
+   "target": {
+    "env_kind": "onprem",
+    "impl": "openbao+eso",
+    "verify": "다른 계정의 Secret 읽기 거부 · 회전"
+   },
+   "risk": ""
+  }
+ ],
+ "deploy": {
+  "namespace": "chat",
+  "workloads": [
+   {
+    "name": "chat",
+    "service_account": "chat",
+    "images": [
+     "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:0000000000000000000000000000000000000000000000000000000000000001"
+    ],
+    "env": [
+     "ADMIN_TOKEN",
+     "APP_ENV",
+     "DB_HOST",
+     "DB_SECRET_ID",
+     "S3_BUCKET"
+    ],
+    "env_sources": {
+     "APP_ENV": "literal",
+     "DB_HOST": "literal",
+     "DB_SECRET_ID": "literal",
+     "S3_BUCKET": "literal",
+     "ADMIN_TOKEN": "secretKeyRef"
+    },
+    "endpoints": {}
+   }
+  ],
+  "resources": [
+   {
+    "kind": "image",
+    "name": "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+    "role": "registry",
+    "via": "Deployment/chat",
+    "actions": [],
+    "attributes": {
+     "digest_pinned": "yes"
+    }
+   },
+   {
+    "kind": "iam_role",
+    "name": "arn:aws:iam::000000000000:role/chat-irsa",
+    "role": "iam",
+    "via": "Deployment/chat → ServiceAccount/chat",
+    "actions": [],
+    "attributes": {}
+   },
+   {
+    "kind": "s3_bucket",
+    "name": "demo-chat-attachments.example.invalid",
+    "role": "object_store",
+    "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-s3",
+    "actions": [
+     "s3:GetObject",
+     "s3:PutObject"
+    ],
+    "attributes": {
+     "arn": "arn:aws:s3:::demo-chat-attachments.example.invalid/*",
+     "public": "False",
+     "region": "ap-northeast-2"
+    }
+   },
+   {
+    "kind": "s3_bucket",
+    "name": "demo-chat-attachments.example.invalid",
+    "role": "object_store",
+    "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-s3",
+    "actions": [
+     "s3:GetObject",
+     "s3:PutObject"
+    ],
+    "attributes": {
+     "arn": "arn:aws:s3:::demo-chat-attachments.example.invalid",
+     "public": "False",
+     "region": "ap-northeast-2"
+    }
+   },
+   {
+    "kind": "secret",
+    "name": "demo-chat/db-AbCdEf",
+    "role": "secrets",
+    "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-secrets",
+    "actions": [
+     "secretsmanager:GetSecretValue"
+    ],
+    "attributes": {
+     "arn": "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:demo-chat/db-AbCdEf",
+     "rotation_enabled": "True"
+    }
+   },
+   {
+    "kind": "kms_key",
+    "name": "00000000-0000-0000-0000-00000000abcd",
+    "role": "kms",
+    "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-kms",
+    "actions": [
+     "kms:Decrypt"
+    ],
+    "attributes": {
+     "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/00000000-0000-0000-0000-00000000abcd",
+     "key_manager": "CUSTOMER"
+    }
+   },
+   {
+    "kind": "s3_bucket",
+    "name": "chat-audit-archive.example.invalid",
+    "role": "object_store",
+    "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy legacy-audit",
+    "actions": [
+     "s3:GetObject"
+    ],
+    "attributes": {
+     "arn": "arn:aws:s3:::chat-audit-archive.example.invalid/*",
+     "public": "False",
+     "region": "ap-northeast-2"
+    }
+   },
+   {
+    "kind": "cnpg_cluster",
+    "name": "chat-db",
+    "role": "db",
+    "via": "Namespace/chat",
+    "actions": [],
+    "attributes": {
+     "instances": "2",
+     "wal_level": "logical"
+    }
+   }
+  ],
+  "api_calls": [
+   "file:aws.json",
+   "file:clusters.json",
+   "file:deployments.json",
+   "file:serviceaccounts.json"
+  ],
+  "notes": []
+ },
+ "candidates": [
+  {
+   "env_id": "onprem-demo",
+   "env_kind": "onprem",
+   "verdict": "needs_work",
+   "grade_counts": {
+    "config_swap": 2,
+    "adapter": 1,
+    "code_change": 2,
+    "none": 0,
+    "unknown": 0
+   },
+   "missing_capabilities": [],
+   "residual_dependencies": [
+    "cloudflare (edge · tunnel)",
+    "ghcr.io (image pull)"
+   ],
+   "capabilities": {
+    "k8s": {
+     "value": "rke2 (CIS profile)",
+     "source": "declared: profile"
+    },
+    "postgres_operator": {
+     "value": "cnpg",
+     "source": "declared: profile"
+    },
+    "s3_compatible": {
+     "value": "seaweedfs",
+     "source": "declared: profile"
+    },
+    "secret_store": {
+     "value": "openbao",
+     "source": "declared: profile"
+    },
+    "secrets_injection": {
+     "value": "eso",
+     "source": "declared: profile"
+    },
+    "kms": {
+     "value": "openbao-transit",
+     "source": "declared: profile"
+    },
+    "audit": {
+     "value": "rke2-audit+pgaudit",
+     "source": "declared: profile"
+    },
+    "cis_profile": {
+     "value": "rke2-cis-1.23",
+     "source": "declared: profile"
+    }
+   }
+  }
+ ],
+ "summary": {
+  "grade_counts": {
+   "config_swap": 2,
+   "adapter": 1,
+   "code_change": 2
+  },
+  "agent_needed": 1,
+  "deploy_only": 1,
+  "code_only": 0
+ },
+ "digest": "sha256:e49e0daacdee02e93a5c2689fe6da181081b502aa38f2abd03de20efb4c3481d"
+}

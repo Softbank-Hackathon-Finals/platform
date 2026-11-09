@@ -1,0 +1,40 @@
+[project]
+name = "bravo-edge-control"
+version = "0.1.0"
+description = "T17 durable Cloudflare weight adapter for the trusted T10 host"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.27,<1", "bravo-observability[api]"]
+
+[project.optional-dependencies]
+t10-host = ["bravo-platform-events[postgres]", "bravo-control-gate"]
+
+[tool.uv]
+# The host installs one T36 implementation. T10's older source has identical
+# contract/intake/judge code; keep the T17 source pin for the combined environment.
+override-dependencies = ["bravo-observability[api] @ git+https://github.com/Softbank-Hackathon-Finals/platform.git@24b3cf516fdbdaac7dd346718eaac3c42f5e1d63#subdirectory=services/observability"]
+
+[tool.uv.sources]
+bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63", subdirectory = "services/observability" }
+bravo-platform-events = { path = "../platform-events" }
+bravo-control-gate = { path = "../control-gate" }
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9", "bravo-platform-events[postgres]", "bravo-control-gate"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bravo_edge_control"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

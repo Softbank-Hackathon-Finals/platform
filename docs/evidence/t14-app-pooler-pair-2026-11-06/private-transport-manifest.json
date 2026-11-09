@@ -1,0 +1,40 @@
+{
+  "artifacts": [
+    {
+      "role": "source-host",
+      "sha256": "57eb6f585e5e5758e970caf9f483b081567178dc2f9e0cf795f53bbad41a27f3"
+    },
+    {
+      "role": "source-remote",
+      "sha256": "f0a36c2d24805dc760b4f6fd2d1f1356e794ab301afe2fc72d67e42d522601de"
+    },
+    {
+      "role": "source-preparation",
+      "sha256": "cebeaea7312048faebf5061cda537556fc4c453f2742821331c40cba883155bd"
+    },
+    {
+      "role": "target-host",
+      "sha256": "72cce2e76b9cb8e0f638ca6b48643136ba2177f77430ed961b1dda7b343802f2"
+    },
+    {
+      "role": "target-remote",
+      "sha256": "463961d8e5d8fc3e90440a6d2e56f58a03e52fd03b505ef87a977ec2be4b543d"
+    },
+    {
+      "role": "pair-diagnostic",
+      "sha256": "43d48c759d6f47b1b34ab6c7233afbe3957a49ffa68d0819a489ebfd4435d13e"
+    },
+    {
+      "role": "pair-transport",
+      "sha256": "8f36c4482cfb50aad7847d50bc107e27b8bf8512f611d74a18f788aec6a84b69"
+    }
+  ],
+  "target_native_dependency": {
+    "name": "rpds-py",
+    "version": "2026.9.1",
+    "platform": "cp313-manylinux-aarch64",
+    "wheel_sha256": "457866b85daf5034296666168b84a69e0b2e89dc4f1af102b46f6448a60b9063"
+  },
+  "private_files_retained": true,
+  "public_sources_include_private_transports": false
+}

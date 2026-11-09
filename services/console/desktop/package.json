@@ -1,0 +1,60 @@
+{
+  "name": "sova-console",
+  "productName": "SOVA Console",
+  "version": "0.1.0",
+  "description": "SOVA migration console: dashboard + guided agent with built-in SOVA MCP",
+  "private": true,
+  "main": ".vite/build/main.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "vite build --config vite.renderer.config.mts --outDir .vite/renderer-check --emptyOutDir",
+    "build:web": "vite build --config vite.web.config.mts && vite build --config vite.server.config.mts"
+  },
+  "dependencies": {
+    "@aws-crypto/sha256-js": "5.2.0",
+    "@aws-sdk/credential-providers": "3.1164.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@openai/codex-sdk": "0.167.0",
+    "@smithy/signature-v4": "5.7.5"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-dmg": "8.0.1",
+    "@electron-forge/maker-zip": "8.0.1",
+    "@electron-forge/plugin-fuses": "8.0.1",
+    "@electron-forge/plugin-vite": "8.0.1",
+    "@electron/fuses": "2.1.3",
+    "@fontsource/black-han-sans": "5.3.0",
+    "@fontsource/dela-gothic-one": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@radix-ui/react-dialog": "1.3.1",
+    "@tailwindcss/vite": "4.3.5",
+    "@tanstack/react-query": "5.107.1",
+    "@types/node": "22.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "cmdk": "1.1.1",
+    "electron": "45.2.3",
+    "jotai": "3.0.1",
+    "lucide-react": "1.70.0",
+    "pretendard": "1.3.9",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwindcss": "4.3.5",
+    "typescript": "5.9.3",
+    "vite": "8.3.6",
+    "vitest": "5.1.0",
+    "zod": "4.6.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  }
+}

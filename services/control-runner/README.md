@@ -12,17 +12,36 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | gitleaks 결과 어댑터·실행기 | 소스와 렌더된 설정 양쪽 보고서, 고정 도구·설정·스냅샷 범위·종료코드 확인 | 합성 보고서와 실제 8.30.1 로컬 시험 입력 |
 | Prowler / kube-bench 결과 어댑터 | 고정한 점검 ID·대상 집합과 개별 결과 비교 | 합성 보고서; 실제 IAM 점검 매핑 미확정 |
 | AWS Secret 시험 | 앱 역할과 다른 역할로 같은 현재 Secret 읽기 시도 (`SEC-01.1`) | SDK 인터페이스 모의 시험 |
+| OpenBao Secret 시험 | 두 Kubernetes SA의 신원·같은 현재 Secret 읽기를 전후 확인 (`SEC-01.1`) | 합성 API 응답 + 실제 loopback TLS; 팀 OpenBao 연결 미검증 |
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
+| S3 호환 객체 시험 (목적지 SeaweedFS) | 같은 판정: 앱 서명 GET 허용 → 익명 GET 거부 → 앱 GET 재확인, 등록 endpoint·경로 방식 고정, 평문 HTTP는 루프백과 클러스터 내부 Service(`<svc>.<ns>.svc`)만 (`IAM-01.1`, `object_endpoint.py`) | Stubber 회귀 + 목적지와 같은 SeaweedFS 4.52 이미지·T9 `s3.json`의 실측(`BRAVO_SEAWEEDFS_DOCKER=1`): closed PASS, open-demo FAIL. 실제 목적지 연결 미인수 |
+| AWS Secret 저장 암호화 | 현재 Secret 버전·기존 KMS 키·기본 alias를 읽기 전용으로 전후 대조 (`ENC-02.1`) | 실제 Botocore Stubber, [범위·자격 경계](docs/secret-encryption.md) |
+| 로그 비밀 노출 검사 | 등록된 카나리 실행·전체 로그·대조군 검사, CloudWatch 전체 페이지 조회 (`SEC-01.3`) | 모의 SDK + 실제 로컬 자식 프로세스; 운영 주입/복원·수집 연결 미구현 |
+| 앱 간 객체·DB 접근 | 서로 다른 두 앱의 전후 정상 접근 + 교차 접근 결합 (`ISO-01.1`) | SDK 모의 S3 + 실제 로컬 PostgreSQL; 운영 S3·양쪽 환경 미인수 |
+| 외부 공개 TCP 포트 | 고정 Nmap 전체 포트 검사·전후 외부 진입점 대조 (`NET-01.1`) | 회귀 시험·실제 격리 loopback Nmap; 운영 외부 위치·양쪽 inventory 연결 미완료 |
 | 앱 → Pooler TLS 시험 | 정상 TLS, 다른 CA·hostname 거부, 평문 거부 (`ENC-01.1/2/3`) | 회귀 시험 및 로컬 kind의 실제 PgBouncer 접속 |
+| 논리 복제 TLS 시험 | 구독 설정과 등록 슬롯의 실제 sender TLS를 함께 확인 (`ENC-01.4`) | 회귀·로컬 PostgreSQL 자격 시험; 운영 T8 등록/조회 접점 미연결 |
+
+공개 포트의 검사 범위·모호한 결과 처리·운영 인수 조건은 [외부 포트 검사](docs/public-ports.md)를 따른다.
+
+앱 간 접근 범위·서버 감사 결속과 인수 조건은 [앱 간 격리 검사](docs/app-isolation.md)를 따른다.
+
+OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험](docs/openbao-access.md)을 따른다.
+
+로그 카나리 주입·복원 영수증과 원문 로그 조회 권한의 경계는 [로그 비밀 노출 검사](docs/secret-logs.md)를 따른다.
 
 TLS 시험의 배치·자격증명 경계와 남은 팀 환경 검증은
 [PostgreSQL TLS 안내](docs/postgres-tls.md)를 따른다.
+복제 연결은 [논리 복제 TLS 검사](docs/replication-tls.md)로 별도 확인한다.
+기존 앱 경계를 사용하는 별도 수집기의 제한과 호스트 인수 조건은
+[앱 프로세스 TLS 수집기](docs/app-process-tls.md)에 정리한다.
 
 **T14 전체 완료가 아니다.** T6 출발지·T9 목적지와의 실제 연결, 나머지 하위 시험,
 Prowler/kube-bench 실행과 실환경 매핑, 양쪽 환경 통제 비교는 남아 있다.
 `full` 프로필의 결과 20행을 만드는 것과 20개 시험을 실제 수행하는 것은 다르다.
 미등록 수집기는 `UNKNOWN / NOT_RUN`이다. T19는 이를 차단해야 한다.
 T14 이슈의 선행 조건을 만족하거나 완료 처리한 것으로 보지 않는다.
+20개 시험의 코드·운영 연결 상태는 [하위 시험별 구현·인수 상태](docs/implementation-readiness.md)에 구분한다.
 
 ## 호출 경계
 
@@ -34,6 +53,11 @@ T14 이슈의 선행 조건을 만족하거나 완료 처리한 것으로 보지
    요청자가 기대값·필수 시험·스키마를 바꾸지 못하게 한다.
 3. 서버가 시험 ID별 신뢰된 수집기를 등록한다. `Runner`가 실행마다 새 ID를 만들고,
    이 ID·앱·환경·시험에 맞는 관찰만 수용한다.
+   백업처럼 선행 효과가 있는 시험은 서버가 먼저 등록·보존한 `RunContext`를
+   `registered_context`로 전달할 수 있다. 백업 영수증의 실행 ID를 사후에 바꾸지 않는다.
+   앱과 환경의 ID·role·ref가 다르면 수집 전에 거부하며, 이전 관찰의 시각은 허용하지 않는다.
+   이 인자는 외부 요청이나 AI 결과에서 받지 않는다. 등록·프로필/계획 결속·실행권의 단일 claim·
+   재시작 후 완료 결과 재사용은 호출 오케스트레이터의 책임이며 Runner가 대신 증명하지 않는다.
 4. 수집 시각이 실제 호출 시간창 안에 있는지 확인하고 최대 24시간의 증거 만료를 부여한다.
    T19는 평가 시점의 만료 여부를 다시 검사한다.
 5. 서버가 결과와 증거를 접근 통제된 변경 불가 저장소에 보존하고 T19에 참조를 전달한다.
@@ -59,6 +83,10 @@ run = runner.run(
     environment=Environment("source", "source", "aws:eks/source"),
 )
 ```
+
+프로필은 `(profile_id, profile_version)`으로 고른다. `app`은 프로필을 고르지 않고 결과의 `app`이 된다.
+T10 계획에서 돌릴 때는 등록된 `workload_id`(예: `workload-…`)를 넘긴다. 카탈로그 프로필의 `app`은
+그 프로필을 처음 정한 기준 앱 표시이고, 실행 앱과 대조하지 않는다.
 
 ## 판정과 오류 처리
 
@@ -146,6 +174,21 @@ AWS 사용 시 `uv sync --extra aws`로 설치한다. 서버가 각각의 역할
 클라이언트와 역할을 연결해야 한다. SDK wire/debug 로그를 금지하고, 사용자 코드가 없는
 시험 워커에서 실행한다. 실제 AWS 자격 시험은 수행하지 않았다.
 
+`QualifiedAwsProbe`는 이 신원 결속을 수행하는 선택적 호스트 연결부다. 등록된 역할의
+고유 `RoleId`와 STS 신원을 대조하고, 같은 임시 자격 증명으로 실제 통제 요청을 실행한 뒤
+신원 확인 근거와 probe 증거를 함께 보존한다. [연결 계약과 실환경 인수 항목](docs/aws-qualification.md)을
+따른다. Credential Provider·팀 로그인·최소 권한 발급은 호스트의 책임이다.
+
+## 네트워크 대조 시험 (T14)
+
+DB 5432·Pooler 6432 모두에 전후 허용 대조와 시험 주체의 정상 대조를 연결한다.
+접속 시간 초과만으로 PASS를 만들지 않는다. [계약·배치·검증 범위](docs/network-controls.md)를 따른다.
+
+## CNPG 백업 완료 읽기 검증 (T35)
+
+등록된 자원 UID·요청 전 설정·컨트롤러 완료 상태를 대조한다. 백업 생성과 복원 데이터
+검증은 별도 단계다. [계약·통합 경계](docs/cnpg-readback.md)를 따른다.
+
 ## 검증
 
 ```sh
@@ -163,4 +206,9 @@ uv build
 [GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
 오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
 
+환경 내부 OTLP 감사 기록 연결: [등록 원천·수신 시각·전체 export 검증](docs/otlp-audit.md).
 T34의 환경 내부 OTel 수집 구성·중단 복구와 배포 전제는 [감사 전달 구성](docs/audit-forwarding.md)을 따른다. 설정 생성과 로컬 도구 실험은 양쪽 운영 환경의 감사 검색 완료가 아니다.
+
+실제 로컬 DB·Kubernetes 감사 발생부터 수집·검색까지: [자격 시험](docs/live-audit-qualification.md). 팀 환경 완료와 구분한다.
+
+백업 상태 조회자의 최소 권한: [지정 자원 GET과 실제 거부 시험](docs/backup-rbac.md).

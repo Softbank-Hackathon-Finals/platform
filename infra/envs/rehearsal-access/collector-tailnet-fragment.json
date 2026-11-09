@@ -1,0 +1,19 @@
+{
+  "tagOwners": {
+    "tag:bravo-collector": ["tag:bravo-platform-operator"]
+  },
+  "grants": [
+    {
+      "src": ["tag:bravo-collector"],
+      "dst": ["tag:bravo-target-api"],
+      "ip": ["tcp:443"]
+    }
+  ],
+  "tests": [
+    {
+      "src": "tag:bravo-collector",
+      "accept": ["tag:bravo-target-api:443"],
+      "deny": ["tag:bravo-target-api:80", "tag:bravo-target-api:22", "tag:bravo-target-api:5432"]
+    }
+  ]
+}

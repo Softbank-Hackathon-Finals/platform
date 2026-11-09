@@ -34,7 +34,7 @@
 | 환경 | 집계 출처 (P0) | 대체 출처 | 원본 형식 | 담는 것 |
 |---|---|---|---|---|
 | AWS | **Security Hub** `GetFindings` | Security Hub를 켤 수 없으면 GuardDuty `ListFindings` · `GetFindings` 직접 | ASFF | GuardDuty(위협), 보안 표준 점검(설정 위반), Inspector(취약점, 켠 경우) |
-| Google Cloud | **Security Command Center** `ListFindings` | — | SCC Finding | Security Health Analytics(설정 위반), 위협 탐지(등급에 따라) |
+| Google Cloud | **Security Command Center** v2 `ListFindings`(`locations/global`) | — | SCC Finding | Security Health Analytics(설정 위반), 위협 탐지(등급에 따라) |
 | 온프렘 (RKE2) | **Kyverno PolicyReport** (K8s API) + **Falco** (falcosidekick 웹훅) | — | PolicyReport CRD, Falco 이벤트 JSON | 정책 위반(Kyverno), 런타임 위협(Falco) |
 | 모든 환경 | **T5 통제 시험 결과** (`ControlRun`) | — | `docs/controls/control-result.schema.json` | 6개 통제 PASS / FAIL / UNKNOWN |
 
@@ -105,7 +105,7 @@ OCSF: 1 Informational · 2 Low · 3 Medium · 4 High · 5 Critical, 판단할 �
 | 출처 | 원본 값 → `severity_id` |
 |---|---|
 | Security Hub (ASFF `Severity.Label`) | INFORMATIONAL 1 · LOW 2 · MEDIUM 3 · HIGH 4 · CRITICAL 5 |
-| GuardDuty 직접 (숫자 `Severity`) | 등급 경계는 착수 시 공식 문서로 확인해 고정한다. 확정 전에는 Security Hub 경유만 쓴다 |
+| GuardDuty 직접 (숫자 `Severity`) | [공식 등급](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings-severity.html): 1 이상 4 미만 → 2, 4 이상 7 미만 → 3, 7 이상 9 미만 → 4, 9 이상 10 이하 → 5. 범위 밖·문자열·boolean·비유한 수 → 0 |
 | SCC (`severity`) | LOW 2 · MEDIUM 3 · HIGH 4 · CRITICAL 5 · SEVERITY_UNSPECIFIED 0 |
 | Falco (`priority`) | DEBUG · INFORMATIONAL 1 · NOTICE 2 · WARNING 3 · ERROR 4 · CRITICAL · ALERT · EMERGENCY 5 |
 | Kyverno (정책 annotation `policies.kyverno.io/severity`) | low 2 · medium 3 · high 4 · critical 5 · 없음 3 |
@@ -118,6 +118,7 @@ OCSF: 1 New · 2 In Progress · 3 Suppressed · 4 Resolved.
 | 출처 | 원본 → `status_id` |
 |---|---|
 | Security Hub | `RecordState` ARCHIVED → 4. 아니면 `Workflow.Status`: NEW 1 · NOTIFIED 2 · SUPPRESSED 3 · RESOLVED 4 |
+| GuardDuty 직접 | `Service.Archived=true` → 3(Suppressed), false → 1. 보관 처리만으로 해결을 주장하지 않음 |
 | SCC | `state` INACTIVE → 4. ACTIVE이면서 `mute` MUTED → 3, 아니면 1 |
 | Falco | 이벤트라 상태가 없다 → 1. 침묵으로 해결 처리하지 않음. 별도 해결 증거·승인 경로 필요 |
 | Kyverno | 결과 `fail` · `warn` → 1(유지되면 그대로), 같은 정책 · 대상이 `pass`로 바뀌면 4. `skip`은 버리고, `error`는 수집 문제로 본다(7절) |
@@ -184,7 +185,7 @@ Google Cloud     …
 
 | 영역 | 요건 |
 |---|---|
-| 권한 | 출처마다 읽기 전용 최소 권한. AWS `securityhub:GetFindings`(대체 경로는 `guardduty:ListDetectors` · `ListFindings` · `GetFindings`), Google Cloud SCC 결과 조회 전용 역할, K8s는 `policyreports` · `clusterpolicyreports`의 `get` · `list`만. 플랫폼 장기 키를 두지 않는다(AWS는 역할 위임, Google Cloud는 Workload Identity 연동) |
+| 권한 | 출처마다 읽기 전용 최소 권한. AWS `securityhub:GetFindings`(대체 경로는 `guardduty:ListDetectors` · `GetDetector` · `ListFindings` · `GetFindings`), Google Cloud SCC 결과 조회 전용 역할, K8s는 `policyreports` · `clusterpolicyreports`의 `get` · `list`만. 플랫폼 장기 키를 두지 않는다(AWS는 역할 위임, Google Cloud는 Workload Identity 연동) |
 | 멱등 · 중복 | `(source, environment_id, finding_info.uid)`로 upsert. 같은 시험을 출발지 · 목적지에서 돌려도 서로 덮어쓰지 않는다. 오래된 갱신은 무시하고 동일 시각 충돌은 격리·보류한다. 환경마다 집계 출처가 하나라 출처 간 중복이 없다 |
 | 증분 수집 | 출처별 커서(마지막 갱신 시각)를 저장하고 그 이후만 가져온다. 페이지를 끝까지 돈다. 커서는 한 번의 수집이 끝까지 성공했을 때만 전진 |
 | 재시도 | 출처 API의 속도 제한 응답에는 지수 백오프. 실패는 수집 상태에 기록하고 화면에 보인다 |

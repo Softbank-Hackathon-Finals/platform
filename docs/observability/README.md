@@ -70,9 +70,13 @@
 |---|---|---|
 | PASS | `ADVANCE_ALLOWED` 다음 단계 가능 | `NONE` |
 | FAIL | `SET_WEIGHT_0` 즉시 가중치 0 | `ALERT_FAILBACK_PROPOSAL` 알림과 되돌리기 제안. 되돌리기 실행은 사람 승인 뒤(S4 2단계) |
-| UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0` | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
+| UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0`. 단, 사유가 `WINDOW_BEFORE_CHANGE` 하나뿐이면 `HOLD`(J25) | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
 
 연속 UNKNOWN 수(`prior_unknown`)는 같은 `observe_from` 안에서만 센다. PASS나 FAIL이 나오거나 가중치를 바꿔 `observe_from`이 바뀌면 0부터 다시 센다. 앞 단계의 UNKNOWN이 다음 단계로 넘어오지 않는다. 판정은 창 하나마다(`window_seconds`마다) 한 번 한다.
+
+**변경 직후의 기다림은 세지 않는다.** 가중치를 바꾼 뒤 첫 창이 끝나고 도착할 때까지(창 길이 + 전송 지연, 약 10~20초) 가장 최근 창은 변경 전에 시작한 창이다. 이것은 관측이 끊긴 것이 아니라 정해진 기다림이다. 그래서 사유가 `WINDOW_BEFORE_CHANGE` 하나뿐인 UNKNOWN은 연속 수에 더하지 않고, 그 자체로 `SET_WEIGHT_0`이 되지도 않는다. 변경 뒤 창이 끝내 오지 않으면 그 창이 오래되어 `STALE`이 함께 붙고, 그때부터 다시 센다(J26). 호출자는 `bravo_observability.next_prior_unknown(직전 판정, same_observation=...)`으로 다음 `prior_unknown`을 구한다. 같은 관측을 다시 판정하면 수를 유지한다.
+
+이 규칙이 없으면 정상 트래픽에서도 단계가 스스로 끝난다. edge-control 호스트 방식(1초마다 최신 창 판정, 서버 시각 10초 구간마다 한 번 셈)으로 확인 시각·창 위상·전송 지연(0.5~3초)을 바꿔 가며 1,600가지를 돌리면, 이전 규칙은 `unknown_limit` 3에서 91%가 오류 없이 `SET_WEIGHT_0`이 됐다. 이 규칙에서는 Edge 반영이 확인보다 5초 늦어도 모두 PASS(11~23초)였고, 변경 뒤 창이 끊기거나 가중치가 반영되지 않으면 모두 43초 안에 `SET_WEIGHT_0`이었다(`tests/test_unknown_streak.py`).
 
 SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 모두 출발지 DB에 쓴다(8.6 "전환 전 쓰기 경로"). 가중치 0은 쓰기를 받는 DB를 바꾸지 않으므로 항상 안전한 방향이다. 실패한 환경이 출발지여도 조치는 같다(FR-8). 어느 환경이 원인인지는 판정 기록의 창에서 읽는다. WATCH는 컷오버 뒤라 되돌리기가 데이터 경로를 바꾸므로 자동으로 하지 않는다.
 
@@ -83,8 +87,11 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 - `received_at`은 플랫폼이 받은 순간 덮어쓴다. 생산자 값은 버린다.
 - 판정의 `plan_id` · `state` · `weight_target` · `observe_from`은 요청이나 창에서 가져오지 않고, 인증된 현재 계획과 상태 머신이 기록한 현재 단계(상태 DB)에서 가져온다. 다른 계획의 창은 `PLAN_MISMATCH`로 판정에 쓰지 않는다(J23). 판정 기록의 값이 현재 계획 · 단계와 다르면 그 판정의 조치를 실행하지 않는다.
 - 같은 `(plan_id, window.start)`의 창은 한 번만 받는다. 판정은 `window.end`가 가장 늦은 창으로 하고, 이미 판정한 창보다 이른 창은 쓰지 않는다. 오래된 정상 창을 다시 보내 장애를 가리지 못하게 한다.
+- 끝 시각이 더 늦더라도 직전 창과 겹치면 받지 않는다. 이 비교와 저장은 원자적으로 처리한다. 요청·오류 카운터는 음수가 아닌 정수이고, 서로 배타적인 5xx와 409의 합은 요청 수 이하여야 한다. 지연·임계값의 NaN/Infinity를 허용하지 않는다.
 - 창 수신 경로는 부하 생성기 주체만 쓸 수 있다(6절).
 - 판정 기록의 `profile`이 가리키는 기준 프로필을 실제로 적용했는지, 판정을 다시 계산해 같은지 확인한다.
+
+창 수신 쪽 항목(수신 시각 덮어쓰기, 계획, 중복, 순서, 수신 주체)의 기준 구현은 [창 수신](../../services/observability/README.md#창-수신-post-v1observabilitywindows)이다. 순서 규칙 때문에 미래에 끝나는 창 하나가 이후 창을 모두 막을 수 있어, 수신 시각보다 `max_clock_skew_seconds` 넘게 미래에 끝나는 창은 받지 않는다. 판정도 그 창을 `CLOCK_SKEW`로 쓰지 않으므로 결과는 같다.
 
 ## 4. 창 요약 생산 규칙 (T18)
 
@@ -102,6 +109,18 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 ## 5. 기준 프로필
 
 `demo-shift` v1의 값과 근거는 [`threshold-profiles.json`](threshold-profiles.json)의 `basis`에 있다. `status: proposed`는 실측 전 제안값이라는 뜻이다. 특히 `p95_ms_max`는 8.6에 따라 T8의 클라우드 간 지연 실측으로 정한다. 값을 바꾸면 `version`을 올리고, 판정 기록은 자기가 쓴 버전을 담는다. 실측으로 확정하면 `status: measured`와 실측 기록 위치를 `basis`에 적는다.
+
+**실측으로 확정하는 순서.** 실제 Edge를 거친 T18 본 측정에서 가중치를 0 → 10 → 50 → 100 → 0으로 바꾼 실행([T18 합동 측정](../operations/t18-joint-measure.md) 5~6절, 해피패스 S3)의 `align` 결과로 정한다.
+
+```sh
+uv run --directory services/observability python -m bravo_observability.calibrate <out>/<실행 ID>/weight-alignment.json
+```
+
+- `p95_ms_max`: judge가 p95를 보는 창 · 풀의 p95 최대값 × 1.5를 100ms 단위로 올린다. 가중치가 0인 환경과 풀 요청이 `min_pool_requests`보다 적은 창은 판정이 p95를 보지 않으므로 넣지 않는다. 반영 지연 창도 표본이 충분하면 판정이 p95를 보므로 넣는다.
+- `unknown_limit`: Edge 확인 뒤에도 새 가중치가 보이지 않는 창(`NOT_APPLIED` · `INSUFFICIENT_SAMPLES`)이 가장 길게 이어진 수 + 2, 최소 3이다. 변경 전에 시작한 창은 연속 수에 넣지 않으므로(J25) 확인 뒤의 반영 지연만 센다.
+- Edge를 거치지 않았거나, 경고가 있거나, 판정에 쓸 수 없거나, 관측하지 못한 단계나 FAIL 창이 있는 실행은 값을 내지 않는다(`refused`). 로컬 대역이나 노트북 측정으로 기준을 정하지 않는다.
+- 계산은 제안만 한다. 사람이 제안값·근거를 보고 `threshold-profiles.json`에 새 버전(같은 id의 가장 새 버전 + 1)으로 올리고, 이전 버전은 남긴다. 운영에서 쓰는 프로필 사본(워크플로 호스트 `sli-profile.json`, Edge 등록 profile)도 같은 버전으로 바꾼다. 레포 밖에서 실행하면 `threshold-profiles.json` 경로를 두 번째 인자로 준다.
+- **`unknown_limit` 채택 조건**: 제안값은 변경 전에 시작한 창을 세지 않는 규칙(J25, `next_prior_unknown`)을 전제로 한다. 판정을 소비하는 쪽(edge-control, platform-events)이 J25 이후 observability rev를 고정하고 `next_prior_unknown`으로 `prior_unknown`을 셀 때만 채택한다. 그 전에는 이전 버전의 `unknown_limit`을 유지한다.
 
 ## 6. 관측 데이터의 보안 규칙
 
@@ -123,9 +142,9 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 
 | 상대 | 제안 |
 |---|---|
-| T18 부하 생성기 (김태현) | 4절 규칙으로 `SliWindow`를 10초마다 플랫폼에 보낸다. 쓰기 응답 최대 간격을 실행 요약에 추가한다 |
+| T18 부하 생성기 (김태현) | 4절 규칙으로 `SliWindow`를 10초마다 플랫폼 창 수신(`POST /v1/observability/windows`, `Authorization: Bearer`)에 보낸다. 토큰은 명령 인자가 아니라 환경 변수로 받는다. 쓰기 응답 최대 간격을 실행 요약에 추가한다 |
 | T17 Edge (류지환) | "단계 판정"에 기준 구현 `bravo_observability.judge`를 그대로 쓴다(판정 코드를 한 벌로 유지). 따로 구현하면 `contract-cases.json`을 단위 시험으로 쓴다. 측정한 가중치 반영 시간으로 `unknown_limit`을 확정한다 |
-| T10 상태 머신 (류지환) | 판정마다 `SliJudgement`를 상태 DB와 감사 로그(T24)에 저장한다. 이벤트 계약 v1의 5종에 판정 · 알림을 담을 종류가 없으므로 `observation.judged` 추가를 제안한다 |
+| T10 상태 머신 (류지환) | 판정마다 `SliJudgement`를 상태 DB와 감사 로그(T24)에 저장한다. 이벤트 계약 v1의 5종에 판정 · 알림을 담을 종류가 없으므로 `observation.judged` 추가를 제안한다. 운영 창 수신을 맡는다: `WindowStore`를 상태 DB에 구현했고(#181), 전용 HTTP 호스트가 `accept`를 소비하며 현재 계획 · 생산자 binding으로 받을 창을 정한다(#186) |
 | T21 콘솔 | 7절 |
 | T22 데모 앱 v1 | 모든 HTTP 응답에 `X-Bravo-Env` 헤더 |
 | T8 복제 경로 (김태현) | 클라우드 간 쓰기 지연 실측값으로 `p95_ms_max` 확정 |
@@ -133,4 +152,4 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 
 ## 9. 검증
 
-기준 구현 [`services/observability`](../../services/observability/)의 시험이 계약 시험 전체(판정 25건, 스키마 거부 8건)와 창 요약 생성 규칙을 돌린다. 이 디렉터리의 계약 파일이 바뀌면 CI가 전체 검사를 선택하므로 사례와 규칙이 어긋나면 PR에서 실패한다. 판정 규칙 두 개(늦게 도착한 창 거부, 환경별 오류율)를 일부러 빼면 J21 · J24가 실패하는 것을 확인했다. 판정을 구현하는 쪽(T17)이 기준 구현을 쓰거나 이 사례들을 통과하는 것이 완료 확인이다.
+기준 구현 [`services/observability`](../../services/observability/)의 시험이 계약 시험 전체(판정 25건, 스키마 거부 8건), 창 요약 생성 규칙, 창 수신 규칙을 돌린다. 이 디렉터리의 계약 파일이 바뀌면 CI가 전체 검사를 선택하므로 사례와 규칙이 어긋나면 PR에서 실패한다. 판정 규칙 두 개(늦게 도착한 창 거부, 환경별 오류율)를 일부러 빼면 J21 · J24가 실패하는 것을 확인했다. 판정을 구현하는 쪽(T17)이 기준 구현을 쓰거나 이 사례들을 통과하는 것이 완료 확인이다.

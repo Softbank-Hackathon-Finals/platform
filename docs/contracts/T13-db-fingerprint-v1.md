@@ -96,7 +96,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 ## 시퀀스
 
-쓰기를 막은 뒤 `correct_sequence(src, dst, 시퀀스, 표, 컬럼)`을 부른다. 올리기만 한다.
+컷오버에서는 쓰기를 막은 뒤 `correct_sequence(src, dst, 시퀀스, 표, 컬럼)`을 부른다. GATE 사전 관찰은 출발지 쓰기를 막지 않고 목적지가 닫혀 있을 때만 부른다(아래 「소비자 연결」 T19 예외). 어느 쪽이든 올리기만 한다.
 
 ```text
 다음 값 = last_value + 1 (is_called가 true), last_value (false)
@@ -146,12 +146,12 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 ## 소비자 연결
 
-**T12 (`runner.py`).** 기존 비교기 자리에 넣는다. 실제 비교 결과가 실행 단계 판정을 통과하는지는 `tests/test_db_fingerprint_runner.py`가 재고 있다.
+**T12 (`runner.py`).** [#176](https://github.com/Softbank-Hackathon-Finals/platform/pull/176)에서 연결했다. 컷오버 5단계 `_compare`가 아래처럼 쓴다. 실제 비교 결과가 실행 단계 판정을 통과하는지는 `tests/test_db_fingerprint_runner.py`가, 시퀀스 순서와 소유권은 `tests/test_runner_fakes.py`가 잰다.
 
-1. `IntegrityComparer()`를 `DbFingerprintComparer()`로 바꾼다.
-2. `_compare`의 시퀀스 계산을 `self._act(run, correct_sequence, src.db, dst.db, name, table, column)`로 바꾼다.
-3. 영수증에 `data_verdict` · `schema_verdict`를 더한다.
-4. `integrity.py`, `DbControl.fingerprint`, `test_integrity.py`를 지우고 README의 「T13 비교 규칙 v1」을 이 문서 링크로 바꾼다. 시험용 `FakeDb`에는 `sequence_state`를 더한다.
+1. 비교기는 `DbFingerprintComparer()` 하나다. `integrity.py`, `RowCountComparer`, `allow_unverified_compare`는 지웠다.
+2. 시퀀스는 판정 전이 아니라 비교가 MATCH일 때만(`_not_matched`가 `None`일 때) `correct_sequence`로 올린다. 중단될 실행에서는 목적지에 쓰지 않는다. 소유권은 시퀀스를 읽기 전이 아니라 실제 `raise_sequence` 직전에 다시 확인한다. `_GuardedRaise`가 읽기는 그대로 넘기고 이 호출만 `_act`로 보내므로, 읽는 도중 넘겨받혔으면 올리지 않고 `OwnershipLost`로 멈춘다. 확인과 호출 사이의 짧은 틈은 남는다(ADR-0011).
+3. 영수증에 `data_verdict` · `schema_verdict`와 `sequences`를 남기고 목적지를 열기 전에 저장한다. 비교가 MATCH가 아니면 `sequences`는 비어 있다. 시퀀스 보정을 확인하지 못하면 `sequence_error`(`code`, `sqlstate`)를 남기고 쓰기 전 실패로 끝낸다.
+4. 진행 조건은 `_not_matched`의 허용 목록이다. 전체 · 표별 데이터 · 스키마 판정, `match`, 양쪽 지문, `hash_rule`이 이 문서의 「결과 모양」과 맞고 표가 빠지거나 겹치지 않을 때만 진행한다.
 
 **T19 (데이터 준비, [#141](https://github.com/Softbank-Hackathon-Finals/platform/pull/141)).** SQL을 다시 만들지 않고 아래 함수를 읽어 게이트 입력을 채운다. `services/control-gate`는 이 패키지에 의존하지 않으므로, 함수를 어디서 호출할지는 T19 생산자에서 정한다.
 
@@ -161,8 +161,14 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | `tables[].schema_hash`, `primary_key` | `schema_fingerprint(conn, 표)` |
 | `source_next`, `target_next`, `target_max_id` | `sequence_state()`의 `next_value`, `max_id` |
 | `proposed_next` | `next_safe_value(출발지, 목적지)`. 쓰지 않고 읽기만 한다 |
-| `readback_next` | 리허설에서 `correct_sequence()`가 돌려준 `dst_set` |
+| `readback_next` | GATE 사전 관찰(Executor `POST /v1/readiness`) 또는 리허설에서 `correct_sequence()`가 돌려준 `dst_set` |
 | `increment`, `cycle` | `1`, `false`. 다르면 `sequence_state()`가 `Unconfirmed`를 던진다 |
+
+사전 관찰은 컷오버 밖에서 목적지 시퀀스를 실제로 올린다([ADR-0036](../adr/0036-gate-readiness-capture.md) 결정 1). 논리 복제는 시퀀스를 옮기지 않으므로 읽기만 하면 `readback_next`가 늘 비고 게이트가 막힌다. 그래서 위 컷오버 소비자 2번(비교가 MATCH일 때만, lease 안에서만 올림)의 예외로 둔다. 조건은 셋이다.
+
+- 올리기만 한다. 실제 목적지는 `cutover.raise_messages_sequence`가 advisory lock 안에서 `greatest(원하는 값, max(id)+1, 지금 다음 값)`로 정하므로 겹쳐 불러도 내려가지 않는다. 모의 구현은 원자적이지 않아, 실행과 겹치면 내려갈 수 있다(모의 환경 한정).
+- 목적지 앱 역할이 로그인할 수 없고 붙은 세션이 없을 때만 올린다. 아니면 행을 빼고 `target_open`(확인 못 하면 `target_state_unconfirmed`)을 남긴다. 끝나지 않은 실행이 있으면 관찰 전·후 모두 409로 거부한다.
+- 올린 값은 컷오버 근거가 아니다. 컷오버 5단계가 쓰기를 막은 뒤 같은 `correct_sequence`로 다시 맞추고 그 영수증을 남긴다.
 
 게이트는 `schema_hash`만 비교하므로 제공자 버전이나 메이저만 다른 경우도 `SCHEMA_MISMATCH`로 막힌다. 최종 비교의 `UNKNOWN`과 값은 다르지만 둘 다 진행하지 않는다.
 
@@ -207,4 +213,5 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 - 실제 Tailscale · TLS 경로와 RKE2 위 CNPG에서의 시간. 측정값은 모두 로컬이다.
 - 부하 뒤 실제 데이터에서 쿼리 하나가 3초 안에 끝나는지.
 - `DbControl`의 기존 메서드(`_connect`, `_one`, `_do` 등)는 지금도 연결 · 서버 원문을 `Unconfirmed`에 담고, `runner._describe`가 이를 실행 결과에 저장한다. 이 문서의 함수를 거치는 경로만 고정 코드로 줄였다.
-- Executor 실행 단계에 연결한 상태의 컷오버. 이 문서의 코드만으로 컷오버가 완료되지 않는다.
+- 실제 환경의 컷오버. 실행 단계 연결은 #176에서 끝났고, #176 기록에는 k3d 모의 환경의 정상 컷오버 영수증이 `MATCH` · `db-sql-v1`로 남았다고 되어 있다. 실제 복제 환경(EKS · RKE2)에서 이 비교기로 끝까지 돈 적은 없다.
+- 시퀀스가 여러 개일 때 일부만 올라간 경우. 지금 설정은 `public.messages_id_seq` 하나다.
