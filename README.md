@@ -1,6 +1,8 @@
-# 클라우드 출구전략 플랫폼
+# SOVA · 클라우드 출구전략 플랫폼
 
-> `platform` · 제품명 미정 · SoftBank Hackathon 2026 본선 Team Bravo
+<p align="center"><img alt="SOVA — 止めない。こぼさない。味はそのまま。 稼働中のサービスを、クラウドの外へ。" src="services/console/desktop/assets/sova-hero.jpg" width="100%"></p>
+
+> **S**overeign(SoftBank) **O**pen **V**endor-neutral **A**rchitecture · SoftBank Hackathon 2026 본선 Team Bravo
 
 **가동 중인 서비스를 AWS에서 온프레미스로 멈추지 않고 옮기고, 옮긴 환경이 원본과 같은 수준으로 안전하고 정확한지 검증 게이트로 확인한 뒤에만 전환한다.**
 
@@ -9,6 +11,32 @@
 이 플랫폼은 AI가 격리된 리허설 환경에서 차이를 메우는 **제안**만 하고, 판정과 전환은 결정적 코드와 사람 승인이 맡는다. 문제가 생기면 그사이 쓴 데이터까지 들고 되돌아간다.
 
 이 레포는 **플랫폼 코드 · 인프라 · 설계 문서 · 작업 관리**를 담는다. 이전 대상 데모 앱은 [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat)에 있다.
+
+## 보안이 먼저다
+
+SOVA는 보안을 앞세운다. **옮긴 환경이 원본과 같은 보안 수준이라는 것을 같은 시험으로 보이기 전에는 전환하지 않는다.** AI는 격리된 곳에서 제안만 하고, 판정·실행은 LLM을 쓰지 않는 결정적 코드와 사람 승인이 맡는다. 계층별 설계와 구현 상태(실환경 / 시험 / 설계)는 [SECURITY.md](SECURITY.md)에 있다.
+
+| 계층 | 핵심 | 상태 |
+|---|---|---|
+| 전략 | SoftBank **Patching as a Service**(2026-07-14 발표)에서 착안한 "진단 → AI 수정 제안 → 격리 검증 → 승인 → 재진단" 순환을 이전에 적용하고, 막 공개된 취약점(Day-0) 대응으로 확장 설계(Day-0는 발표문이 아닌 팀의 해석) | 설계·일부 시험 |
+| 보안 동등성 게이트 | 출발지·목적지에 같은 통제 시험(통제 6개·하위 시험 20개)을 돌리고, 다르거나 확인할 수 없으면 BLOCK | 실환경 일부(EKS·RKE2에서 시험 3개, 의도한 BLOCK 확인) |
+| AI 에이전트 격리 | 도구 허용 목록, 턴당 함수 호출 1개, 600초 Job, broker 격리, 샌드박스 VM(`network=none`), 후보 코드 무실행 빌드. Harbor 반복 평가는 계획 | 실환경 일부 |
+| 리허설 격리 | 무작위 네임스페이스, PSA restricted, 기본 거부, SA 토큰 없음 | 실환경 |
+| 전환 안전 | epoch 펜싱, 의도 선기록, 확인 못 하면 SAFE_HOLD, Edge 0·10·50·100% | Executor 실행은 실환경(데모 모드 1회), 거부·복구 동작은 시험 |
+| 탐지·감사 | 탐지 결과 OCSF 정규화(GuardDuty 실수집), 감사 기록 S3 Object Lock COMPLIANCE | 실환경 일부 |
+
+보안 전략, 원본 대조 게이트, 통제 시험, 탐지 통합, Security Review는 이상무 님이 설계·구현했다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 아직 지키지 못한 것은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 적었다.
+
+## 현재 상태와 한계
+
+본선(2026-11-06 ~ 11-08)에서 실제 AWS EKS → 온프렘 RKE2 해피패스를 돌렸다. **잘못된 통과는 한 번도 없었지만, 실환경에서 GATE PASS에 닿지 못했다.** 실환경 확인은 S1(수집·분석·첫 GATE 판정, 의도한 BLOCK)까지다. 최종 데모는 리허설·게이트·감시를 건너뛰는 데모 모드로 진행했고, 그때 실제로 실행된 것은 컷오버 Executor다. 되돌리기와 Edge 부하 실측은 실환경에서 성립하지 않았다. 원인(빅뱅 통합, 대역 시험, 도달 가능성 없는 게이트, 이미지·설정 비호환)과 다음 개선은 [회고와 한계](docs/retrospective.md)에 정리했다.
+
+## 콘솔
+
+| 콘솔 | 만든 사람 | 형태 |
+|---|---|---|
+| [SOVA Console (데스크톱)](services/console/desktop/README.md) | 류지환 | Electron 앱. SOVA MCP에 본인 AWS SSO로 연결하고, 안내자(에이전트)와 함께 상태를 읽고 등록 초안을 만든다. 사용 안내 포함 |
+| [Sova 이전 운영 콘솔](services/console/README.md) | 이상무 | 플랫폼 호스트의 T10 API에 붙는 웹 운영 화면. 보안 통제 보고서·탐지·관측·복귀·감사를 근거별로 보여 준다 |
 
 ## 아키텍처
 
@@ -57,9 +85,7 @@ platform/
 │   ├── tasks.md                # 단계별 작업 · 역할 분담 (이슈와 자동 동기화)
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
-├── services/
-│   ├── loadgen/                # T18 부하 생성기 · 대조 리포트 · 창 요약 (Python)
-│   └── security-findings/      # T33 보안 탐지 정규화 (Python)
+├── services/                   # 플랫폼 서비스 22개 (아래 문단)
 ├── scripts/
 │   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
 │   └── design-bump.sh          # 설계 문서 버전 올리기
@@ -69,7 +95,7 @@ platform/
 └── README.md
 ```
 
-플랫폼 코드(콘솔 · API · Executor · 에이전트 워커 등)의 폴더는 구현 언어가 정해지면 추가한다.
+플랫폼 코드는 `services/`에 서비스마다 폴더와 README가 있다(콘솔 · MCP · 상태 머신 · 에이전트 워커 · 통제 시험기 · 게이트 · Executor · Edge 제어 · 감사 로그 · 관측 등 22개).
 
 ## demo-chat과의 관계
 
@@ -108,6 +134,8 @@ platform/
 - [결정 기록과 실측 근거](docs/adr/README.md): 설계별 ADR과 기존 측정 자료의 위치. 새 결정은 [`0000-template.md`](docs/adr/0000-template.md)로 쓴다
 - [보안 설계 고려사항](docs/security/README.md): 스켈레톤 너머로 고려한 보안 설계 (추후 반영 후보, 원본은 노션)
 - [에이전트 작업 안내](AGENTS.md): 작업 규칙, 설계 원칙, 보안 규칙, 검증 명령
+- [보안](SECURITY.md): 계층별 보안 설계와 구현 상태, 취약점 신고
+- [회고와 한계](docs/retrospective.md): 본선 해피패스에서 드러난 문제와 남은 한계
 
 ## 작업 현황
 
