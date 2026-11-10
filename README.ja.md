@@ -27,7 +27,7 @@ SOVA はセキュリティを最優先に掲げています。**移行元で拒�
 | 安全な切り替え | epoch フェンシングと意図の事前記録を行い、状態を確認できない場合は SAFE_HOLD で停止し、Edge の重みは 0・10・50・100% のみ許可します | Executor の実行は実環境(デモモードで 1 回)、拒否と復旧の動作はテスト |
 | 検知と監査 | 検知結果を OCSF に正規化し(GuardDuty は実際に収集)、移行元と移行先の DB 接続・DDL・Kubernetes 権限変更の監査ログを収集し、監査記録を S3 Object Lock の COMPLIANCE モードで保存します | 一部実環境 |
 
-セキュリティ戦略、移行元との比較ゲート、統制テスト、検知の統合、移行元・移行先の監査ログ収集、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。レイヤーごとの担当は [SECURITY.md の「계층 요약」(レイヤー概要)](SECURITY.md#계층-요약)にあります。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
+セキュリティ戦略と新たに公開された脆弱性への対応(PHP2Shell シナリオ)、移行元との比較ゲート、統制テスト、検知の統合、移行元・移行先の監査ログ収集、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。レイヤーごとの担当は [SECURITY.md の「계층 요약」(レイヤー概要)](SECURITY.md#계층-요약)にあります。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
 
 ## 現状と限界
 

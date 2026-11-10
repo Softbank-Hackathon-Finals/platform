@@ -27,7 +27,7 @@ SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 
 | 전환 안전 | epoch 펜싱과 의도 선기록을 사용하고, 상태를 확인할 수 없으면 SAFE_HOLD로 멈추며, Edge 가중치는 0·10·50·100%만 허용합니다 | Executor 실행은 실환경(데모 모드 1회), 거부와 복구 동작은 시험 |
 | 탐지와 감사 | 탐지 결과를 OCSF로 정규화하고(GuardDuty는 실제 수집), 출발지와 목적지의 DB 접속·DDL·Kubernetes 권한 변경 감사 로그를 수집하며, 감사 기록을 S3 Object Lock COMPLIANCE 모드로 보존합니다 | 실환경 일부 |
 
-보안 전략과 원본 대조 게이트, 통제 시험, 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 계층별 담당은 [SECURITY.md의 계층 요약](SECURITY.md#계층-요약)에 있습니다. 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
+보안 전략과 새로 공개된 취약점 대응(PHP2Shell 시나리오), 원본 대조 게이트, 통제 시험, 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 계층별 담당은 [SECURITY.md의 계층 요약](SECURITY.md#계층-요약)에 있습니다. 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
 
 ## 현재 상태와 한계
 
