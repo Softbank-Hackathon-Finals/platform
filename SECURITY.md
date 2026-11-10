@@ -16,13 +16,13 @@ SOVA는 보안을 가장 먼저 내세우는 이전 플랫폼입니다. 고객�
 |---|---|---|---|
 | 0. 전략 | Patching as a Service에서 착안한 "진단 → 수정 제안 → 격리 검증 → 승인 → 재진단" 순환을 이전 과정에 적용합니다 | 이상무 | 설계, 일부 시험 |
 | 1. 저장소와 공급망 | 비밀 정보 유출, 변조된 이미지, 지나치게 넓은 CI 권한 | 팀 공통 | 실환경(CI) |
-| 2. 신원과 접근 | 공유 자격 증명, 장기 토큰, 지나치게 넓은 네트워크 도달 범위 | 류지환 | 실환경 일부 |
+| 2. 신원과 접근 | 공유 자격 증명, 장기 토큰, 지나치게 넓은 네트워크 도달 범위 | 류지환, 이상무 | 실환경 일부 |
 | 3. AI 에이전트 격리 | 모델이 직접 실행·판정·배포하는 상황, 모델 출력을 통한 유출과 파괴 | 류지환 | 실환경 일부(샌드박스 VM은 배포까지, Harbor 평가는 계획 단계) |
 | 4. 리허설 격리 | 후보 코드가 운영 자원에 접근하는 상황 | 배규태, 류지환 | 실환경 |
 | 5. 보안 동등성 시험과 게이트 | 원본에서 거부되던 접근이 목적지에서 허용되는 상황 | 이상무 | 실환경 일부(시험 3개). 실환경 GATE PASS는 0회 |
-| 6. 전환 안전 | 업무 쓰기를 받는 DB가 둘이 되는 상황, 승인 없는 전환 | 배규태, 김태현, 류지환 | Executor 실행은 실환경(데모 모드 1회), 거부와 복구 동작은 시험 |
+| 6. 전환 안전 | 업무 쓰기를 받는 DB가 둘이 되는 상황, 승인 없는 전환 | 배규태, 김태현, 류지환, 이상무 | Executor 실행은 실환경(데모 모드 1회), 거부와 복구 동작은 시험 |
 | 7. 탐지와 대응 | 침해된 자산을 그대로 옮기는 상황 | 이상무 | 실환경 일부(GuardDuty) |
-| 8. 거버넌스와 감사 | 판정·승인 기록의 삭제나 변조, 규제 대응 누락 | 이상무, 전동훈 | 실환경 일부(감사 기록 Object Lock) |
+| 8. 거버넌스와 감사 | 판정·승인 기록의 삭제나 변조, 규제 대응 누락 | 이상무, 전동훈 | 실환경 일부(감사 기록 Object Lock, 출발지·목적지 감사 로그 검색) |
 
 설계 원칙은 [에이전트 작업 안내](AGENTS.md#지켜야-할-설계-원칙)와 설계 문서 1장, 8.3절에 있습니다. 다섯 원칙은 다음과 같습니다.
 
@@ -43,7 +43,7 @@ SoftBank와 SB OAI Japan은 2026-07-14에 OpenAI 기반 **Patching as a Service*
 
 이상무 님은 이 접근 방식을 **이전 과정**에 적용했습니다([Patching as a Service 기반 지속적 보안 개선](docs/security/continuous-secure-modernization.md)). SOVA는 먼저 이전 대상의 취약점과 노출 상태를 진단하고, AI가 수정안을 제안하면 격리된 리허설에서 "수정 전에는 FAIL, 수정 후에는 PASS"인지 확인합니다. 사람이 승인한 뒤에 전환하며, 전환 뒤에는 다시 진단합니다. 문서는 SoftBank의 서비스를 재현한다고 주장하지 않으며, 그 순환에서 **착안했다**는 범위를 명시합니다.
 
-**Day-0 대응.** 팀은 이 순환을 새로 공개된 취약점(Day-0)에 대응하는 방향으로 확장해 설계했습니다. 대표 사례는 [PHP2Shell 대응 시나리오](docs/security/php2shell-ai-pentest-incident.md)입니다. 이 시나리오는 php.net의 2026-10-21 권고(CVE-2026-109618/109619)를 대상으로 자산과 취약점, 노출, 침해 여부를 판정하고, 침해가 확인되면 재구축과 자격 증명 회전이 끝날 때까지 전환을 HOLD합니다. 다만 이 시나리오는 합성 fixture로 **시험**한 수준입니다. 또한 SoftBank 발표문에는 "Day-0"라는 표현이 없으므로, Day-0 대응은 팀의 해석으로 보아야 합니다.
+**Day-0 대응.** 이상무 님은 이 순환을 새로 공개된 취약점(Day-0)에 대응하는 방향으로 확장해 [PHP2Shell 대응 시나리오](docs/security/php2shell-ai-pentest-incident.md)를 설계했습니다. 이 시나리오는 php.net의 2026-10-21 권고(CVE-2026-109618/109619)를 대상으로 자산과 취약점, 노출, 침해 여부를 판정하고, 침해가 확인되면 재구축과 자격 증명 회전이 끝날 때까지 전환을 HOLD합니다. 다만 이 시나리오는 합성 fixture로 **시험**한 수준입니다. 또한 SoftBank 발표문에는 "Day-0"라는 표현이 없으므로, Day-0 대응은 팀의 해석으로 보아야 합니다.
 
 판정 로직은 별도 공개 저장소인 [`Softbank-Hackathon-Finals/security`](https://github.com/Softbank-Hackathon-Finals/security)(Security Governance v1, 패키지 `sova-security`)에 있으며, 플랫폼은 이 저장소를 커밋 `cf33e09c`에 고정해 사용합니다. 남은 범위는 다음과 같습니다.
 
@@ -61,11 +61,13 @@ SoftBank와 SB OAI Japan은 2026-07-14에 OpenAI 기반 **Patching as a Service*
 | 이미지를 발행할 때 스캔하고 SBOM과 provenance를 붙이며, 배포는 digest를 고정하는 PR로만 진행합니다 | `.github/workflows/publish-*.yml` | 실환경(CI) |
 | 검사 예외는 사유와 경로, 만료일을 적어 `.gitleaks.toml`과 `.trivyignore.yaml`에만 추가합니다 | [AGENTS.md 보안 규칙](AGENTS.md#보안-규칙) | 실환경(CI) |
 
-## 2. 신원과 접근
+## 2. 신원과 접근 (류지환, 이상무)
+
+`infra/tailnet/routes-policy.json`의 경로 선언은 이상무 님의 목적지 IaC API(T44, [ADR-0032](docs/adr/0032-destination-iac-api.md))에서 시작했고, 류지환 님이 tailnet 정책 GitOps와 사람의 API 접근(`operator-access`)으로 넓혔습니다. 아래 표에서 운영자 API 거부와 네트워크 정책의 실환경 기록은 이상무 님이 측정했습니다.
 
 | 통제 | 근거 | 상태 |
 |---|---|---|
-| 사람은 각자 IAM Identity Center로 로그인하고, 요청마다 60초 동안 유효한 STS 서명 증명을 만듭니다. 용도별 audience(`sova-mcp`, `bravo-platform-operator`, `bravo-platform-rehearsal`)는 서로 섞지 않습니다 | `services/console/desktop/src/main/proof.ts` · `services/sova-mcp/src/sova_mcp/access.py` | 실환경(권한이 없는 계획 조회가 403으로 거부된 기록, `docs/evidence/t21-happy-path-intake-2026-11-08/`) |
+| 사람은 각자 IAM Identity Center로 로그인하고, 요청마다 60초 동안 유효한 STS 서명 증명을 만듭니다. 용도별 audience(`sova-mcp`, `bravo-platform-operator`, `bravo-platform-rehearsal`)는 서로 섞지 않습니다 | `services/console/desktop/src/main/proof.ts` · `services/sova-mcp/src/sova_mcp/access.py` | 실환경(T10 운영자 API에서, 등록되지 않은 운영자 신원의 계획 조회가 403으로 거부된 기록, `docs/evidence/t21-happy-path-intake-2026-11-08/`) |
 | tailnet은 태그에서 태그로, 포트 단위로만 접근을 허용하며 와일드카드를 사용하지 않습니다 | `infra/tailnet/routes-policy.json` | 도달은 실환경, 거부는 시험 |
 | 노드 메타데이터 서비스는 IMDSv2만 허용하고 hop 한도를 1로 두어, 컨테이너가 노드 역할을 사용하지 못하게 합니다 | `infra/envs/platform-aws/main.tf:105` 외 | 실환경 일부 |
 | 플랫폼과 데이터 네임스페이스는 기본 거부 NetworkPolicy에서 시작합니다 | `infra/envs/platform-data/render.py` · `infra/charts/sova-mcp/templates/networkpolicy.yaml` | 실환경 일부(`t14-network-enforcement-2026-11-06`) |
@@ -118,6 +120,8 @@ AI가 할 수 있는 작업은 **최초 제안서 한 건을 작성하는 것**�
 | 승인은 plan_digest와 일치해야 하고, 만료 시각이 있으며, 한 번만 소비됩니다. 오래된 승인이나 이미 사용한 epoch는 거부합니다 | `services/platform-events/src/bravo_platform_events/cutover.py` | 시험 |
 | Edge 가중치는 0·10·50·100%만 허용하며, SHIFT 상태가 아니면 0%만 허용합니다 | `services/edge-control/` | 시험(실제 Edge에서는 데모 중 0%에서 100%로 바꾼 기록만 있음) |
 | 업무 쓰기를 받는 DB는 어느 순간에도 최대 하나이며, 상태를 확인할 수 없으면 쓰기를 열지 않습니다 | 설계 문서 8.3절 · Executor 펜스 확인 | 시험 |
+| SHIFT와 WATCH는 오류율과 p95의 창 요약으로 판정합니다. 가중치를 바꾼 직후 첫 창이 도착하기 전의 UNKNOWN은 연속 UNKNOWN 수에 넣지 않고 HOLD로 둡니다(T36, 이상무) | [판정용 관측 계약](docs/observability/README.md) · `services/observability/` · [#566](https://github.com/Softbank-Hackathon-Finals/platform/pull/566) | 시험(1,600개 조합 전수 실행) |
+| CNPG 백업을 새 UID의 클러스터로 복원한 뒤 SQL로 표식을 읽어 백업 시점과 대조합니다. 최초 복구에 필요한 WAL이 없으면 복원이 진행되지 않고 원본은 그대로 남습니다(T35, 이상무) | `docs/evidence/t35-restore-readback-2026-11-04/` · `docs/evidence/t35-wal-loss-2026-11-04/` | 시험(로컬 kind와 CNPG) |
 
 ## 7. 탐지와 대응 (이상무)
 
@@ -133,7 +137,8 @@ AI가 할 수 있는 작업은 **최초 제안서 한 건을 작성하는 것**�
 
 | 통제 | 근거 | 상태 |
 |---|---|---|
-| 감사 버킷은 S3 Object Lock COMPLIANCE 모드로 운영하며, 삭제와 보존 기간 단축을 모두 거부합니다 | `infra/envs/platform-audit/` | **실환경**(`docs/evidence/t24-audit-live-2026-11-06/`) |
+| 감사 버킷은 S3 Object Lock COMPLIANCE 모드로 운영하며, 삭제와 보존 기간 단축을 모두 거부합니다(T24, 전동훈) | `infra/envs/platform-audit/` | **실환경**(`docs/evidence/t24-audit-live-2026-11-06/`) |
+| 출발지와 목적지에서 DB 관리자 로그인·DDL과 Kubernetes 권한 변경의 감사 기록을 수집하고 검색합니다(T34, 이상무) | `docs/evidence/t34-source-db-audit-2026-11-05/` · `docs/evidence/t34-source-eks-audit-2026-11-06/` · `docs/evidence/t34-target-aud-pod-log-2026-11-07/` | 실환경 일부(원천 로그 검색까지 확인했습니다. 중앙 수집과 검색 경로 전체는 인수하지 못했습니다) |
 | Security Review는 기존 변경 승인과 컷오버 승인에 추가되는 fail-closed 조건이며, `execution_authorized=false`이면 진행을 멈춥니다 | [플랫폼 보안 거버넌스](docs/security/platform-security-governance.md) · [#924](https://github.com/Softbank-Hackathon-Finals/platform/pull/924) | 시험 |
 | 국내외 보안 사고에서 통제를 도출한 사고 기반 위협 모델을 둡니다 | [사고 기반 아키텍처](docs/security/incident-based-architecture.md) | 설계 |
 

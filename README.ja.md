@@ -25,9 +25,9 @@ SOVA はセキュリティを最優先に掲げています。**移行元で拒�
 | AI エージェントの隔離 | ツールの許可リスト、1 ターンにつき関数呼び出し 1 回、600 秒の Job、broker の隔離、サンドボックス VM(`network=none`)、候補コードを実行しないビルドでエージェントを閉じ込めます。Harbor による反復評価は計画段階です | 一部実環境 |
 | リハーサルの隔離 | リハーサルごとにランダムな名前の名前空間を作り、PSA restricted とデフォルト拒否のポリシーを適用し、SA トークンを与えません | 実環境 |
 | 安全な切り替え | epoch フェンシングと意図の事前記録を行い、状態を確認できない場合は SAFE_HOLD で停止し、Edge の重みは 0・10・50・100% のみ許可します | Executor の実行は実環境(デモモードで 1 回)、拒否と復旧の動作はテスト |
-| 検知と監査 | 検知結果を OCSF に正規化し(GuardDuty は実際に収集)、監査記録を S3 Object Lock の COMPLIANCE モードで保存します | 一部実環境 |
+| 検知と監査 | 検知結果を OCSF に正規化し(GuardDuty は実際に収集)、移行元と移行先の DB 接続・DDL・Kubernetes 権限変更の監査ログを収集し、監査記録を S3 Object Lock の COMPLIANCE モードで保存します | 一部実環境 |
 
-セキュリティ戦略、移行元との比較ゲート、統制テスト、検知の統合、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
+セキュリティ戦略と新たに公開された脆弱性への対応(PHP2Shell シナリオ)、移行元との比較ゲート、統制テスト、検知の統合、移行元・移行先の監査ログ収集、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。レイヤーごとの担当は [SECURITY.md の「계층 요약」(レイヤー概要)](SECURITY.md#계층-요약)にあります。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
 
 ## 現状と限界
 
@@ -39,6 +39,19 @@ SOVA はセキュリティを最優先に掲げています。**移行元で拒�
 |---|---|---|
 | [SOVA Console(デスクトップ)](services/console/desktop/README.md) | Ryu Ji-hwan(リュ・ジファン) | Electron アプリです。自分の AWS SSO で SOVA MCP に接続し、案内役のエージェントと一緒に状態を確認しながら登録の下書きを作成します。使い方の案内を含みます |
 | [Sova 移行運用コンソール](services/console/README.md) | Lee Sang-mu(イ・サンム) | プラットフォームホストの T10 API に接続する Web 運用画面です。統制レポート、検知、観測、フェイルバック、監査記録を根拠ごとに分けて表示します |
+
+## 担当領域
+
+セキュリティのレイヤーごとの担当は [SECURITY.md](SECURITY.md#계층-요약)に、タスクごとの担当の全体は [`docs/tasks.md`](docs/tasks.md) と[プロジェクトボード](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)にあります。セキュリティのレイヤーとコンソール以外で、担当を明記しておく領域は次のとおりです。
+
+| 領域 | 担当 | 内容 |
+|---|---|---|
+| 移行先の構築 | Lee Sang-mu(イ・サンム、T44)、Jeon Dong-hun(チョン・ドンフン、T45) | 二人が範囲を分けて共同で作りました。[移行先 IaC API](docs/adr/0032-destination-iac-api.md)(T44)はモジュールカタログ、Git に置いた望ましい状態、計画 API、ネットワーク経路の宣言、顧客クラスターの Argo CD を担います。[移行先の初回構築実行器](docs/adr/0033-destination-bootstrap-executor.md)(T45)は空のクラスターから移行先を初めて立ち上げる段階スタックと実行を担い、移行先の Argo CD は T44 のインストールを共用します。Ryu Ji-hwan(リュ・ジファン)が tailnet ポリシーの GitOps、人の API アクセス、ノードファイル API を加えて T44 を拡張しました |
+| 観測 | Lee Sang-mu(イ・サンム) | 判定用の観測契約と SHIFT・WATCH の判定規則(T36)、OpenTelemetry Collector で移行元と移行先のメトリクスをプラットフォームのメトリクスストアに集める収集(T37)です。契約は [`docs/observability/`](docs/observability/README.md)(韓国語)にあります |
+| バックアップと復元 | Lee Sang-mu(イ・サンム) | 移行元と移行先の CNPG バックアップ・復元です(T35)。別クラスターに復元して読み出し照合する手順と、WAL 欠落時に復旧しないことをローカルの kind でテストしました |
+| デモアプリ | Lee Sang-mu(イ・サンム) | 移行対象である [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat) の v0・v1 です(T4・T22) |
+| マージ自動化 | Lee Sang-mu(イ・サンム。T41 は Ryu Ji-hwan と共同) | develop の Merge Queue と、承認を必須としない CI ベースのマージを導入しました(T40・T41、[ADR-0017](docs/adr/0017-develop-merge-queue.md))。11/7 に Merge Queue をルールから外したため、現在は使っていません |
+| 個人プロトタイプ | Lee Sang-mu(イ・サンム) | [`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) は Lee Sang-mu の個人開発プロトタイプと統合・デモ環境を保存するリポジトリです |
 
 ## アーキテクチャ
 

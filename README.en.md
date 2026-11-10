@@ -25,9 +25,9 @@ SOVA puts security first. **It does not switch until the same test shows that an
 | AI agent isolation | Tool allowlist, exactly one function call per turn, 600-second Job, isolated broker, sandbox VM (`network=none`), candidate build that never executes candidate code. Repeated evaluation with Harbor is planned | Partly real |
 | Rehearsal isolation | A random namespace per rehearsal with PSA restricted, default-deny network policy and no service account token | Real |
 | Safe cutover | Epoch fencing, intent recorded before every remote call, SAFE_HOLD when state cannot be confirmed, Edge weights limited to 0/10/50/100% | Executor run in real environment (once, demo mode); refusal and recovery paths tested |
-| Detection and audit | Normalizes findings to OCSF (GuardDuty collected for real) and keeps audit records under S3 Object Lock in COMPLIANCE mode | Partly real |
+| Detection and audit | Normalizes findings to OCSF (GuardDuty collected for real), collects DB access, DDL and Kubernetes permission-change audit logs on the source and the destination, and keeps audit records under S3 Object Lock in COMPLIANCE mode | Partly real |
 
-Lee Sang-mu designed and implemented the security strategy, the source-comparison gate, the control tests, the detection integration and Security Review ([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [security documents](docs/security/README.md)). What is not yet guaranteed is listed under "알려진 한계" (known limitations) in [SECURITY.md](SECURITY.md#알려진-한계).
+Lee Sang-mu designed and implemented the security strategy and its response to newly disclosed vulnerabilities (the PHP2Shell scenario), the source-comparison gate, the control tests, the detection integration, audit log collection on the source and the destination, and Security Review ([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [security documents](docs/security/README.md)). The owners of each layer are listed in the layer summary of [SECURITY.md](SECURITY.md#계층-요약). What is not yet guaranteed is listed under "알려진 한계" (known limitations) in [SECURITY.md](SECURITY.md#알려진-한계).
 
 ## Status and limitations
 
@@ -39,6 +39,19 @@ During the finals (2026-11-06 to 11-08) the team ran the happy path from a real 
 |---|---|---|
 | [SOVA Console (desktop)](services/console/desktop/README.md) | Ryu Ji-hwan | An Electron app that connects to the SOVA MCP with your own AWS SSO identity. You read status and draft registrations together with a guide agent. Includes a usage guide |
 | [Sova migration operations console](services/console/README.md) | Lee Sang-mu | A web operations console attached to the platform host's T10 API. It shows control reports, detections, observations, failback and audit records, separated by evidence |
+
+## Areas of responsibility
+
+The owners of each security layer are listed in [SECURITY.md](SECURITY.md#계층-요약), and the owners of every task are in [`docs/tasks.md`](docs/tasks.md) and on the [project board](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2). The owners of the following areas outside the security layers and the consoles are recorded here.
+
+| Area | Owner | Description |
+|---|---|---|
+| Destination build | Lee Sang-mu (T44), Jeon Dong-hun (T45) | Built together with a split scope. The [destination IaC API](docs/adr/0032-destination-iac-api.md) (T44) covers the module catalog, desired state in Git, the plan API, network path declarations and Argo CD on customer clusters. The [destination bootstrap executor](docs/adr/0033-destination-bootstrap-executor.md) (T45) covers the step stack and execution that bring up a destination from an empty cluster, and reuses the T44 Argo CD installation. Ryu Ji-hwan extended T44 with tailnet policy GitOps, human API access and the node files API |
+| Observability | Lee Sang-mu | The observation contract and the SHIFT/WATCH judgement rules (T36), and metric collection that brings source and destination metrics to the platform metric store through the OpenTelemetry Collector (T37). The contract is in [`docs/observability/`](docs/observability/README.md) (Korean) |
+| Backup and restore | Lee Sang-mu | CNPG backup and restore for the source and the destination (T35). Restoring into a separate cluster and reading it back, and refusing recovery when WAL is missing, were tested on local kind |
+| Demo app | Lee Sang-mu | v0 and v1 of [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat), the app being migrated (T4, T22) |
+| Merge automation | Lee Sang-mu (T41 together with Ryu Ji-hwan) | Introduced the develop Merge Queue and CI-based merging without required approval (T40, T41, [ADR-0017](docs/adr/0017-develop-merge-queue.md)). The Merge Queue was removed from the rules on 11/7 and is no longer used |
+| Personal prototype | Lee Sang-mu | [`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) preserves Lee Sang-mu's personal development prototype and integration and demo environment |
 
 ## Architecture
 

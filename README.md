@@ -25,9 +25,9 @@ SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 
 | AI 에이전트 격리 | 도구 허용 목록, 턴당 함수 호출 1개, 600초 Job, broker 격리, 샌드박스 VM(`network=none`), 후보 코드를 실행하지 않는 빌드로 에이전트를 가둡니다. Harbor 반복 평가는 계획 단계입니다 | 실환경 일부 |
 | 리허설 격리 | 리허설마다 무작위 네임스페이스를 만들고, PSA restricted와 기본 거부 정책을 적용하며, SA 토큰을 주지 않습니다 | 실환경 |
 | 전환 안전 | epoch 펜싱과 의도 선기록을 사용하고, 상태를 확인할 수 없으면 SAFE_HOLD로 멈추며, Edge 가중치는 0·10·50·100%만 허용합니다 | Executor 실행은 실환경(데모 모드 1회), 거부와 복구 동작은 시험 |
-| 탐지와 감사 | 탐지 결과를 OCSF로 정규화하고(GuardDuty는 실제 수집), 감사 기록을 S3 Object Lock COMPLIANCE 모드로 보존합니다 | 실환경 일부 |
+| 탐지와 감사 | 탐지 결과를 OCSF로 정규화하고(GuardDuty는 실제 수집), 출발지와 목적지의 DB 접속·DDL·Kubernetes 권한 변경 감사 로그를 수집하며, 감사 기록을 S3 Object Lock COMPLIANCE 모드로 보존합니다 | 실환경 일부 |
 
-보안 전략과 원본 대조 게이트, 통제 시험, 탐지 통합, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
+보안 전략과 새로 공개된 취약점 대응(PHP2Shell 시나리오), 원본 대조 게이트, 통제 시험, 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 계층별 담당은 [SECURITY.md의 계층 요약](SECURITY.md#계층-요약)에 있습니다. 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
 
 ## 현재 상태와 한계
 
@@ -39,6 +39,19 @@ SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 
 |---|---|---|
 | [SOVA Console (데스크톱)](services/console/desktop/README.md) | 류지환 | Electron 앱입니다. 본인의 AWS SSO로 SOVA MCP에 연결하고, 안내자(에이전트)와 함께 상태를 확인하며 등록 초안을 작성합니다. 사용 안내가 포함되어 있습니다 |
 | [Sova 이전 운영 콘솔](services/console/README.md) | 이상무 | 플랫폼 호스트의 T10 API에 연결되는 웹 운영 화면입니다. 보안 통제 보고서, 탐지, 관측, 복귀, 감사 기록을 근거별로 나누어 보여 줍니다 |
+
+## 담당 영역
+
+보안 계층별 담당은 [SECURITY.md](SECURITY.md#계층-요약)에, 작업별 담당 전체는 [`docs/tasks.md`](docs/tasks.md)와 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)에 있습니다. 보안 계층과 콘솔 밖에서 담당을 따로 적어 두는 영역은 다음과 같습니다.
+
+| 영역 | 담당 | 내용 |
+|---|---|---|
+| 목적지 구축 | 이상무(T44), 전동훈(T45) | 두 사람이 범위를 나눠 함께 만들었습니다. [목적지 IaC API](docs/adr/0032-destination-iac-api.md)(T44)는 모듈 카탈로그, Git에 둔 원하는 상태, 계획 API, 네트워크 경로 선언, 고객 클러스터의 Argo CD를 맡습니다. [목적지 처음 구축 실행기](docs/adr/0033-destination-bootstrap-executor.md)(T45)는 빈 클러스터에서 목적지를 처음 세우는 단계 스택과 실행을 맡으며, 목적지 Argo CD는 T44 설치를 함께 씁니다. 류지환 님이 tailnet 정책 GitOps, 사람의 API 접근, 노드 파일 API를 더해 T44를 넓혔습니다 |
+| 관측 | 이상무 | 판정용 관측 계약과 SHIFT·WATCH 판정 규칙(T36), OpenTelemetry Collector로 출발지와 목적지의 지표를 플랫폼 지표 저장소에 모으는 수집(T37)입니다. 계약은 [`docs/observability/`](docs/observability/README.md)에 있습니다 |
+| 백업과 복원 | 이상무 | 출발지와 목적지의 CNPG 백업·복원입니다(T35). 별도 클러스터로 복원해 읽어 대조하는 절차와 WAL 누락 거부를 로컬 kind에서 시험했습니다 |
+| 데모 앱 | 이상무 | 이전 대상인 [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat)의 v0·v1입니다(T4·T22) |
+| 병합 자동화 | 이상무(T41은 류지환과 함께) | develop Merge Queue와 승인 없는 CI 병합을 도입했습니다(T40·T41, [ADR-0017](docs/adr/0017-develop-merge-queue.md)). 11/7에 Merge Queue를 규칙에서 제거해 지금은 쓰지 않습니다 |
+| 개인 프로토타입 | 이상무 | [`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test)는 이상무 님의 개인 개발 프로토타입과 통합·시연 환경을 보존하는 저장소입니다 |
 
 ## 아키텍처
 
