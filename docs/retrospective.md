@@ -26,7 +26,7 @@
 - 합동 측정 리허설에서는 Cloudflare 대신 nginx 대역을 사용했고, 부하도 노트북에서 보냈습니다. 두 번의 실행 모두 "판정 입력으로 사용할 수 없음"으로 판정되었습니다([T18 증빙](evidence/t18-joint-rehearsal-2026-11-06/README.md)).
 - 실제 Cloudflare LB의 가중치를 10%로 바꾸자 SLI 감시가 시작되지 않았습니다. T36 스키마 파일이 이미지에 포함되지 않아 `FileNotFoundError`가 발생했기 때문이며, 팀은 즉시 가중치를 0%로 되돌렸습니다([#802](https://github.com/Softbank-Hackathon-Finals/platform/pull/802)).
 - keep-alive 연결을 유지한 부하에서는 목적지로 간 요청 비율이 1~4%에 그쳐 가중치 분배를 측정할 수 없었습니다. LB가 연결 단위로 pool을 선택하는 것으로 보이며, nginx 대역에서는 이 차이가 드러나지 않았습니다([#810](https://github.com/Softbank-Hackathon-Finals/platform/pull/810)).
-- SHIFT 단계의 연속 UNKNOWN 규칙을 적용하면 정상 트래픽에서도 91%의 경우에 가중치가 스스로 0%로 되돌아갔습니다. 이 문제는 1,600개 조합을 전수 실행해 찾아냈습니다([#566](https://github.com/Softbank-Hackathon-Finals/platform/pull/566)).
+- SHIFT 단계의 연속 UNKNOWN 규칙을 적용하면 정상 트래픽에서도 91%의 경우에 가중치가 스스로 0%로 되돌아갔습니다. 이 문제는 이상무 님이 1,600개 조합을 전수 실행해 찾아냈습니다(T36, [#566](https://github.com/Softbank-Hackathon-Finals/platform/pull/566)).
 
 ### Job
 
@@ -59,7 +59,7 @@
 
 1. **평가 프로필.** `full:1` 프로필은 시험 20개를 요구했지만, 저장된 결과는 PASS 1개와 UNKNOWN 19개였습니다([T28 증빙](evidence/t28-full-path-preflight-2026-11-07/README.md)). 시험 3개로 구성된 `demo-gate:1`로 바꾸려면 계획을 새로 만들고 T14를 다시 실행해야 했으며, 다시 실행한 결과도 이미 결속된 맥락 때문에 GATE에 기록하지 못했습니다.
 2. **서명의 신선도.** gate-result는 평가 후 60초 안에 운영자 키로 서명되어야 했습니다. 그러나 키가 호스트 밖에 있었기 때문에 재평가할 때마다 `gate_record_conflict`로 멈췄습니다. 플랫폼 키로 자동 서명하는 PR([#828](https://github.com/Softbank-Hackathon-Finals/platform/pull/828))은 아직 열려 있습니다.
-3. **SHIFT 재평가.** 준비 상태 지문에 30~60초마다 새로 수집되는 스냅숏 지문이 포함되어 있었습니다. 그래서 "GATE 시점과 같아야 통과한다"는 조건은 구조적으로 만족할 수 없었습니다. 이 문제는 비교 범위를 좁혀 해결했습니다([#565](https://github.com/Softbank-Hackathon-Finals/platform/pull/565)).
+3. **SHIFT 재평가.** 준비 상태 지문에 30~60초마다 새로 수집되는 스냅숏 지문이 포함되어 있었습니다. 그래서 "GATE 시점과 같아야 통과한다"는 조건은 구조적으로 만족할 수 없었습니다. 이 문제는 이상무 님의 #565 리뷰에 따라 재평가를 SHIFT·컷오버 권한 확인 안으로 묶고, 비교 범위를 같은 컨텍스트·정책·DB 쌍으로 좁혀 해결했습니다([#565](https://github.com/Softbank-Hackathon-Finals/platform/pull/565)).
 4. **WATCH 재시험.** 항상 UNKNOWN을 반환하는 자리표시 함수 때문에 WATCH가 DONE에 도달할 수 없었습니다. 이 함수는 [#748](https://github.com/Softbank-Hackathon-Finals/platform/pull/748)에서 제거했습니다.
 5. **S2 승인 claim.** 콘솔의 승인 경로와 claim 경로가 서로 다른 authority 래퍼를 사용해 `approval_stale`이 발생했습니다. 코드 수정은 담당자 간 합의 단계에서 멈췄습니다([#958](https://github.com/Softbank-Hackathon-Finals/platform/pull/958)).
 
