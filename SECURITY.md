@@ -43,7 +43,7 @@ SoftBank와 SB OAI Japan은 2026-07-14에 OpenAI 기반 **Patching as a Service*
 
 이상무 님은 이 접근 방식을 **이전 과정**에 적용했습니다([Patching as a Service 기반 지속적 보안 개선](docs/security/continuous-secure-modernization.md)). SOVA는 먼저 이전 대상의 취약점과 노출 상태를 진단하고, AI가 수정안을 제안하면 격리된 리허설에서 "수정 전에는 FAIL, 수정 후에는 PASS"인지 확인합니다. 사람이 승인한 뒤에 전환하며, 전환 뒤에는 다시 진단합니다. 문서는 SoftBank의 서비스를 재현한다고 주장하지 않으며, 그 순환에서 **착안했다**는 범위를 명시합니다.
 
-**Day-0 대응.** 이상무 님은 이 순환을 새로 공개된 취약점(Day-0)에 대응하는 방향으로 확장해 [PHP2Shell 대응 시나리오](docs/security/php2shell-ai-pentest-incident.md)를 설계했습니다. 이 시나리오는 php.net의 2026-10-21 권고(CVE-2026-109618/109619)를 대상으로 자산과 취약점, 노출, 침해 여부를 판정하고, 침해가 확인되면 재구축과 자격 증명 회전이 끝날 때까지 전환을 HOLD합니다. 다만 이 시나리오는 합성 fixture로 **시험**한 수준입니다. 또한 SoftBank 발표문에는 "Day-0"라는 표현이 없으므로, Day-0 대응은 팀의 해석으로 보아야 합니다.
+**Day-0 대응.** 팀은 이 순환을 새로 공개된 취약점(Day-0)에 대응하는 방향으로 확장해 설계했습니다. 대표 사례는 [PHP2Shell 대응 시나리오](docs/security/php2shell-ai-pentest-incident.md)입니다. 이 시나리오는 php.net의 2026-10-21 권고(CVE-2026-109618/109619)를 대상으로 자산과 취약점, 노출, 침해 여부를 판정하고, 침해가 확인되면 재구축과 자격 증명 회전이 끝날 때까지 전환을 HOLD합니다. 다만 이 시나리오는 합성 fixture로 **시험**한 수준입니다. 또한 SoftBank 발표문에는 "Day-0"라는 표현이 없으므로, Day-0 대응은 팀의 해석으로 보아야 합니다.
 
 판정 로직은 별도 공개 저장소인 [`Softbank-Hackathon-Finals/security`](https://github.com/Softbank-Hackathon-Finals/security)(Security Governance v1, 패키지 `sova-security`)에 있으며, 플랫폼은 이 저장소를 커밋 `cf33e09c`에 고정해 사용합니다. 남은 범위는 다음과 같습니다.
 
