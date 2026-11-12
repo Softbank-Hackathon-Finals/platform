@@ -9,7 +9,7 @@
 | 결정 | 이유 |
 |---|---|
 | 전용 VPC, 피어링 없음 | 판정 입력은 평가 대상 밖에서 잰다([ADR-0010](../../../docs/adr/0010-observability-boundary.md)). 플랫폼 노드는 CPU 예약이 거의 찼다([capacity](../platform-aws/capacity.md)) |
-| 공인 IP 자동 할당, 인바운드 규칙 0 | 나가는 길에만 쓴다. NAT 게이트웨이(시간당 $0.059)보다 싸다. 같은 구성을 [`ci-validation-aws`](../ci-validation-aws)가 쓴다 |
+| 공인 IP 자동 할당, 인바운드 규칙 0 | 나가는 길에만 쓴다. NAT 게이트웨이(시간당 $0.059)보다 싸다. 11/3 일회성 CI 검증 호스트도 같은 구성을 썼다([증빙](../../../docs/evidence/ci-validation-2026-11-03/README.md), 코드는 11/13 제거) |
 | 바깥 방향 TCP 443만 | Cloudflare Edge, SSM, apt, PyPI, GitHub, Tailscale 제어 · 중계가 모두 443이다 |
 | CPU 크레딧 `unlimited` | T3는 시작 크레딧이 없어(AWS 문서) `standard`면 켜자마자 vCPU당 20%로 묶인다. 부하 생성기가 느려지면 대상이 느린 것처럼 보인다. 다른 스택이 `standard`인 것과 일부러 다르다 |
 | IAM은 SSM 코어 + 비밀 읽기 명시적 거부 | SSM 코어 정책에는 Parameter Store 읽기가 들어 있어 [`platform-aws`](../platform-aws)처럼 막는다 |
@@ -121,7 +121,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 | 기존 방식 | 위치 | 여기서 |
 |---|---|---|
 | 환경변수 **이름**만 받는다 | `services/loadgen` CLI | 그대로 쓴다 |
-| 호스트 역할의 비밀 읽기 명시적 거부 | `platform-aws`, `ci-validation-aws` | 그대로 쓴다 |
+| 호스트 역할의 비밀 읽기 명시적 거부 | `platform-aws`(11/3 CI 검증 호스트도 같았다) | 그대로 쓴다 |
 | Terraform은 ARN만 받고 그 ARN만 읽게 허용 | `subscription-runtime` | 쓰지 않는다. 이번 범위의 IAM은 SSM 최소 권한이다 |
 | ESO로 Pod에 전달 | `target-secrets`, `source-workloads` | 쓰지 않는다. 클러스터 밖 호스트다 |
 

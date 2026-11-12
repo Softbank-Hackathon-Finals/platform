@@ -74,7 +74,7 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - **대상 신원**: 클러스터 대신 STS의 AWS 계정. CLI는 `--aws`로 실행한다.
 - **범위 주의**: `platform-aws` · `platform-data` · `subscription-runtime` · `sandbox-session`은 이 실행기가 돌고 있는 플랫폼 자신을 바꿀 수 있다. 첫 실측은 읽기 전용 `verify`만 하고, 적용 범위는 담당(류지환)과 정한 뒤 연다.
 - backend 설정 값은 프로세스 인자로 넘기지 않는다(개인 backend 파일과 0600 임시 파일).
-- **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
+- **넣지 않은 것**: 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`. 일회성이던 `ci-validation-aws`는 2026-11-13에 코드를 제거했다.
 - **검증**: 실제 terraform 바이너리로 로컬 backend 시험 스택 두 개(출력 연결, 재실행 `SKIPPED`, 교체 `HOLD`, 승인 뒤 입력 변경 거부). 실제 AWS 계정에는 실행하지 않았다.
 
 ## 목적지가 이전 대상으로서 하는 단계 (`target-onprem-migration`)
