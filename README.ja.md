@@ -40,34 +40,6 @@ SOVA はセキュリティを最優先に掲げています。**移行元で拒�
 | [SOVA Console(デスクトップ)](services/console/desktop/README.md) | Ryu Ji-hwan(リュ・ジファン) | Electron アプリです。自分の AWS SSO で SOVA MCP に接続し、案内役のエージェントと一緒に状態を確認しながら登録の下書きを作成します。使い方の案内を含みます |
 | [Sova 移行運用コンソール](services/console/README.md) | Lee Sang-mu(イ・サンム) | プラットフォームホストの T10 API に接続する Web 運用画面です。統制レポート、検知、観測、フェイルバック、監査記録を根拠ごとに分けて表示します |
 
-## 担当領域
-
-セキュリティのレイヤーごとの担当は [SECURITY.md](SECURITY.md#계층-요약)に、コンソールは上の表にあります。それ以外の領域は次のように分担しました。この表は担当範囲だけを記したもので、実環境で確認した範囲は上の「現状と限界」と SECURITY.md に従います。タスクごとの担当と進捗の全体は [`docs/tasks.md`](docs/tasks.md) と[プロジェクトボード](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)にあります。
-
-| 領域 | 担当 | 内容 |
-|---|---|---|
-| AWS 基盤と移行元 | Ryu Ji-hwan(リュ・ジファン) | AWS の権限・VPC 2 つ・コストタグ(T1)、移行元の EKS・CNPG・PgBouncer・ESO(T6)です |
-| プラットフォームクラスターとデプロイ | Ryu Ji-hwan(リュ・ジファン) | EC2 上の RKE2 プラットフォームクラスターと Actions OIDC(T7)、エージェントの提案を隔離 Job として実行するサブスクリプション実行基盤(T38)、Argo CD・Helm・GitFlow 昇格によるプラットフォームの GitOps デプロイ(T43)です |
-| ステートマシンとプラットフォーム API | Ryu Ji-hwan(リュ・ジファン) | 移行の段階を進めるステートマシン、プラットフォーム API、イベントストリーム(T10)です |
-| AI エージェントと分析 | Jeon Dong-hun(チョン・ドンフン) | エージェントワーカー・ツール層・提案書スキーマ(T11)、依存関係・設定のインベントリと 3 段階分類(T16)、移行対象の推薦(T32)、承認した diff をイメージにして移行先へデプロイする反映経路(T31)です |
-| リハーサル | Bae Kyu-tae(ペ・ギュテ) | リハーサル名前空間の隔離の実測(T3)、作業 → 検証 Job → 承認の結び付けをつなぐリハーサルランナー(T15)、AI がリハーサル空間で決められた動作でテストする `rehearsal.exec`(T42)です |
-| オンプレミスの移行先 | Kim Tae-hyeon(キム・テヒョン) | Ubuntu VM 上の CIS 準拠 RKE2 と共通 cloud-init(T2)、移行先ワークロードの CNPG・PgBouncer・アプリと Tailscale 接続(T30)です |
-| 移行先のセキュリティ構成要素 | Jeon Dong-hun(チョン・ドンフン) | AWS のマネージド機能を置き換える OpenBao(シークレット・transit)と ESO 連携、S3 互換の SeaweedFS(T9)です |
-| 移行先の構築 | Lee Sang-mu(イ・サンム、T44)、Jeon Dong-hun(チョン・ドンフン、T45) | 二人が範囲を分けて担当します。[移行先 IaC API](docs/adr/0032-destination-iac-api.md)(T44)はモジュールカタログ、Git に置いた望ましい状態、計画 API、ネットワーク経路の宣言、顧客クラスターの Argo CD を担います。[移行先の初回構築実行器](docs/adr/0033-destination-bootstrap-executor.md)(T45)は空のクラスターから移行先を初めて立ち上げる段階スタックと実行を担い、移行先の Argo CD は T44 のインストールを共用します。Ryu Ji-hwan(リュ・ジファン)が tailnet ポリシーの GitOps、人の API アクセス、ノードファイル API を加えて T44 を拡張しました |
-| GCP の移行先 | Ryu Ji-hwan(リュ・ジファン) | GCE の RKE2 と GKE の移行先を terraform で立ち上げ・片付ける環境、IAM アクセス、Artifact Registry からの pull、tailnet への参加(T50)です |
-| データ複製と整合性 | Kim Tae-hyeon(キム・テヒョン) | 論理レプリケーションの往復と添付ファイルの同期(T8)、整合性の比較とレシート(T13)、負荷生成器とその観測(T18)です |
-| カットオーバーと切り戻し | Bae Kyu-tae(ペ・ギュテ) | Cutover Executor(T12)、切り戻し(failback、T20)、反復測定・障害注入・SAFE_HOLD のテスト(T25)です |
-| Edge の切り替え | Ryu Ji-hwan(リュ・ジファン) | Cloudflare LB とクラスターごとの Tunnel による重みの切り替えと、基準超過時の 0% への復帰(T17)です |
-| 観測 | Lee Sang-mu(イ・サンム) | 判定用の観測契約と SHIFT・WATCH の判定規則(T36)、OpenTelemetry Collector で移行元と移行先のメトリクスをプラットフォームのメトリクスストアに集める収集(T37)です。契約は [`docs/observability/`](docs/observability/README.md)(韓国語)にあります |
-| バックアップと復元 | Lee Sang-mu(イ・サンム) | 移行元と移行先の CNPG バックアップ・復元(T35)です。別クラスターに復元して読み出し照合する手順と、WAL 欠落時の拒否を扱います |
-| Exit Drill | Ryu Ji-hwan(リュ・ジファン)、Kim Tae-hyeon(キム・テヒョン) | 移行先アプリの AWS アクセスだけを遮断し(複製チャネルは維持)、再起動と新規接続を試して残った依存関係を見つける出口テスト(T27)です |
-| ワークロード機能の置き換え | Bae Kyu-tae(ペ・ギュテ、T46)、Kim Tae-hyeon(キム・テヒョン、T47) | 変更していない SQS・Lambda ハンドラーを移行先で実行し、カットオーバーにキューを含める互換ランタイム(T46)、デモアプリのログインを Cognito から Keycloak へ移す作業(T47)です |
-| デモアプリ | Lee Sang-mu(イ・サンム) | 移行対象である [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat) の v0・v1 です(T4・T22) |
-| マージ自動化 | Lee Sang-mu(イ・サンム。T41 は Ryu Ji-hwan と共同) | develop の Merge Queue と、承認を必須としない CI ベースのマージを導入しました(T40・T41、[ADR-0017](docs/adr/0017-develop-merge-queue.md))。11/7 に Merge Queue をルールから外したため、現在は使っていません |
-| 統合リハーサルと文書 | 全員 | 統合リハーサル・デモ台本・reset(T28)、決定文書・ADR・設計文書の更新(T29)です |
-
-[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) は Lee Sang-mu の個人開発プロトタイプと統合・デモ環境を保存するリポジトリで、このプラットフォームの製品コードではありません。
-
 ## アーキテクチャ
 
 **概要図**には、9 つの機能グループとその間の主な流れだけを示しています。
@@ -144,6 +116,21 @@ platform/
 | `ci.yml` | PR と main・develop への push ごとに必須チェックを 3 つ実行します。`secrets` は PR タイトルの形式、gitleaks、証跡の形式を検査し、`infra` は actionlint、hadolint、Terraform、Trivy config を実行し、`platform` は `pyproject.toml`、`package.json`、`go.mod` を探して言語ごとの lint とテスト、Trivy fs を実行します |
 | `publish-*.yml` | サービスイメージをスキャンし、SBOM と provenance を付けて発行した後、digest を固定する PR を作成します |
 | `sync-tasks.yml` | `tasks.md` がマージされると計画を Issue に反映し、Issue のチェックや担当者が変わるとボードを移動して `tasks.md` をボットの PR で更新します |
+
+## チームと担当
+
+5 人が分担した範囲です。タスクごとの担当と進捗の全体は [`docs/tasks.md`](docs/tasks.md) と[プロジェクトボード](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)に、セキュリティのレイヤーごとの担当は [SECURITY.md](SECURITY.md#계층-요약)にあります。この表は担当範囲を記したもので、実環境で確認した範囲は上の「現状と限界」に従います。
+
+| 担当 | 担当領域 | タスク |
+|---|---|---|
+| Lee Sang-mu(イ・サンム) | セキュリティ戦略とセキュリティ同等性の統制テスト、移行元との比較ゲート(Ryu Ji-hwan と共同)、規制マッピング、セキュリティ検知の統合、移行元・移行先の監査ログ収集、Security Review、[Sova 移行運用コンソール](services/console/README.md)、[移行先 IaC API](docs/adr/0032-destination-iac-api.md)、判定用の観測契約と環境横断のメトリクス収集、CNPG のバックアップ・復元、デモアプリ v0・v1、develop のマージ自動化 | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| Ryu Ji-hwan(リュ・ジファン) | AWS 基盤と移行元 EKS、EC2 上の RKE2 プラットフォームクラスターと Actions OIDC、ステートマシン・プラットフォーム API・イベントストリーム、プラットフォームの GitOps デプロイ、サブスクリプション実行基盤、Edge の重み切り替え、tailnet 参加・ポリシーのコード化と移行先 IaC API の拡張、GCP の移行先、Harbor 評価、[SOVA Console(デスクトップ)](services/console/desktop/README.md)、比較ゲート・Exit Drill・Merge Queue 自動登録の共同担当 | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| Jeon Dong-hun(チョン・ドンフン) | 移行先のセキュリティ構成要素(OpenBao・ESO・SeaweedFS)、AI エージェントワーカー・ツール層・提案書スキーマ、依存関係・設定のインベントリ、S3 Object Lock による監査記録、承認反映経路、移行対象の推薦、[移行先の初回構築実行器](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| Bae Kyu-tae(ペ・ギュテ) | リハーサル名前空間の隔離の実測、リハーサルランナー、`rehearsal.exec`、Cutover Executor、切り戻し(failback)、反復測定・障害注入・SAFE_HOLD のテスト、SQS・Lambda 互換ランタイム | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| Kim Tae-hyeon(キム・テヒョン) | オンプレミス RKE2(Ubuntu VM、CIS)と共通 cloud-init、移行先ワークロード(CNPG・PgBouncer・アプリ・Tailscale 接続)、論理レプリケーションの往復と添付ファイルの同期、整合性の比較とレシート、負荷生成器、デモアプリのログインの Cognito から Keycloak への移行、Exit Drill の共同担当 | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| 全員 | 統合リハーサル・デモ台本・reset、決定文書・ADR・設計文書の更新 | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) は Lee Sang-mu の個人開発プロトタイプと統合・デモ環境を保存するリポジトリで、このプラットフォームの製品コードではありません。
 
 ## 作業の進め方
 

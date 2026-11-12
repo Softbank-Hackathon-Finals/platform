@@ -40,34 +40,6 @@ SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 
 | [SOVA Console (데스크톱)](services/console/desktop/README.md) | 류지환 | Electron 앱입니다. 본인의 AWS SSO로 SOVA MCP에 연결하고, 안내자(에이전트)와 함께 상태를 확인하며 등록 초안을 작성합니다. 사용 안내가 포함되어 있습니다 |
 | [Sova 이전 운영 콘솔](services/console/README.md) | 이상무 | 플랫폼 호스트의 T10 API에 연결되는 웹 운영 화면입니다. 보안 통제 보고서, 탐지, 관측, 복귀, 감사 기록을 근거별로 나누어 보여 줍니다 |
 
-## 담당 영역
-
-보안 계층별 담당은 [SECURITY.md](SECURITY.md#계층-요약)에, 콘솔은 위 표에 있습니다. 그 밖의 영역은 아래와 같이 나눠 맡았습니다. 이 표는 맡은 범위만 적은 것이며, 실환경에서 확인한 범위는 위의 "현재 상태와 한계"와 SECURITY.md를 따릅니다. 작업별 담당과 진행 상황 전체는 [`docs/tasks.md`](docs/tasks.md)와 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)에 있습니다.
-
-| 영역 | 담당 | 내용 |
-|---|---|---|
-| AWS 기반과 출발지 | 류지환 | AWS 권한·VPC 2개·비용 태그(T1), 출발지 EKS·CNPG·PgBouncer·ESO(T6)입니다 |
-| 플랫폼 클러스터와 배포 | 류지환 | EC2 위 RKE2 플랫폼 클러스터와 Actions OIDC(T7), 에이전트 제안을 격리 Job으로 실행하는 구독 런타임 실행 기반(T38), Argo CD·Helm·GitFlow 승격을 쓰는 플랫폼 GitOps 배포(T43)입니다 |
-| 상태 머신과 플랫폼 API | 류지환 | 이전 단계를 진행하는 상태 머신, 플랫폼 API, 이벤트 스트림(T10)입니다 |
-| AI 에이전트와 분석 | 전동훈 | 에이전트 워커·도구 계층·제안서 스키마(T11), 의존성·설정 인벤토리와 3등급 분류(T16), 이전 대상 추천(T32), 승인한 diff를 이미지로 만들어 목적지에 배포하는 반영 경로(T31)입니다 |
-| 리허설 | 배규태 | 리허설 네임스페이스 격리 실측(T3), 작업 → 검증 Job → 승인 결속을 잇는 리허설 러너(T15), AI가 리허설 공간에서 정해진 동작으로 시험하는 `rehearsal.exec`(T42)입니다 |
-| 온프렘 목적지 | 김태현 | Ubuntu VM 위 CIS 기준 RKE2와 공통 cloud-init(T2), 목적지 워크로드인 CNPG·PgBouncer·앱과 Tailscale 연결(T30)입니다 |
-| 목적지 보안 구성요소 | 전동훈 | AWS 관리형 기능을 대신하는 OpenBao(시크릿·transit)와 ESO 연동, S3 호환 SeaweedFS(T9)입니다 |
-| 목적지 구축 | 이상무(T44), 전동훈(T45) | 두 사람이 범위를 나눠 맡습니다. [목적지 IaC API](docs/adr/0032-destination-iac-api.md)(T44)는 모듈 카탈로그, Git에 둔 원하는 상태, 계획 API, 네트워크 경로 선언, 고객 클러스터의 Argo CD를 맡습니다. [목적지 처음 구축 실행기](docs/adr/0033-destination-bootstrap-executor.md)(T45)는 빈 클러스터에서 목적지를 처음 세우는 단계 스택과 실행을 맡으며, 목적지 Argo CD는 T44 설치를 함께 씁니다. 류지환 님이 tailnet 정책 GitOps, 사람의 API 접근, 노드 파일 API를 더해 T44를 넓혔습니다 |
-| GCP 목적지 | 류지환 | GCE의 RKE2와 GKE 목적지를 terraform으로 펼치고 접는 환경, IAM 접근, Artifact Registry pull, tailnet 합류(T50)입니다 |
-| 데이터 복제와 무결성 | 김태현 | 논리 복제 왕복과 첨부 동기화(T8), 무결성 비교와 영수증(T13), 부하 생성기와 관측(T18)입니다 |
-| 컷오버와 되돌리기 | 배규태 | Cutover Executor(T12), 되돌리기(failback, T20), 반복 측정·장애 주입·SAFE_HOLD 시험(T25)입니다 |
-| Edge 전환 | 류지환 | Cloudflare LB와 클러스터별 Tunnel로 하는 가중치 전환과 기준 초과 시 0% 복귀(T17)입니다 |
-| 관측 | 이상무 | 판정용 관측 계약과 SHIFT·WATCH 판정 규칙(T36), OpenTelemetry Collector로 출발지와 목적지의 지표를 플랫폼 지표 저장소에 모으는 수집(T37)입니다. 계약은 [`docs/observability/`](docs/observability/README.md)에 있습니다 |
-| 백업과 복원 | 이상무 | 출발지와 목적지의 CNPG 백업·복원(T35)입니다. 별도 클러스터로 복원해 읽어 대조하는 절차와 WAL이 빠졌을 때의 거부를 다룹니다 |
-| Exit Drill | 류지환, 김태현 | 목적지 앱의 AWS 접근만 막고(복제 채널은 유지) 재시작과 새 연결을 시험하며 남은 의존성을 찾는 출구 시험(T27)입니다 |
-| 워크로드 기능 대체 | 배규태(T46), 김태현(T47) | 수정하지 않은 SQS·Lambda 핸들러를 목적지에서 실행하고 컷오버에 큐를 포함하는 호환 런타임(T46), 데모 앱 로그인을 Cognito에서 Keycloak으로 옮기는 작업(T47)입니다 |
-| 데모 앱 | 이상무 | 이전 대상인 [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat)의 v0·v1입니다(T4·T22) |
-| 병합 자동화 | 이상무(T41은 류지환과 함께) | develop Merge Queue와 승인 없는 CI 병합을 도입했습니다(T40·T41, [ADR-0017](docs/adr/0017-develop-merge-queue.md)). 11/7에 Merge Queue를 규칙에서 제거해 지금은 쓰지 않습니다 |
-| 통합 리허설과 문서 | 전원 | 통합 리허설·데모 각본·reset(T28), 결정 문서·ADR·설계 문서 갱신(T29)입니다 |
-
-[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test)는 이상무 님의 개인 개발 프로토타입과 통합·시연 환경을 보존하는 저장소이며, 이 플랫폼의 제품 코드는 아닙니다.
-
 ## 아키텍처
 
 **간략 구성도**에는 기능 묶음 9개와 그 사이의 주요 흐름만 표시했습니다.
@@ -147,6 +119,21 @@ platform/
 | `ci.yml` | PR과 main·develop push마다 필수 검사 3개를 실행합니다. `secrets`는 PR 제목 형식과 gitleaks, 증빙 형식을 검사하고, `infra`는 actionlint, hadolint, Terraform, Trivy config를 검사하며, `platform`은 `pyproject.toml`, `package.json`, `go.mod`를 찾아 언어별 lint와 test, Trivy fs를 실행합니다 |
 | `publish-*.yml` | 서비스 이미지를 스캔하고 SBOM과 provenance를 붙여 발행한 뒤, digest를 고정하는 PR을 만듭니다 |
 | `sync-tasks.yml` | `tasks.md`가 병합되면 계획을 이슈에 반영하고, 이슈의 체크와 담당자가 바뀌면 보드를 옮기고 `tasks.md`를 봇 PR로 수정합니다 |
+
+## 팀과 담당
+
+다섯 명이 나눠 맡은 범위입니다. 작업별 담당과 진행 상황 전체는 [`docs/tasks.md`](docs/tasks.md)와 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)에, 보안 계층별 담당은 [SECURITY.md](SECURITY.md#계층-요약)에 있습니다. 이 표는 맡은 범위를 적은 것이며, 실환경에서 확인한 범위는 위의 "현재 상태와 한계"를 따릅니다.
+
+| 담당 | 맡은 영역 | 작업 |
+|---|---|---|
+| 이상무 | 보안 전략과 보안 동등성 통제 시험, 원본 대조 게이트(류지환 공동), 규제 매핑, 보안 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review, [Sova 이전 운영 콘솔](services/console/README.md), [목적지 IaC API](docs/adr/0032-destination-iac-api.md), 판정용 관측 계약과 환경 횡단 지표 수집, CNPG 백업·복원, 데모 앱 v0·v1, develop 병합 자동화 | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| 류지환 | AWS 기반과 출발지 EKS, EC2 위 RKE2 플랫폼 클러스터와 Actions OIDC, 상태 머신·플랫폼 API·이벤트 스트림, 플랫폼 GitOps 배포, 구독 런타임 실행 기반, Edge 가중치 전환, tailnet 합류·정책 코드화와 목적지 IaC API 확장, GCP 목적지, Harbor 평가, [SOVA Console(데스크톱)](services/console/desktop/README.md), 원본 대조 게이트·Exit Drill·Merge Queue 자동 등록 공동 | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| 전동훈 | 목적지 보안 구성요소(OpenBao·ESO·SeaweedFS), AI 에이전트 워커·도구 계층·제안서 스키마, 의존성·설정 인벤토리, 감사 기록 S3 Object Lock, 승인 반영 경로, 이전 대상 추천, [목적지 처음 구축 실행기](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| 배규태 | 리허설 네임스페이스 격리 실측, 리허설 러너, `rehearsal.exec`, Cutover Executor, 되돌리기(failback), 반복 측정·장애 주입·SAFE_HOLD 시험, SQS·Lambda 호환 런타임 | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| 김태현 | 온프렘 RKE2(Ubuntu VM, CIS)와 공통 cloud-init, 목적지 워크로드(CNPG·PgBouncer·앱·Tailscale 연결), 논리 복제 왕복과 첨부 동기화, 무결성 비교와 영수증, 부하 생성기, 데모 앱 로그인 Cognito → Keycloak 이전, Exit Drill 공동 | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| 전원 | 통합 리허설·데모 각본·reset, 결정 문서·ADR·설계 문서 갱신 | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test)는 이상무 님의 개인 개발 프로토타입과 통합·시연 환경을 보존하는 저장소이며, 이 플랫폼의 제품 코드는 아닙니다.
 
 ## 팀원 작업 방법
 

@@ -40,34 +40,6 @@ During the finals (2026-11-06 to 11-08) the team ran the happy path from a real 
 | [SOVA Console (desktop)](services/console/desktop/README.md) | Ryu Ji-hwan | An Electron app that connects to the SOVA MCP with your own AWS SSO identity. You read status and draft registrations together with a guide agent. Includes a usage guide |
 | [Sova migration operations console](services/console/README.md) | Lee Sang-mu | A web operations console attached to the platform host's T10 API. It shows control reports, detections, observations, failback and audit records, separated by evidence |
 
-## Areas of responsibility
-
-The owners of each security layer are listed in [SECURITY.md](SECURITY.md#계층-요약), and the consoles are in the table above. The other areas are divided as follows. This table records scope only; what was confirmed on real infrastructure follows "Status and limitations" above and SECURITY.md. The owners and progress of every task are in [`docs/tasks.md`](docs/tasks.md) and on the [project board](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2).
-
-| Area | Owner | Description |
-|---|---|---|
-| AWS foundation and source | Ryu Ji-hwan | AWS permissions, two VPCs and cost tags (T1), and the source EKS, CNPG, PgBouncer and ESO (T6) |
-| Platform cluster and deployment | Ryu Ji-hwan | The RKE2 platform cluster on EC2 with Actions OIDC (T7), the subscription runtime that runs agent proposals as isolated Jobs (T38), and platform GitOps deployment with Argo CD, Helm and GitFlow promotion (T43) |
-| State machine and platform API | Ryu Ji-hwan | The state machine that advances the migration stages, the platform API and the event stream (T10) |
-| AI agent and analysis | Jeon Dong-hun | The agent worker, tool layer and proposal schema (T11), the dependency and configuration inventory with three-level classification (T16), migration target recommendation (T32), and the path that builds an approved diff into an image and deploys it to the destination (T31) |
-| Rehearsal | Bae Kyu-tae | Measuring rehearsal namespace isolation (T3), the rehearsal runner that links task → verification Job → approval binding (T15), and `rehearsal.exec`, which lets the AI test with fixed actions inside the rehearsal space (T42) |
-| On-premises destination | Kim Tae-hyeon | RKE2 on an Ubuntu VM following CIS with shared cloud-init (T2), and the destination workload of CNPG, PgBouncer and the app with the Tailscale connection (T30) |
-| Destination security components | Jeon Dong-hun | OpenBao (secrets and transit) with ESO integration and S3-compatible SeaweedFS, replacing AWS managed features (T9) |
-| Destination build | Lee Sang-mu (T44), Jeon Dong-hun (T45) | The two split the scope. The [destination IaC API](docs/adr/0032-destination-iac-api.md) (T44) covers the module catalog, desired state in Git, the plan API, network path declarations and Argo CD on customer clusters. The [destination bootstrap executor](docs/adr/0033-destination-bootstrap-executor.md) (T45) covers the step stack and execution that bring up a destination from an empty cluster, and reuses the T44 Argo CD installation. Ryu Ji-hwan extended T44 with tailnet policy GitOps, human API access and the node files API |
-| GCP destination | Ryu Ji-hwan | GCE RKE2 and GKE destinations that terraform brings up and tears down, with IAM access, Artifact Registry pulls and tailnet join (T50) |
-| Data replication and integrity | Kim Tae-hyeon | Logical replication both ways and attachment sync (T8), integrity comparison and receipts (T13), and the load generator with its observation (T18) |
-| Cutover and rollback | Bae Kyu-tae | The Cutover Executor (T12), rollback (failback, T20), and repeated measurement, fault injection and SAFE_HOLD tests (T25) |
-| Edge switching | Ryu Ji-hwan | Weight switching with a Cloudflare LB and per-cluster Tunnels, returning to 0% when thresholds are exceeded (T17) |
-| Observability | Lee Sang-mu | The observation contract and the SHIFT/WATCH judgement rules (T36), and metric collection that brings source and destination metrics to the platform metric store through the OpenTelemetry Collector (T37). The contract is in [`docs/observability/`](docs/observability/README.md) (Korean) |
-| Backup and restore | Lee Sang-mu | CNPG backup and restore for the source and the destination (T35), covering restore into a separate cluster with read-back comparison and refusal when WAL is missing |
-| Exit Drill | Ryu Ji-hwan, Kim Tae-hyeon | The exit test that blocks only the destination app's AWS access (keeping the replication channel), tests restarts and new connections, and finds remaining dependencies (T27) |
-| Workload feature replacement | Bae Kyu-tae (T46), Kim Tae-hyeon (T47) | A compatible runtime that runs unmodified SQS and Lambda handlers on the destination and includes the queue in cutover (T46), and moving the demo app login from Cognito to Keycloak (T47) |
-| Demo app | Lee Sang-mu | v0 and v1 of [`demo-chat`](https://github.com/Softbank-Hackathon-Finals/demo-chat), the app being migrated (T4, T22) |
-| Merge automation | Lee Sang-mu (T41 together with Ryu Ji-hwan) | Introduced the develop Merge Queue and CI-based merging without required approval (T40, T41, [ADR-0017](docs/adr/0017-develop-merge-queue.md)). The Merge Queue was removed from the rules on 11/7 and is no longer used |
-| Integration rehearsal and documents | Everyone | Integration rehearsal, demo script and reset (T28), and decision documents, ADRs and design document updates (T29) |
-
-[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) preserves Lee Sang-mu's personal development prototype and integration and demo environment; it is not this platform's product code.
-
 ## Architecture
 
 The **overview diagram** shows the nine functional groups and the main flows between them.
@@ -144,6 +116,21 @@ The conditions the app must meet (idempotency keys, reconnection, a write-block 
 | `ci.yml` | Runs three required checks on every PR and on pushes to main and develop. `secrets` checks the PR title, gitleaks and the evidence format; `infra` runs actionlint, hadolint, Terraform and Trivy config; `platform` finds `pyproject.toml`, `package.json` and `go.mod` and runs per-language lint, tests and Trivy fs |
 | `publish-*.yml` | Scans each service image, attaches an SBOM and provenance, publishes it and opens a PR that pins the digest |
 | `sync-tasks.yml` | Reflects `tasks.md` into issues after merge, and moves board items and updates `tasks.md` through a bot PR when issue checks or assignees change |
+
+## Team and ownership
+
+The scope each of the five members owns. The owners and progress of every task are in [`docs/tasks.md`](docs/tasks.md) and on the [project board](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2), and the owners of each security layer are in [SECURITY.md](SECURITY.md#계층-요약). This table records scope; what was confirmed on real infrastructure follows "Status and limitations" above.
+
+| Owner | Areas | Tasks |
+|---|---|---|
+| Lee Sang-mu | Security strategy and the security-parity control tests, the source-comparison gate (with Ryu Ji-hwan), regulatory mapping, security detection integration, audit log collection on the source and the destination, Security Review, the [Sova migration operations console](services/console/README.md), the [destination IaC API](docs/adr/0032-destination-iac-api.md), the observation contract and cross-environment metric collection, CNPG backup and restore, demo app v0 and v1, and develop merge automation | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| Ryu Ji-hwan | The AWS foundation and source EKS, the RKE2 platform cluster on EC2 with Actions OIDC, the state machine, platform API and event stream, platform GitOps deployment, the subscription runtime, Edge weight switching, codified tailnet join and policy with extensions to the destination IaC API, the GCP destination, Harbor evaluation, [SOVA Console (desktop)](services/console/desktop/README.md), and the source-comparison gate, Exit Drill and Merge Queue auto-enqueue together with others | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| Jeon Dong-hun | Destination security components (OpenBao, ESO, SeaweedFS), the AI agent worker, tool layer and proposal schema, the dependency and configuration inventory, audit records under S3 Object Lock, the approved-change apply path, migration target recommendation, and the [destination bootstrap executor](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| Bae Kyu-tae | Measuring rehearsal namespace isolation, the rehearsal runner, `rehearsal.exec`, the Cutover Executor, rollback (failback), repeated measurement, fault injection and SAFE_HOLD tests, and the SQS and Lambda compatible runtime | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| Kim Tae-hyeon | On-premises RKE2 (Ubuntu VM, CIS) with shared cloud-init, the destination workload (CNPG, PgBouncer, the app and the Tailscale connection), logical replication both ways and attachment sync, integrity comparison and receipts, the load generator, moving the demo app login from Cognito to Keycloak, and Exit Drill together with Ryu Ji-hwan | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| Everyone | Integration rehearsal, demo script and reset, and decision documents, ADRs and design document updates | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) preserves Lee Sang-mu's personal development prototype and integration and demo environment; it is not this platform's product code.
 
 ## Contributing
 
