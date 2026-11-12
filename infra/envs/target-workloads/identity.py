@@ -4,7 +4,8 @@
 demo-chat knows only a standard OIDC issuer and a public client ID, so moving its sign-in off Cognito
 is a settings change: AUTH_ISSUER points here. This renders the server and one realm with one public
 PKCE client. It creates no users and holds no passwords: the admin Secret and the demo accounts come
-from the operator (README "목적지 로그인 서버"). Nothing here contacts a cluster.
+from the operator (README "목적지 로그인 서버"). The load generator's own client is defined here too
+(loadgen_client) but registered by the operator, not imported. Nothing here contacts a cluster.
 """
 import argparse
 import json
@@ -18,6 +19,7 @@ IMAGE = "quay.io/keycloak/keycloak:26.0.7@sha256:4388e2379b7e870a447adbe7b80bd61
 SELECTOR = {"app.kubernetes.io/name": "target-login"}
 REALM = "bravo"
 CLIENT_ID = "demo-chat"
+LOADGEN_CLIENT_ID = "demo-chat-loadgen"
 ADMIN_SECRET = "target-login-admin"
 # T17 renders the Cloudflare tunnel with this label; the public login hostname reaches Keycloak only through it.
 EDGE = {"app": "bravo-edge-tunnel"}
@@ -82,6 +84,23 @@ def realm(app_origin):
             "redirectUris": [f"{app}/"], "webOrigins": [app],
             "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": f"{app}/"},
         }],
+    }
+
+
+def loadgen_client():
+    """The load generator's (T18) client, kept apart so the browser client never takes a password.
+
+    Confidential: a token needs this client's secret as well as the account's password. No browser flow and no
+    redirect target. fullScopeAllowed is off, so its access token carries no account-console roles. It is not
+    in the realm import: --import-realm never touches an existing realm, and the secret must not sit in the
+    rendered ConfigMap. The operator registers it through the admin API and Keycloak makes the secret (README).
+    """
+    return {
+        "clientId": LOADGEN_CLIENT_ID, "name": "demo-chat load generator", "enabled": True,
+        "protocol": "openid-connect", "publicClient": False, "clientAuthenticatorType": "client-secret",
+        "standardFlowEnabled": False, "implicitFlowEnabled": False, "directAccessGrantsEnabled": True,
+        "serviceAccountsEnabled": False, "frontchannelLogout": False, "fullScopeAllowed": False,
+        "redirectUris": [], "webOrigins": [],
     }
 
 

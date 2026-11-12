@@ -20,12 +20,13 @@ from psycopg.conninfo import conninfo_to_dict
 
 from bravo_loadgen.align import AlignmentError, align_run, render_alignment
 from bravo_loadgen.db import fetch_rows
-from bravo_loadgen.journal import Journal, read_journal
+from bravo_loadgen.journal import Journal, read_journal, run_author
 from bravo_loadgen.load import LoadConfig, LoadRunner
 from bravo_loadgen.lock_probe import LockProbe, summarize_lock_samples
 from bravo_loadgen.preflight import render_lines, run_checks
 from bravo_loadgen.report import build_report, exit_code, render_markdown
 from bravo_loadgen.schema import SchemaViolation, load_profile, validate_window
+from bravo_loadgen.signin import CLIENT_SECRET_ENV, LOCAL_HOSTS, PASSWORD_ENV, TokenSupply, fetcher
 from bravo_loadgen.windows import check_continuity
 
 DEFAULT_WINDOW_SECONDS = 10
@@ -107,6 +108,11 @@ def _add_load_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
+    parser.add_argument("--auth-issuer",
+                        help="로그인을 켠 앱의 AUTH_ISSUER. 주면 쓰기에 ID 토큰을 싣고 작성자를 토큰 이름으로 쓴다(T47). "
+                             f"비밀번호는 환경변수 {PASSWORD_ENV}, Cognito가 아니면 클라이언트 비밀도 {CLIENT_SECRET_ENV}")
+    parser.add_argument("--auth-client-id", help="부하 생성기 전용 클라이언트 ID. 브라우저 클라이언트는 비밀번호를 받지 않는다")
+    parser.add_argument("--auth-username", help="부하 생성기 계정 이름. 메시지 작성자로 보인다")
     parser.add_argument("--fresh-connections", action="store_true",
                         help="요청마다 새 연결을 연다(서로 다른 사용자처럼). 실제 Cloudflare LB는 연결마다 pool을 고르는 것으로 "
                              "관측돼, keep-alive 연결 몇 개로는 가중치 분배를 잴 수 없다(T17 2026-11-08)")
@@ -175,11 +181,35 @@ def _raise_open_file_limit(needed: int) -> None:
 
 
 @dataclass(frozen=True)
+class _SignIn:
+    kind: str
+    supply: TokenSupply
+
+
+def _sign_in(args: argparse.Namespace) -> _SignIn | None:
+    """로그인은 기본으로 꺼져 있다. 세 값을 모두 줘야 켠다. 첫 토큰은 부하 전에 받는다."""
+    given = [args.auth_issuer, args.auth_client_id, args.auth_username]
+    if not any(given):
+        return None
+    if not all(given):
+        raise LookupError("로그인을 켜려면 --auth-issuer, --auth-client-id, --auth-username을 모두 준다")
+    target = httpx.URL(args.base_url)
+    if target.scheme != "https" and target.host not in LOCAL_HOSTS:
+        # ID 토큰으로 그 계정의 글을 쓸 수 있다. 발급자와 같은 규칙: 이 컴퓨터의 시험 주소만 http.
+        raise LookupError("로그인을 켜면 --base-url은 https여야 한다(이 컴퓨터의 시험 주소만 http)")
+    kind, fetch = fetcher(args.auth_issuer, args.auth_client_id, args.auth_username)
+    supply = TokenSupply(fetch)
+    print(f"로그인: {kind} 발급자에서 '{supply.name}' 이름으로 토큰을 받았다")
+    return _SignIn(kind, supply)
+
+
+@dataclass(frozen=True)
 class _Prepared:
     config: LoadConfig
     db_dsn: str | None
     lock_dsn: str | None
     window_token: str | None
+    sign_in: _SignIn | None = None
 
 
 def _prepare(args: argparse.Namespace) -> _Prepared:
@@ -204,6 +234,7 @@ def _prepare(args: argparse.Namespace) -> _Prepared:
         # 창에는 실행 위치를 적을 칸이 없어, 받는 쪽은 전용 호스트의 값과 구분하지 못한다.
         raise LookupError("노트북에서 잰 창은 판정 경로로 보내지 않는다. --window-url을 뺀다")
     run_id = args.run_id or f"t18-{datetime.now(UTC):%Y%m%dt%H%M%Sz}"
+    sign_in = _sign_in(args)
     config = LoadConfig(
         run_id=run_id,
         plan_id=args.plan_id,
@@ -214,6 +245,7 @@ def _prepare(args: argparse.Namespace) -> _Prepared:
         window_seconds=args.window_seconds,
         attempt_timeout_s=args.attempt_timeout,
         retry_budget_s=args.retry_budget,
+        author=sign_in.supply.name if sign_in else None,
     )
     _raise_open_file_limit(
         open_files_needed(
@@ -223,13 +255,13 @@ def _prepare(args: argparse.Namespace) -> _Prepared:
             attempt_timeout_s=config.attempt_timeout_s,
         )
     )
-    return _Prepared(config, db_dsn, lock_dsn, window_token)
+    return _Prepared(config, db_dsn, lock_dsn, window_token, sign_in)
 
 
 def _execute(args: argparse.Namespace, prepared: _Prepared, preflight: dict | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     state = asyncio.run(
-        _run_load(prepared.config, args, prepared.lock_dsn, prepared.window_token)
+        _run_load(prepared.config, args, prepared.lock_dsn, prepared.window_token, prepared.sign_in)
     )
     state["preflight"] = preflight
     (args.out / "run-state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
@@ -290,7 +322,11 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 
 
 async def _run_load(
-    config: LoadConfig, args: argparse.Namespace, lock_dsn: str | None, window_token: str | None
+    config: LoadConfig,
+    args: argparse.Namespace,
+    lock_dsn: str | None,
+    window_token: str | None,
+    sign_in: _SignIn | None = None,
 ) -> dict:
     limits = httpx.Limits(max_connections=None, max_keepalive_connections=0 if args.fresh_connections else 256)
     probe = LockProbe(lock_dsn) if lock_dsn else None
@@ -325,7 +361,15 @@ async def _run_load(
                     )
                     response.raise_for_status()
 
-            result = await LoadRunner(config, client, journal, window_sink=sink).run()
+            refresher = asyncio.create_task(sign_in.supply.keep_fresh()) if sign_in else None
+            try:
+                result = await LoadRunner(
+                    config, client, journal, window_sink=sink,
+                    write_headers=sign_in.supply.headers if sign_in else None,
+                ).run()
+            finally:
+                if refresher:
+                    refresher.cancel()
 
     lock_summary = None
     if probe:
@@ -343,17 +387,20 @@ async def _run_load(
         "tail_requests": result.tail_requests,
         "late_requests": result.late_requests,
         "continuity_problems": result.continuity_problems,
+        "withheld_windows": result.withheld_windows,
+        "withheld_requests": result.withheld_requests,
         "lock_probe": lock_summary,
+        "sign_in": sign_in.supply.summary(sign_in.kind) if sign_in else None,
     }
 
 
-def _read_rows(db_dsn: str, run_id: str, logical_ids: list[str]) -> list[dict] | None:
+def _read_rows(db_dsn: str, run_id: str, logical_ids: list[str], author: str) -> list[dict] | None:
     """DB가 멈춰도 리포트 없이 영원히 기다리지 않는다. 못 읽으면 None이고 판정은 시험 불가가 된다."""
     outcome: dict[str, list[dict]] = {}
 
     def read() -> None:
         try:
-            outcome["rows"] = fetch_rows(db_dsn, run_id, logical_ids)
+            outcome["rows"] = fetch_rows(db_dsn, run_id, logical_ids, author)
         except psycopg.Error as error:
             # 메시지에 접속 정보가 섞일 수 있어 종류만 남긴다.
             print(f"DB를 읽지 못했다: {type(error).__name__}", file=sys.stderr)
@@ -374,7 +421,7 @@ def _write_report(out: Path, db_dsn: str | None, records: list[dict]) -> int:
         logical_ids = sorted(
             {r["logical_id"] for r in records if r["type"] == "attempt" and r["kind"] == "write"}
         )
-        rows = _read_rows(db_dsn, run_id, logical_ids)
+        rows = _read_rows(db_dsn, run_id, logical_ids, run_author(records[0]))
     state = json.loads((out / "run-state.json").read_text())
     windows_path = out / "windows.jsonl"
     report = build_report(

@@ -11,6 +11,10 @@ dependencies = [
     "rfc3339-validator>=0.1.4",
 ]
 
+[project.optional-dependencies]
+# 로그인을 켠 앱에 Cognito 토큰으로 쓰기 부하를 넣을 때만(T47): AdminInitiateAuth를 AWS 자격 증명으로 서명한다.
+cognito = ["boto3>=1.35,<2"]
+
 [project.scripts]
 bravo-loadgen = "bravo_loadgen.cli:main"
 

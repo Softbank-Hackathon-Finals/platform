@@ -2,6 +2,7 @@
 
 from collections import Counter
 
+from bravo_loadgen.load import AUTH_REJECTED
 from bravo_loadgen.reconcile import reconcile, write_gap
 from bravo_loadgen.stats import nearest_rank
 
@@ -33,6 +34,9 @@ def build_report(
     generator: str | None = None,
     preflight: dict | None = None,
     connections: str = "keepalive",
+    sign_in: dict | None = None,
+    withheld_windows: int = 0,
+    withheld_requests: int = 0,
 ) -> dict:
     start = next(r for r in records if r["type"] == "run_start")
     attempts = [r for r in records if r["type"] == "attempt"]
@@ -42,7 +46,7 @@ def build_report(
     env_header = _env_header(attempts, env_pools)
     windows_summary = _windows_summary(
         windows, attempts, tail_requests, late_requests, delivery_failed, invalid_windows,
-        continuity_problems,
+        continuity_problems, withheld_windows, withheld_requests,
     )
     load = _load_summary(start, attempts)
     edge_measured = measurement_path == "edge"
@@ -71,6 +75,12 @@ def build_report(
     lag = load["scheduler_lag_ms"]
     if lag and (lag["p95"] > GENERATOR_LAG_P95_WARN_MS or lag["max"] > GENERATOR_LAG_MAX_WARN_MS):
         warnings.append("GENERATOR_LAGGING")
+    if any(a["kind"] == "write" and a["status"] in AUTH_REJECTED for a in attempts):
+        # 로그인 때문에 거부된 쓰기. 창은 이를 오류로 세지 않아, 그 뒤의 창은 내지 않았다.
+        warnings.append("WRITE_AUTH_REJECTED")
+    if sign_in and sign_in["refresh_failures"]:
+        # 토큰이 만료되면 쓰기가 401로 끝나 대상의 실패처럼 보인다. 부하 생성기 쪽 원인을 드러낸다.
+        warnings.append("SIGN_IN_REFRESH_FAILED")
     if not windows:
         warnings.append("NO_WINDOWS")
     elif len(windows) + invalid_windows < start["duration_s"] // start["window_seconds"]:
@@ -99,6 +109,7 @@ def build_report(
             "generator": generator,
             "connections": connections,
             "preflight": preflight,
+            "sign_in": sign_in,
         },
         "journal_sha256": journal_sha256,
         "verdict": verdict,
@@ -186,7 +197,7 @@ def _load_summary(start: dict, attempts: list[dict]) -> dict:
 
 def _windows_summary(
     windows, attempts, tail_requests, late_requests, delivery_failed, invalid_windows,
-    continuity_problems,
+    continuity_problems, withheld_windows=0, withheld_requests=0,
 ) -> dict:
     counted = sum(
         w["pools"]["source"]["requests"]
@@ -199,8 +210,9 @@ def _windows_summary(
         "requests_in_windows": counted,
         "tail_requests_not_in_a_window": tail_requests,
         "late_requests": late_requests,
-        "conserved": counted + tail_requests + late_requests == len(attempts),
+        "conserved": counted + withheld_requests + tail_requests + late_requests == len(attempts),
         "delivery_failed": delivery_failed,
+        "withheld": withheld_windows,
         "invalid": invalid_windows,
         "continuity_problems": continuity_problems,
         "pools_total": {

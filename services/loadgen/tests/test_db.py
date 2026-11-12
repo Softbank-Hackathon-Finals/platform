@@ -52,6 +52,15 @@ def test_fetch_finds_rows_by_key_author_and_body_marker(run_id):
     assert isinstance(rows[0]["idempotency_key"], str)
 
 
+def test_a_shared_account_name_does_not_pull_in_other_runs(run_id):
+    """로그인을 켠 실행(T47)의 작성자는 실행마다 같은 계정 이름이다. 그 이름으로 찾으면 다른 실행의 행이 유령이 된다."""
+    mine = insert(run_id, author="loadgen-shared")
+    other_run = insert(f"{run_id}-x", author="loadgen-shared")
+
+    found = {r["idempotency_key"] for r in fetch_rows(DSN, run_id, [mine], author="loadgen-shared")}
+    assert mine in found and other_run not in found
+
+
 def test_fetch_opens_a_read_only_transaction(run_id, monkeypatch):
     import bravo_loadgen.db as db
 

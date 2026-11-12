@@ -32,13 +32,15 @@ def created(request, message_id=1, env="aws", status=201):
     return httpx.Response(status, json={"id": message_id}, headers={"X-Bravo-Env": env})
 
 
-async def run(tmp_path, handler, sink=None, **overrides):
+async def run(tmp_path, handler, sink=None, write_headers=None, **overrides):
     path = tmp_path / "journal.jsonl"
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="http://edge", timeout=None
     ) as client:
         with Journal(path) as journal:
-            result = await LoadRunner(config(**overrides), client, journal, window_sink=sink).run()
+            result = await LoadRunner(
+                config(**overrides), client, journal, window_sink=sink, write_headers=write_headers
+            ).run()
     records = read_journal(path)
     return result, [r for r in records if r["type"] == "attempt"], records
 
@@ -90,6 +92,50 @@ def test_retry_keeps_the_idempotency_key_and_body_with_a_new_attempt_id(tmp_path
     assert [a["final"] for a in attempts] == [False, True]
     assert seen[0]["author"] == "loadgen-t18-test"
     assert seen[0]["body"] == f"t18 run=t18-test req={key}"
+
+
+def test_without_sign_in_writes_carry_no_token_and_the_run_author(tmp_path):
+    seen = []
+
+    async def handler(request):
+        seen.append(request.headers.get("Authorization"))
+        return created(request) if request.method == "POST" else httpx.Response(200, json=[])
+
+    _, _, records = go(run(tmp_path, handler, read_rps=10))
+    assert seen == [None, None]
+    assert records[0]["author"] == "loadgen-t18-test"
+
+
+def test_signed_in_writes_carry_the_current_token_and_the_token_name(tmp_path):
+    """로그인을 켠 앱은 작성자가 토큰 이름이 아니면 403이다. 재시도는 그때의 토큰을 싣는다."""
+    seen = []
+    issued = iter(["Bearer first", "Bearer refreshed"])
+
+    async def handler(request):
+        if request.method == "GET":
+            seen.append(("GET", request.headers.get("Authorization"), None))
+            return httpx.Response(200, json=[])
+        seen.append(("POST", request.headers["Authorization"], json.loads(request.content)["author"]))
+        if len([s for s in seen if s[0] == "POST"]) == 1:
+            return httpx.Response(503, headers={"Retry-After": "0", "X-Bravo-Env": "aws"})
+        return created(request)
+
+    _, attempts, records = go(run(
+        tmp_path, handler, write_headers=lambda: {"Authorization": next(issued)},
+        author="loadgen", read_rps=10,
+    ))
+    assert [s for s in seen if s[0] == "POST"] == [
+        ("POST", "Bearer first", "loadgen"), ("POST", "Bearer refreshed", "loadgen"),
+    ]
+    assert [s for s in seen if s[0] == "GET"] == [("GET", None, None)]  # 읽기는 로그인 없이 본다
+    assert records[0]["author"] == "loadgen"
+    assert "Bearer" not in (tmp_path / "journal.jsonl").read_text()
+
+
+@pytest.mark.parametrize("author", ["", "x" * 41])
+def test_author_fits_the_message_column(author):
+    with pytest.raises(ValueError):
+        config(author=author)
 
 
 def test_retry_after_is_honored(tmp_path):
@@ -337,6 +383,39 @@ def test_window_delivery_failure_is_counted_and_load_continues(tmp_path):
     result, attempts, _ = go(run(tmp_path, handler, sink=sink, duration_s=1.2, window_seconds=1))
     assert result.delivery_failed == 1 and len(result.windows) == 1
     assert len(attempts) == 12
+
+
+@pytest.mark.parametrize("refusal", [401, 403])
+def test_windows_stop_once_a_write_is_refused_for_sign_in(tmp_path, refusal):
+    """창은 5xx · 409만 오류로 센다. 로그인 때문에 거부된 쓰기가 정상처럼 보이지 않게, 그 뒤 창은 내지 않는다.
+
+    받는 쪽은 창이 없으면 UNKNOWN으로 멈춘다(T36 계약 3절).
+    """
+    delivered = []
+    count = Counter()
+
+    async def sink(window):
+        delivered.append(window)
+
+    async def handler(request):
+        count["n"] += 1
+        if count["n"] <= 10:
+            return created(request, message_id=count["n"])
+        return httpx.Response(refusal, json={"detail": "sign in again"}, headers={"X-Bravo-Env": "aws"})
+
+    result, attempts, _ = go(run(tmp_path, handler, sink=sink, duration_s=3.2, window_seconds=1))
+    assert len(delivered) == 1 and delivered == result.windows  # 첫 창(정상 10건)만 나간다
+    assert result.withheld_windows == 2
+    assert result.withheld_requests == 20
+    assert len(attempts) == 32  # 부하는 끝까지 보내 대조는 그대로 한다
+
+
+def test_other_client_errors_do_not_stop_windows(tmp_path):
+    async def handler(request):
+        return httpx.Response(422, json={"detail": "bad"}, headers={"X-Bravo-Env": "aws"})
+
+    result, _, _ = go(run(tmp_path, handler, duration_s=2.2, window_seconds=1))
+    assert len(result.windows) == 2 and result.withheld_windows == 0
 
 
 def test_stalled_period_is_reported_as_an_empty_window_not_skipped(tmp_path):

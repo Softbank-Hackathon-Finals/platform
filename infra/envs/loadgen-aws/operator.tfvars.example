@@ -1,3 +1,5 @@
 account_id    = "123456789012"
 ami_id        = "ami-0123456789abcdef0"
 tailscale_tag = "tag:bravo-loadgen"
+# 로그인을 켠 앱을 잴 때만: source-identity의 terraform output user_pool_arn
+# source_user_pool_arn = "arn:aws:cognito-idp:ap-northeast-2:123456789012:userpool/ap-northeast-2_Example1"
