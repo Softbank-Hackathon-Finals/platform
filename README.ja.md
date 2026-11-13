@@ -25,9 +25,9 @@ SOVA はセキュリティを最優先に掲げています。**移行元で拒�
 | AI エージェントの隔離 | ツールの許可リスト、1 ターンにつき関数呼び出し 1 回、600 秒の Job、broker の隔離、サンドボックス VM(`network=none`)、候補コードを実行しないビルドでエージェントを閉じ込めます。Harbor による反復評価は計画段階です | 一部実環境 |
 | リハーサルの隔離 | リハーサルごとにランダムな名前の名前空間を作り、PSA restricted とデフォルト拒否のポリシーを適用し、SA トークンを与えません | 実環境 |
 | 安全な切り替え | epoch フェンシングと意図の事前記録を行い、状態を確認できない場合は SAFE_HOLD で停止し、Edge の重みは 0・10・50・100% のみ許可します | Executor の実行は実環境(デモモードで 1 回)、拒否と復旧の動作はテスト |
-| 検知と監査 | 検知結果を OCSF に正規化し(GuardDuty は実際に収集)、監査記録を S3 Object Lock の COMPLIANCE モードで保存します | 一部実環境 |
+| 検知と監査 | 検知結果を OCSF に正規化し(GuardDuty は実際に収集)、移行元と移行先の DB 接続・DDL・Kubernetes 権限変更の監査ログを収集し、監査記録を S3 Object Lock の COMPLIANCE モードで保存します | 一部実環境 |
 
-セキュリティ戦略、移行元との比較ゲート、統制テスト、検知の統合、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
+セキュリティ戦略と新たに公開された脆弱性への対応(PHP2Shell シナリオ)、移行元との比較ゲート、統制テスト、検知の統合、移行元・移行先の監査ログ収集、Security Review は Lee Sang-mu(イ・サンム)が設計・実装しました([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security)、[セキュリティ文書](docs/security/README.md))。レイヤーごとの担当は [SECURITY.md の「계층 요약」(レイヤー概要)](SECURITY.md#계층-요약)にあります。まだ守れていない点は [SECURITY.md の「알려진 한계」(既知の限界)](SECURITY.md#알려진-한계)に記載しています。
 
 ## 現状と限界
 
@@ -116,6 +116,21 @@ platform/
 | `ci.yml` | PR と main・develop への push ごとに必須チェックを 3 つ実行します。`secrets` は PR タイトルの形式、gitleaks、証跡の形式を検査し、`infra` は actionlint、hadolint、Terraform、Trivy config を実行し、`platform` は `pyproject.toml`、`package.json`、`go.mod` を探して言語ごとの lint とテスト、Trivy fs を実行します |
 | `publish-*.yml` | サービスイメージをスキャンし、SBOM と provenance を付けて発行した後、digest を固定する PR を作成します |
 | `sync-tasks.yml` | `tasks.md` がマージされると計画を Issue に反映し、Issue のチェックや担当者が変わるとボードを移動して `tasks.md` をボットの PR で更新します |
+
+## チームと担当
+
+5 人が分担した範囲です。タスクごとの担当と進捗の全体は [`docs/tasks.md`](docs/tasks.md) と[プロジェクトボード](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)に、セキュリティのレイヤーごとの担当は [SECURITY.md](SECURITY.md#계층-요약)にあります。この表は担当範囲を記したもので、実環境で確認した範囲は上の「現状と限界」に従います。
+
+| 担当 | 担当領域 | タスク |
+|---|---|---|
+| Lee Sang-mu(イ・サンム) | セキュリティ戦略とセキュリティ同等性の統制テスト、移行元との比較ゲート(Ryu Ji-hwan と共同)、規制マッピング、セキュリティ検知の統合、移行元・移行先の監査ログ収集、Security Review、[Sova 移行運用コンソール](services/console/README.md)、[移行先 IaC API](docs/adr/0032-destination-iac-api.md)、判定用の観測契約と環境横断のメトリクス収集、CNPG のバックアップ・復元、デモアプリ v0・v1、develop のマージ自動化 | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| Ryu Ji-hwan(リュ・ジファン) | AWS 基盤と移行元 EKS、EC2 上の RKE2 プラットフォームクラスターと Actions OIDC、ステートマシン・プラットフォーム API・イベントストリーム、プラットフォームの GitOps デプロイ、サブスクリプション実行基盤、Edge の重み切り替え、tailnet 参加・ポリシーのコード化と移行先 IaC API の拡張、GCP の移行先、Harbor 評価、[SOVA Console(デスクトップ)](services/console/desktop/README.md)、比較ゲート・Exit Drill・Merge Queue 自動登録の共同担当 | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| Jeon Dong-hun(チョン・ドンフン) | 移行先のセキュリティ構成要素(OpenBao・ESO・SeaweedFS)、AI エージェントワーカー・ツール層・提案書スキーマ、依存関係・設定のインベントリ、S3 Object Lock による監査記録、承認反映経路、移行対象の推薦、[移行先の初回構築実行器](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| Bae Kyu-tae(ペ・ギュテ) | リハーサル名前空間の隔離の実測、リハーサルランナー、`rehearsal.exec`、Cutover Executor、切り戻し(failback)、反復測定・障害注入・SAFE_HOLD のテスト、SQS・Lambda 互換ランタイム | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| Kim Tae-hyeon(キム・テヒョン) | オンプレミス RKE2(Ubuntu VM、CIS)と共通 cloud-init、移行先ワークロード(CNPG・PgBouncer・アプリ・Tailscale 接続)、論理レプリケーションの往復と添付ファイルの同期、整合性の比較とレシート、負荷生成器、デモアプリのログインの Cognito から Keycloak への移行、Exit Drill の共同担当 | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| 全員 | 統合リハーサル・デモ台本・reset、決定文書・ADR・設計文書の更新 | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) は Lee Sang-mu の個人開発プロトタイプと統合・デモ環境を保存するリポジトリで、このプラットフォームの製品コードではありません。
 
 ## 作業の進め方
 

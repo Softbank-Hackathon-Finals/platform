@@ -25,9 +25,9 @@ SOVA puts security first. **It does not switch until the same test shows that an
 | AI agent isolation | Tool allowlist, exactly one function call per turn, 600-second Job, isolated broker, sandbox VM (`network=none`), candidate build that never executes candidate code. Repeated evaluation with Harbor is planned | Partly real |
 | Rehearsal isolation | A random namespace per rehearsal with PSA restricted, default-deny network policy and no service account token | Real |
 | Safe cutover | Epoch fencing, intent recorded before every remote call, SAFE_HOLD when state cannot be confirmed, Edge weights limited to 0/10/50/100% | Executor run in real environment (once, demo mode); refusal and recovery paths tested |
-| Detection and audit | Normalizes findings to OCSF (GuardDuty collected for real) and keeps audit records under S3 Object Lock in COMPLIANCE mode | Partly real |
+| Detection and audit | Normalizes findings to OCSF (GuardDuty collected for real), collects DB access, DDL and Kubernetes permission-change audit logs on the source and the destination, and keeps audit records under S3 Object Lock in COMPLIANCE mode | Partly real |
 
-Lee Sang-mu designed and implemented the security strategy, the source-comparison gate, the control tests, the detection integration and Security Review ([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [security documents](docs/security/README.md)). What is not yet guaranteed is listed under "알려진 한계" (known limitations) in [SECURITY.md](SECURITY.md#알려진-한계).
+Lee Sang-mu designed and implemented the security strategy and its response to newly disclosed vulnerabilities (the PHP2Shell scenario), the source-comparison gate, the control tests, the detection integration, audit log collection on the source and the destination, and Security Review ([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [security documents](docs/security/README.md)). The owners of each layer are listed in the layer summary of [SECURITY.md](SECURITY.md#계층-요약). What is not yet guaranteed is listed under "알려진 한계" (known limitations) in [SECURITY.md](SECURITY.md#알려진-한계).
 
 ## Status and limitations
 
@@ -116,6 +116,21 @@ The conditions the app must meet (idempotency keys, reconnection, a write-block 
 | `ci.yml` | Runs three required checks on every PR and on pushes to main and develop. `secrets` checks the PR title, gitleaks and the evidence format; `infra` runs actionlint, hadolint, Terraform and Trivy config; `platform` finds `pyproject.toml`, `package.json` and `go.mod` and runs per-language lint, tests and Trivy fs |
 | `publish-*.yml` | Scans each service image, attaches an SBOM and provenance, publishes it and opens a PR that pins the digest |
 | `sync-tasks.yml` | Reflects `tasks.md` into issues after merge, and moves board items and updates `tasks.md` through a bot PR when issue checks or assignees change |
+
+## Team and ownership
+
+The scope each of the five members owns. The owners and progress of every task are in [`docs/tasks.md`](docs/tasks.md) and on the [project board](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2), and the owners of each security layer are in [SECURITY.md](SECURITY.md#계층-요약). This table records scope; what was confirmed on real infrastructure follows "Status and limitations" above.
+
+| Owner | Areas | Tasks |
+|---|---|---|
+| Lee Sang-mu | Security strategy and the security-parity control tests, the source-comparison gate (with Ryu Ji-hwan), regulatory mapping, security detection integration, audit log collection on the source and the destination, Security Review, the [Sova migration operations console](services/console/README.md), the [destination IaC API](docs/adr/0032-destination-iac-api.md), the observation contract and cross-environment metric collection, CNPG backup and restore, demo app v0 and v1, and develop merge automation | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| Ryu Ji-hwan | The AWS foundation and source EKS, the RKE2 platform cluster on EC2 with Actions OIDC, the state machine, platform API and event stream, platform GitOps deployment, the subscription runtime, Edge weight switching, codified tailnet join and policy with extensions to the destination IaC API, the GCP destination, Harbor evaluation, [SOVA Console (desktop)](services/console/desktop/README.md), and the source-comparison gate, Exit Drill and Merge Queue auto-enqueue together with others | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| Jeon Dong-hun | Destination security components (OpenBao, ESO, SeaweedFS), the AI agent worker, tool layer and proposal schema, the dependency and configuration inventory, audit records under S3 Object Lock, the approved-change apply path, migration target recommendation, and the [destination bootstrap executor](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| Bae Kyu-tae | Measuring rehearsal namespace isolation, the rehearsal runner, `rehearsal.exec`, the Cutover Executor, rollback (failback), repeated measurement, fault injection and SAFE_HOLD tests, and the SQS and Lambda compatible runtime | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| Kim Tae-hyeon | On-premises RKE2 (Ubuntu VM, CIS) with shared cloud-init, the destination workload (CNPG, PgBouncer, the app and the Tailscale connection), logical replication both ways and attachment sync, integrity comparison and receipts, the load generator, moving the demo app login from Cognito to Keycloak, and Exit Drill together with Ryu Ji-hwan | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| Everyone | Integration rehearsal, demo script and reset, and decision documents, ADRs and design document updates | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test) preserves Lee Sang-mu's personal development prototype and integration and demo environment; it is not this platform's product code.
 
 ## Contributing
 

@@ -25,9 +25,9 @@ SOVA는 보안을 가장 먼저 내세우는 플랫폼입니다. **원본에서 
 | AI 에이전트 격리 | 도구 허용 목록, 턴당 함수 호출 1개, 600초 Job, broker 격리, 샌드박스 VM(`network=none`), 후보 코드를 실행하지 않는 빌드로 에이전트를 가둡니다. Harbor 반복 평가는 계획 단계입니다 | 실환경 일부 |
 | 리허설 격리 | 리허설마다 무작위 네임스페이스를 만들고, PSA restricted와 기본 거부 정책을 적용하며, SA 토큰을 주지 않습니다 | 실환경 |
 | 전환 안전 | epoch 펜싱과 의도 선기록을 사용하고, 상태를 확인할 수 없으면 SAFE_HOLD로 멈추며, Edge 가중치는 0·10·50·100%만 허용합니다 | Executor 실행은 실환경(데모 모드 1회), 거부와 복구 동작은 시험 |
-| 탐지와 감사 | 탐지 결과를 OCSF로 정규화하고(GuardDuty는 실제 수집), 감사 기록을 S3 Object Lock COMPLIANCE 모드로 보존합니다 | 실환경 일부 |
+| 탐지와 감사 | 탐지 결과를 OCSF로 정규화하고(GuardDuty는 실제 수집), 출발지와 목적지의 DB 접속·DDL·Kubernetes 권한 변경 감사 로그를 수집하며, 감사 기록을 S3 Object Lock COMPLIANCE 모드로 보존합니다 | 실환경 일부 |
 
-보안 전략과 원본 대조 게이트, 통제 시험, 탐지 통합, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
+보안 전략과 새로 공개된 취약점 대응(PHP2Shell 시나리오), 원본 대조 게이트, 통제 시험, 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review는 이상무 님이 설계하고 구현했습니다([Security Governance v1](https://github.com/Softbank-Hackathon-Finals/security), [보안 문서](docs/security/README.md)). 계층별 담당은 [SECURITY.md의 계층 요약](SECURITY.md#계층-요약)에 있습니다. 아직 지키지 못한 부분은 [SECURITY.md의 알려진 한계](SECURITY.md#알려진-한계)에 함께 기록했습니다.
 
 ## 현재 상태와 한계
 
@@ -119,6 +119,21 @@ platform/
 | `ci.yml` | PR과 main·develop push마다 필수 검사 3개를 실행합니다. `secrets`는 PR 제목 형식과 gitleaks, 증빙 형식을 검사하고, `infra`는 actionlint, hadolint, Terraform, Trivy config를 검사하며, `platform`은 `pyproject.toml`, `package.json`, `go.mod`를 찾아 언어별 lint와 test, Trivy fs를 실행합니다 |
 | `publish-*.yml` | 서비스 이미지를 스캔하고 SBOM과 provenance를 붙여 발행한 뒤, digest를 고정하는 PR을 만듭니다 |
 | `sync-tasks.yml` | `tasks.md`가 병합되면 계획을 이슈에 반영하고, 이슈의 체크와 담당자가 바뀌면 보드를 옮기고 `tasks.md`를 봇 PR로 수정합니다 |
+
+## 팀과 담당
+
+다섯 명이 나눠 맡은 범위입니다. 작업별 담당과 진행 상황 전체는 [`docs/tasks.md`](docs/tasks.md)와 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)에, 보안 계층별 담당은 [SECURITY.md](SECURITY.md#계층-요약)에 있습니다. 이 표는 맡은 범위를 적은 것이며, 실환경에서 확인한 범위는 위의 "현재 상태와 한계"를 따릅니다.
+
+| 담당 | 맡은 영역 | 작업 |
+|---|---|---|
+| 이상무 | 보안 전략과 보안 동등성 통제 시험, 원본 대조 게이트(류지환 공동), 규제 매핑, 보안 탐지 통합, 출발지·목적지 감사 로그 수집, Security Review, [Sova 이전 운영 콘솔](services/console/README.md), [목적지 IaC API](docs/adr/0032-destination-iac-api.md), 판정용 관측 계약과 환경 횡단 지표 수집, CNPG 백업·복원, 데모 앱 v0·v1, develop 병합 자동화 | T4 · T5 · T14 · T19 · T21 · T22 · T23 · T33 · T34 · T35 · T36 · T37 · T39 · T40 · T41 · T44 |
+| 류지환 | AWS 기반과 출발지 EKS, EC2 위 RKE2 플랫폼 클러스터와 Actions OIDC, 상태 머신·플랫폼 API·이벤트 스트림, 플랫폼 GitOps 배포, 구독 런타임 실행 기반, Edge 가중치 전환, tailnet 합류·정책 코드화와 목적지 IaC API 확장, GCP 목적지, Harbor 평가, [SOVA Console(데스크톱)](services/console/desktop/README.md), 원본 대조 게이트·Exit Drill·Merge Queue 자동 등록 공동 | T1 · T6 · T7 · T10 · T17 · T19 · T26 · T27 · T38 · T41 · T43 · T48 · T50 |
+| 전동훈 | 목적지 보안 구성요소(OpenBao·ESO·SeaweedFS), AI 에이전트 워커·도구 계층·제안서 스키마, 의존성·설정 인벤토리, 감사 기록 S3 Object Lock, 승인 반영 경로, 이전 대상 추천, [목적지 처음 구축 실행기](docs/adr/0033-destination-bootstrap-executor.md) | T9 · T11 · T16 · T24 · T31 · T32 · T45 |
+| 배규태 | 리허설 네임스페이스 격리 실측, 리허설 러너, `rehearsal.exec`, Cutover Executor, 되돌리기(failback), 반복 측정·장애 주입·SAFE_HOLD 시험, SQS·Lambda 호환 런타임 | T3 · T12 · T15 · T20 · T25 · T42 · T46 |
+| 김태현 | 온프렘 RKE2(Ubuntu VM, CIS)와 공통 cloud-init, 목적지 워크로드(CNPG·PgBouncer·앱·Tailscale 연결), 논리 복제 왕복과 첨부 동기화, 무결성 비교와 영수증, 부하 생성기, 데모 앱 로그인 Cognito → Keycloak 이전, Exit Drill 공동 | T2 · T8 · T13 · T18 · T27 · T30 · T47 |
+| 전원 | 통합 리허설·데모 각본·reset, 결정 문서·ADR·설계 문서 갱신 | T28 · T29 |
+
+[`sova-test`](https://github.com/Softbank-Hackathon-Finals/sova-test)는 이상무 님의 개인 개발 프로토타입과 통합·시연 환경을 보존하는 저장소이며, 이 플랫폼의 제품 코드는 아닙니다.
 
 ## 팀원 작업 방법
 

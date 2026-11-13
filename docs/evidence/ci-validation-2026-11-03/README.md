@@ -1,6 +1,6 @@
 # AWS CI 검증 호스트와 T3 격리 시험
 
-2026-11-03, 계정 `AWS_ACCOUNT_002`, Seoul. 코드: `infra/envs/ci-validation-aws`. 이 결과는 **AWS 위 일회 k3s 검증**이다. 운영 플랫폼 배포·RKE2 CIS·실제 모델 호출·T10 승인·T31 배포 결과는 별도로 확인한다.
+2026-11-03, 계정 `AWS_ACCOUNT_002`, Seoul. 코드: `infra/envs/ci-validation-aws`(2026-11-13 저장소에서 제거, 마지막 원본은 커밋 `f6de36b7`). 이 결과는 **AWS 위 일회 k3s 검증**이다. 운영 플랫폼 배포·RKE2 CIS·실제 모델 호출·T10 승인·T31 배포 결과는 별도로 확인한다.
 
 ## 결과
 
