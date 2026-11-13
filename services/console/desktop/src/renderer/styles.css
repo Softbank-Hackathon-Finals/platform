@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Scan all of src/: the web build's Vite root is web/, which Tailwind would otherwise treat as the source. */
+@source "../";
 @import "@fontsource/dela-gothic-one/400.css";
 @import "@fontsource/black-han-sans/400.css";
 @import "@fontsource/jetbrains-mono/400.css";

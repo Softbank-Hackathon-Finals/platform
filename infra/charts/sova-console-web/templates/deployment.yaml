@@ -22,6 +22,7 @@ spec:
     spec:
       serviceAccountName: sova-console-web
       automountServiceAccountToken: false
+      imagePullSecrets: [{name: {{ .Values.imagePullSecret }}}]   # the platform's GHCR reader (packages are private)
       securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: web

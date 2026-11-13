@@ -2,6 +2,7 @@
 image:
   repository: ghcr.io/softbank-hackathon-finals/platform-sova-console-web
   digest: ""
+imagePullSecret: platform-ghcr-reader
 
 publicOrigin: https://sova.mangowhois.ai
 # The in-cluster SOVA MCP. Its config must list this host in allowed_hosts and map Access emails (see sova-mcp chart webConsole).
