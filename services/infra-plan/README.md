@@ -71,7 +71,7 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - **승인이 묶는 것**: 스택 디렉터리와 그 디렉터리가 부르는 로컬 모듈의 코드 digest, `.terraform.lock.hcl`, 연결 정의, 그리고 저장소 밖 `private_dir`의 `<단계>.backend.hcl` · `<단계>.tfvars.json` **digest**. 계정 · 자원 ID와 backend 값은 Git과 계획 문서에 들어가지 않는다.
 - **변경 집합도 승인에 묶는다**: 계획을 만들 때 terraform 단계마다 `plan -lock=false`로 바뀔 주소와 actions(값 없이)를 뽑아 그 digest와 개수를 계획에 넣는다. 앞 스택이 아직 적용되지 않아 출력이 없으면 `PENDING_UPSTREAM`이고, 실행은 그 단계에서 `HOLD`(`terraform_change_set_unapproved`)한 뒤 새 계획 · 승인으로 이어간다(빈 계정의 첫 구축은 레벨마다 승인). 실행 때 다시 뜬 변경 집합이 승인한 것과 다르면 `HOLD`(`terraform_change_set_changed`).
 - **실행**: 단계마다 승인 때의 입력 digest를 다시 대조(다르면 `HOLD`) → 단계 전용 `TF_DATA_DIR`에서 `init -lockfile=readonly` → 앞 스택 출력을 상태에서 읽어 메모리로 연결 → `plan -out` → 변경이 없으면 `SKIPPED` → 삭제 · 교체 · `forget`(관리에서 빼기)이 하나라도 있으면 `HOLD`(`terraform_plan_destroys`, 사람이 판단) → 아니면 **그 계획 파일만** `apply`. 출력값은 실행 기록에 저장하지 않는다(여러 출력이 `sensitive`).
-- **대상 신원**: 클러스터 대신 STS의 AWS 계정. CLI는 `--aws`로 실행한다.
+- **대상 신원**: 클러스터 대신 STS의 AWS 계정. CLI는 develop과 같이 `--aws`로 실행한다. 이 스택은 `environment`를 선언하지 않아(terraform 전용 스택은 선택) 문서와 계획 digest가 develop과 같고, `--aws`가 없으면 `stack_kind_required`다. 종류를 선언한 스택에 다른 종류로 `--aws`를 주면 `stack_kind_mismatch`.
 - **범위 주의**: `platform-aws` · `platform-data` · `subscription-runtime` · `sandbox-session`은 이 실행기가 돌고 있는 플랫폼 자신을 바꿀 수 있다. 첫 실측은 읽기 전용 `verify`만 하고, 적용 범위는 담당(류지환)과 정한 뒤 연다.
 - backend 설정 값은 프로세스 인자로 넘기지 않는다(개인 backend 파일과 0600 임시 파일).
 - **넣지 않은 것**: 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`. 일회성이던 `ci-validation-aws`는 2026-11-13에 코드를 제거했다.
@@ -107,6 +107,26 @@ namespace에 올려 확인했다. 외부 클러스터를 선언한 `target-db`�
 `cnpg.io/reload` 라벨이 있어야 적재됐고, 그 뒤 kube DNS + verify-full로 초기 복사가 끝났다(행 수 일치, TLSv1.3). 판정
 함수(`external_cluster`·`credentials`·`target_ready`·`initial_copy`)는 실제 `KubectlCluster`로 모두 True였다. 손으로
 `hostaddr`를 패치한 기존 목적지는 `external_cluster`가 False다. 새 렌더로 세운 목적지에서만 통과한다.
+## 환경 종류별 스택 (A10, ADR-0034)
+
+스택이 자기 종류를 말한다: 최상위 `environment`(`kind`: `aws` · `gcp` · `onprem`, 확인이 읽는 이름 `app_namespace` · `database` · `secret_store`, 클라우드 스택의 `cluster_endpoint`). 없으면 target-onprem의 이름(`target-dev` · `target-db` · `bravo-secrets/target-openbao-0`)과 `onprem`이다. `onprem`은 이 이름을 바꿀 수 없다(`onprem_environment_names_fixed`). 클라우드 스택의 이름에는 `${param}`을 쓸 수 있고, `wait` 대상과 `secret_generate`의 namespace · 이름도 같다.
+
+**확인 등록부(`CHECKS_BY_KIND`, `adapters.py`)**: 종류가 쓸 수 있는 확인 이름을 고정한다.
+
+- `onprem`(RKE2 목적지: 온프렘 VM, T50 `gcp-rke2`): develop의 확인 전부를 고정 이름 그대로 쓴다. 대상 신원 · 노드 Ready, host-paths 노드 주석 digest, openbao · 앱 이미지 노드 실제 확인, SeaweedFS 원하는 상태, 로그인 공개 확인, T44 Argo 반영(`iac-application-*`, `iac-network-synced`), 감사 Metadata, 복제 확인 4종, `exit-drill-control-ready`, Tailscale 로그인.
+- `aws` · `gcp`(EKS · GKE): 같은 방식으로 관찰할 수 있는 것만 둔다. `cluster-access`(kubeconfig 서버 = terraform endpoint), `edge-token`, `secret-store-ready`, Argo CD 컨트롤러 · 저장소 자격, `app-metrics-client`, Tailscale OAuth · 로그인, `target-checks`(스택 이름으로 DB Ready + Deployment Available + `login=edge`면 로그인 공개 확인), `login-public`, `iac-application-created`.
+- 등록부에 없는 이름은 실패로 닫는다: 다른 종류의 확인이면 `check_unsupported_for_kind`, 모르는 이름이면 `unknown_check`(단계 `FAILED`). 클라우드에 없는 것: 노드 · host-paths · 노드 이미지(관리형 노드), OpenBao · SeaweedFS(클라우드 비밀 저장소 · 저장소를 쓴다), `iac-application-enabled` · `iac-network-synced`(T44 판정기가 클러스터 UID에 묶인다), 감사 Metadata(관리형 API 서버의 감사는 클라우드 로그), 복제 확인(목적지 이름이 `target-onprem` 고정).
+
+| 종류 | 실행 신원(`both.identity`, 계획 `target`) | 클러스터 |
+|---|---|---|
+| `aws` | `aws sts get-caller-identity` → `account_id` | 스택이 만든다(지연 연결) |
+| `gcp` | `gcloud config get-value project` + `gcloud auth list`(활성 자격 필수, 계정은 결속하지 않음) → `project_id` | 스택이 만든다(지연 연결) |
+| `onprem` | kubeconfig의 `kube-system` UID(+ `node_name`이 있으면 노드 UID) | 이미 있다(시작 때 context 고정) |
+
+- CLI는 스택 정의로 포트를 고른다: terraform 단계만 있으면 클러스터 · 설정 저장소 없이, 클러스터 단계가 있으면 kubeconfig · 설정 저장소 · chart 폴더가 필요하다. `plan`의 대상은 onprem이면 `--cluster-uid`/`--node-uid`, 클라우드면 `--target project_id=...`/`--target account_id=...`. `--offline`은 terraform 변경 집합을 계획하지 않는다(`UNPLANNED`).
+- **클러스터 결속**: 클라우드 스택은 같은 실행 안에서 클러스터를 만들므로 실행은 계정 · 프로젝트에 묶인다. 대신 `cluster_endpoint`가 있으면 terraform이 아닌 모든 단계 전에 kubeconfig의 API 서버가 terraform 출력 endpoint와 같은지 확인하고(`cluster-access`), 다르면 `HOLD`(`target_cluster_unbound`)한다. 출력은 프로세스 메모리에만 캐시한다.
+- 스택: [`cluster-gke`](../../infra/stacks/cluster-gke/stack.json)(T50 [`gcp-gke`](../../infra/envs/gcp-gke/README.md) → [`gke-secret-reader`](../../infra/envs/gke-secret-reader/README.md) → 공통 기반), [`cluster-eks`](../../infra/stacks/cluster-eks/stack.json)(aws-foundation → EKS → 공통 기반). 공통 기반은 CNPG, 종류별 비밀 저장소(Secret Manager / Secrets Manager) + ESO, Tailscale operator, cloudflared이고 `side`(`source` · `target`)로 같은 스택을 출발지 · 목적지에 쓴다. DB 비밀은 앱 · 복제 · Cutover Executor 제어 로그인(`cutover-db-control`) 셋이다. 렌더러는 [`infra/envs/cluster-base`](../../infra/envs/cluster-base/README.md).
+- **T50과의 경계**: GCP 위 RKE2 노드는 T50 `gcp-rke2`(onprem 종류, `target-onprem` 스택)가 맡고 A10은 만들지 않는다. GKE 클러스터 · 망 · 노드 신원도 T50 `gcp-gke`를 그대로 쓰고, 스택은 이름만 `bravo-<side>-gke`로 정해 T50 단독 실행(`bravo-dest-gke`)과 쪽끼리 겹치지 않게 한다(gcp-gke의 `name` 검사를 통과하는지 시험이 확인). A10이 더하는 것은 ESO의 Secret Manager 읽기 권한(`gke-secret-reader`)과 클러스터 위 공통 기반뿐이다.
 
 ## 다음 PR에서 할 것
 

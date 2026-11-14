@@ -22,7 +22,7 @@ from pathlib import Path
 from . import replication
 from .applications import ARGO_NAMESPACE
 from .executor import HOLD, StepOutcome
-from .stack import StackError, canonical, sha256_text
+from .stack import StackError, canonical, environment_of, sha256_text, substitute
 
 # Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
 # after it created them exactly as the step declares. The value binds the attestation to that declaration.
@@ -276,6 +276,16 @@ class KubectlCluster:
             raise RuntimeError(f"kubectl get {kind} failed: {first}")
         return json.loads(result.stdout)
 
+    def server(self):
+        """The API server URL of the pinned context (no credential is read)."""
+        return self._k("config", "view", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}").stdout.strip()
+
+    def cluster_uid(self):
+        system = self._get("namespace", None, "kube-system")
+        if system is None:
+            raise StackError("target_identity_unavailable")
+        return system["metadata"]["uid"]
+
     def identity(self, node_name):
         system = self._get("namespace", None, "kube-system")
         node = self._get("node", None, node_name)
@@ -493,19 +503,101 @@ class AuditLedger:
                 self.sink.put(record)
 
 
+def _env(*names):
+    return {k: os.environ[k] for k in ("PATH", "HOME", *names) if k in os.environ}
+
+
 class AwsIdentity:
-    """The AWS account a terraform stack runs against (STS), from the operator's own session."""
+    """aws: the account a stack runs against (STS), from the operator's own session."""
 
     def __init__(self, *, aws="aws"):
         self.aws = aws
 
     def __call__(self, params):
-        env = {k: os.environ[k] for k in ("PATH", "HOME", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION",
-                                          "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE") if k in os.environ}
+        env = _env("AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE")
         result = _run([self.aws, "sts", "get-caller-identity", "--output", "json"], env=env)
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
+class GcpIdentity:
+    """gcp: the project of the operator's gcloud configuration, and an active credential.
+
+    The active account must exist but is not part of the binding: another approved operator may resume
+    a run, and a personal e-mail never enters a plan document."""
+
+    def __init__(self, *, gcloud="gcloud"):
+        self.gcloud = gcloud
+
+    def __call__(self, params):
+        env = _env("CLOUDSDK_CONFIG", "CLOUDSDK_ACTIVE_CONFIG_NAME", "CLOUDSDK_CORE_PROJECT")
+        project = _run([self.gcloud, "config", "get-value", "project"], env=env).stdout.strip()
+        accounts = _run([self.gcloud, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+                        env=env).stdout.split()
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project) or not accounts:
+            raise StackError("gcp_identity_unavailable")
+        return {"project_id": project}
+
+
+class ClusterIdentity:
+    """onprem: the kubeconfig cluster's UID (kube-system), and the node's UID when the stack names a node."""
+
+    def __init__(self, cluster):
+        self.cluster = cluster
+
+    def __call__(self, params):
+        if "node_name" in params:
+            return self.cluster.identity(params["node_name"])
+        return {"cluster_uid": self.cluster.cluster_uid()}
+
+
+# both.identity (ADR-0034): a stack is bound to what its kind can name before anything is built.
+IDENTITY_KINDS = {"aws": lambda cluster: AwsIdentity(), "gcp": lambda cluster: GcpIdentity(),
+                  "onprem": ClusterIdentity}
+
+
+def identity_for(kind, cluster=None):
+    if kind not in IDENTITY_KINDS:
+        raise StackError("unsupported_environment_kind")
+    if kind == "onprem" and cluster is None:
+        raise StackError("cluster_arguments_required")
+    return IDENTITY_KINDS[kind](cluster)
+
+
+class LazyCluster:
+    """A cluster that a cloud stack builds during the run: kubectl is pinned on first use, not at start."""
+
+    def __init__(self, factory):
+        self._factory, self._cluster, self._lock = factory, None, __import__("threading").Lock()
+
+    def __getattr__(self, name):
+        with self._lock:
+            if self._cluster is None:
+                self._cluster = self._factory()
+        return getattr(self._cluster, name)
+
+
+class CachedOutputs:
+    """Terraform outputs per (step, request), read from state once per process; never in a run record.
+
+    `reader_for(params)` returns terraform.outputs_reader for those parameters."""
+
+    def __init__(self, reader_for):
+        self.reader_for, self.values, self._lock = reader_for, {}, __import__("threading").Lock()
+
+    def __call__(self, step_id, params):
+        key = (step_id, json.dumps(params, sort_keys=True))
+        with self._lock:
+            if key in self.values:
+                return self.values[key]
+            value = self.reader_for(params)(step_id)
+            if value:  # an unapplied step has no outputs yet: read it again next time
+                self.values[key] = value
+            return value
+
+
+def _host(url):
+    host = re.sub(r"^[a-z]+://", "", str(url or "")).strip().rstrip("/")
+    return host[:-4] if host.endswith(":443") else host
 def _iac_application_on(cluster, repo_root, run):
     """T44's intake on this cluster: the Application names the planned environment and iac_revision.
 
@@ -530,23 +622,76 @@ def _argo_synced(cluster, repo_root, run):
     return result["status"] == "SYNC_VERIFIED"
 
 
+# The checks each environment kind can observe (A10, ADR-0034). `onprem` is the T45 set for the RKE2
+# destination (node, host paths, OpenBao, SeaweedFS, the migration target), read with its fixed names.
+# A cloud kind gets only the checks it observes the same way, with the names of the stack's `environment`
+# block; any other known name is refused there (`check_unsupported_for_kind`), never passed.
+ONPREM_CHECKS = frozenset({
+    "target-identity", "host-paths", "openbao-image", "app-image", "iac-argocd", "argocd-repository",
+    "seaweedfs-auth", "app-metrics-client", "tailscale-oauth", "tailscale-joined", "openbao-tls", "openbao-ready",
+    "target-checks", "login-public", "iac-application-created", "iac-application-enabled",
+    "exit-drill-control-ready", "audit-metadata-active", "iac-network-synced", "replication-credentials",
+    "replication-external-cluster", "replication-target-ready", "initial-copy-complete",
+})
+CLOUD_CHECKS = frozenset({
+    "cluster-access", "edge-token", "secret-store-ready", "iac-argocd", "argocd-repository", "app-metrics-client",
+    "tailscale-oauth", "tailscale-joined", "target-checks", "login-public", "iac-application-created",
+})
+CHECKS_BY_KIND = {"onprem": ONPREM_CHECKS, "aws": CLOUD_CHECKS, "gcp": CLOUD_CHECKS}
+KNOWN_CHECKS = ONPREM_CHECKS | CLOUD_CHECKS
+
+
 class ClusterChecks:
     """Named checks used by `probe` and `operator_action` steps.
 
     True: observed done. False: observed not done. None: code cannot observe it (a host
     directory, an offline image import); a human confirmation is then required.
+    The stack's environment kind picks the table (`CHECKS_BY_KIND`).
     """
 
-    def __init__(self, cluster, repo_root=None, *, http=public_get):
-        self.cluster, self.repo_root, self.http = cluster, repo_root, http
+    def __init__(self, cluster, repo_root=None, *, http=public_get, outputs=None):
+        self.cluster, self.repo_root, self.http, self.outputs = cluster, repo_root, http, outputs
 
     def check(self, name, run):
+        kind = environment_of(run["stack"])["kind"]
+        if kind not in CHECKS_BY_KIND:
+            raise StackError("unsupported_environment_kind")
+        if name not in CHECKS_BY_KIND[kind]:
+            raise StackError("check_unsupported_for_kind" if name in KNOWN_CHECKS else "unknown_check")
+        checks = self._onprem(name, run) if kind == "onprem" else self._cloud(run)
+        return checks[name]()
+
+    def _cloud(self, run):
+        """aws · gcp: the cluster the stack built, read with the names of its `environment` block."""
+        params = run["plan"]["request"]["params"]
+        env = substitute(environment_of(run["stack"]), params)
+        app, store = env["app_namespace"], env["secret_store"]
+        c = self.cluster
+        return {
+            "cluster-access": lambda: self._cluster_access(env, params),
+            "edge-token": lambda: c.secret_exists(app, "bravo-edge-tunnel-token"),
+            "secret-store-ready": lambda: c.condition(store["kind"], store.get("namespace"), store["name"], "Ready"),
+            "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
+            "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
+            "app-metrics-client": lambda: c.secret_exists(app, "bravo-app-metrics-client"),
+            "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
+            "tailscale-joined": lambda: TAILSCALE_LOGGED_IN <= set(c.secret_keys("tailscale-system", "operator") or ()),
+            "target-checks": lambda: (c.condition("Cluster", app, env["database"], "Ready")
+                                      and c.deployments_available(app)
+                                      and (params.get("login") != "edge" or login_public(params, self.http))),
+            "login-public": lambda: login_public(params, self.http),
+            "iac-application-created": lambda: c.application_status(
+                f"bravo-iac-{run['plan']['request']['environment_id']}") is not None,
+        }
+
+    def _onprem(self, name, run):
+        """onprem (RKE2 destination): the T45 checks as they are on develop, with the target-onprem names."""
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
         c = self.cluster
         node = params.get("node_name")
         # A step that declares `expect` is observable: what it names must be on the node.
         expect = next((s.get("expect") for s in run["stack"]["steps"] if s.get("confirm") == name), None)
-        checks = {
+        return {
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
             "host-paths": lambda: None if not expect else (
                 c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
@@ -579,9 +724,23 @@ class ClusterChecks:
             "replication-target-ready": lambda: replication.target_ready(c),
             "initial-copy-complete": lambda: replication.initial_copy(c),
         }
-        if name not in checks:
-            raise StackError("unknown_check")
-        return checks[name]()
+
+    def _cluster_access(self, env, params):
+        """The kubeconfig reaches a cluster whose API server is the one terraform built (endpoint output).
+
+        False (not None) when unreachable: the operator fetches credentials, then confirms again."""
+        reference = env.get("cluster_endpoint")
+        if reference is None or self.outputs is None:
+            return False
+        from .terraform import output_path
+
+        try:
+            expected = output_path(self.outputs(reference["from"], params), reference)
+            server = self.cluster.server()
+            self.cluster.cluster_uid()  # reachable with the operator's credentials
+        except (StackError, RuntimeError, OSError):
+            return False
+        return bool(expected) and _host(server) == _host(expected)
 
     def _seaweedfs_matches_desired(self, run):
         """The Secret exists and its shape is T44's desired state: anonymous read iff open-demo."""

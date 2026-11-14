@@ -14,17 +14,31 @@ from pathlib import Path
 
 from .adapters import (
     AuditLedger,
-    AwsIdentity,
+    CachedOutputs,
     ClusterChecks,
     FileRunStore,
     GitConfigRepo,
     KubectlCluster,
+    LazyCluster,
     T10Approvals,
+    identity_for,
 )
 from .executor import Executor
 from .plan import HelmChartRenderer, Planner
 from .stack import StackError, load_stack
-from .terraform import TerraformCli
+from .terraform import TerraformCli, outputs_reader
+
+
+def run_kind(stack, *, aws):
+    """The kind a run is bound to (A10). A declared kind decides and `--aws` must agree with it; a
+    terraform-only stack without `environment` (aws-platform, unchanged from develop) needs `--aws`."""
+    if stack.kind is None:
+        if not aws:
+            raise StackError("stack_kind_required")
+        return "aws"
+    if aws and stack.kind != "aws":
+        raise StackError("stack_kind_mismatch")
+    return stack.kind
 
 
 def _executor(args, stack):
@@ -37,19 +51,28 @@ def _executor(args, stack):
     approvals, store = T10Approvals(args.t10_url, token), FileRunStore(args.runs_dir)
     ledger = (AuditLedger(args.audit_sink, store) if args.audit_sink
               else _jsonl(Path(args.runs_dir) / "ledger.jsonl"))
-    if args.aws:  # a terraform stack: bound to the AWS account, no cluster or configuration repository
-        return Executor(Planner(stack, repo_root, terraform=TerraformCli()), stack_revision=revision,
-                        cluster=None, repo=None,
-                        approvals=approvals, checks=None, store=store, repo_url="", ledger=ledger,
-                        identity=AwsIdentity())
+    kind = run_kind(stack, aws=args.aws)
+    terraform = TerraformCli() if stack.terraform_steps else None
+    if not stack.cluster_steps:  # terraform only: bound to the account or project, no cluster or repository
+        return Executor(Planner(stack, repo_root, terraform=terraform), stack_revision=revision,
+                        cluster=None, repo=None, approvals=approvals, checks=None, store=store, repo_url="",
+                        ledger=ledger, identity=identity_for(kind), terraform=terraform)
     if not (args.kubeconfig and args.config_repo and args.config_workdir and args.charts_dir):
         raise StackError("cluster_arguments_required")
-    cluster = KubectlCluster(args.kubeconfig)
-    return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir)),
+    if stack.kind == "onprem":
+        cluster = KubectlCluster(args.kubeconfig)  # the cluster exists: pin its context now
+    else:  # a cloud stack builds the cluster first; kubectl is pinned when a cluster step first needs it
+        cluster = LazyCluster(lambda: KubectlCluster(args.kubeconfig))
+    outputs = None
+    if terraform is not None:
+        steps = {s["id"]: s for s in stack.document["steps"] if s["kind"] == "terraform"}
+        outputs = CachedOutputs(lambda params: outputs_reader(terraform, repo_root, steps, params))
+    return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir), terraform=terraform),
                     stack_revision=revision, cluster=cluster,
                     repo=GitConfigRepo(args.config_repo, args.config_branch, args.config_workdir),
-                    approvals=approvals, checks=ClusterChecks(cluster, repo_root), store=store,
-                    repo_url=args.argo_repo_url or args.config_repo, ledger=ledger)
+                    approvals=approvals, checks=ClusterChecks(cluster, repo_root, outputs=outputs), store=store,
+                    repo_url=args.argo_repo_url or args.config_repo, ledger=ledger,
+                    identity=identity_for(stack.kind, cluster), terraform=terraform)
 
 
 def _jsonl(path):
@@ -93,10 +116,14 @@ def main(argv=None):
     plan.add_argument("--repo-root", required=True)
     plan.add_argument("--charts-dir", required=True)
     plan.add_argument("--stack-revision", required=True)
-    plan.add_argument("--cluster-uid", required=True)
-    plan.add_argument("--node-uid", required=True)
+    plan.add_argument("--cluster-uid", help="onprem: the target cluster UID")
+    plan.add_argument("--node-uid", help="onprem: the target node UID")
+    plan.add_argument("--target", action="append", default=[], metavar="KEY=VALUE",
+                      help="cloud stacks: the identity the run is bound to (project_id=..., account_id=...)")
     plan.add_argument("--base-commit", required=True)
     plan.add_argument("--out", required=True)
+    plan.add_argument("--offline", action="store_true",
+                      help="do not plan terraform steps against state (change sets stay UNPLANNED)")
     run = sub.add_parser("run", help="apply an approved plan (T10 approval_kind=infra)")
     run.add_argument("stack")
     run.add_argument("--request", required=True)
@@ -156,11 +183,14 @@ def main(argv=None):
         out = Path(args.out)
         if out.exists() and any(out.iterdir()):
             raise StackError("output_directory_not_empty")
-        has_terraform = any(s["kind"] == "terraform" for s in stack.document["steps"])
+        target = {k: v for k, v in (("cluster_uid", args.cluster_uid), ("node_uid", args.node_uid)) if v}
+        for pair in args.target:
+            key, _, value = pair.partition("=")
+            target[key] = value
         result = Planner(stack, args.repo_root, chart_renderer=HelmChartRenderer(args.charts_dir),
-                         terraform=TerraformCli() if has_terraform else None).plan(
+                         terraform=TerraformCli() if stack.terraform_steps and not args.offline else None).plan(
             json.loads(Path(args.request).read_text()), stack_revision=args.stack_revision,
-            target={"cluster_uid": args.cluster_uid, "node_uid": args.node_uid}, base_commit=args.base_commit)
+            target=target, base_commit=args.base_commit)
         for step_id, rendered in result.files.items():
             kind = stack.steps[step_id]["kind"]
             for name, text in rendered.items():

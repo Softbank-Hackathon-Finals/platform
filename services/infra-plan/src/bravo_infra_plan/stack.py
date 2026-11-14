@@ -47,6 +47,28 @@ class Stack:
     def steps(self) -> dict:
         return {step["id"]: step for step in self.document["steps"]}
 
+    @property
+    def environment(self) -> dict:
+        return environment_of(self.document)
+
+    @property
+    def kind(self) -> str | None:
+        """The declared kind. Without an `environment` block a stack with cluster steps is onprem
+        (target-onprem's names); a terraform-only stack is undeclared (None) and the CLI's `--aws`
+        names it as on develop, so its document and plan digest stay unchanged (aws-platform)."""
+        if "environment" in self.document:
+            return self.document["environment"]["kind"]
+        return "onprem" if self.cluster_steps else None
+
+    @property
+    def cluster_steps(self) -> bool:
+        """True when a step talks to a Kubernetes cluster (anything but terraform)."""
+        return any(step["kind"] != "terraform" for step in self.document["steps"])
+
+    @property
+    def terraform_steps(self) -> bool:
+        return any(step["kind"] == "terraform" for step in self.document["steps"])
+
     def request_schema(self) -> dict:
         """The JSON Schema every plan request (operator, console or agent `infra.plan`) must pass."""
         params = {}
@@ -98,6 +120,32 @@ class Stack:
     def applies(self, step_id, params) -> bool:
         when = self.steps[step_id].get("when")
         return when is None or params[when["param"]] in when["in"]
+
+
+# A stack without an `environment` block is the first one (target-onprem): these are its names.
+ONPREM_DEFAULTS = {
+    "kind": "onprem", "app_namespace": "target-dev", "database": "target-db",
+    "secret_store": {"kind": "Pod", "namespace": "bravo-secrets", "name": "target-openbao-0"},
+}
+
+
+def environment_of(document) -> dict:
+    """The stack's kind and the names its checks read, with `${param}` placeholders left in."""
+    declared = document.get("environment")
+    if declared is None:
+        return json.loads(canonical(ONPREM_DEFAULTS))
+    return {k: v for k, v in ONPREM_DEFAULTS.items() if k != "kind"} | declared
+
+
+def substitute(value, params):
+    """`${param}` in strings, recursively through dicts and lists."""
+    if isinstance(value, str):
+        return PLACEHOLDER.sub(lambda m: params[m.group(1)], value)
+    if isinstance(value, dict):
+        return {k: substitute(v, params) for k, v in value.items()}
+    if isinstance(value, list):
+        return [substitute(v, params) for v in value]
+    return value
 
 
 def load_stack(path) -> Stack:
@@ -161,6 +209,23 @@ def parse_stack(document) -> Stack:
             if needed is not None and (when is None or when["param"] != needed["param"]
                                        or not set(when["in"]) <= set(needed["in"])):
                 raise StackError("conditional_parameter_outside_condition")
+    # A10 (ADR-0034): the environment block is read by every check of the run, so its names may only
+    # use parameters every request has.
+    environment = document.get("environment", {})
+    for name in PLACEHOLDER.findall(json.dumps(environment)):
+        if name not in document["params"]:
+            raise StackError("unknown_parameter")
+        if document["params"][name].get("required_when") is not None:
+            raise StackError("conditional_parameter_outside_condition")
+    # onprem checks (RKE2 destination) read the target-onprem names; another name would be checked against
+    # the wrong objects, and an onprem cluster already exists (no endpoint to bind to).
+    if environment.get("kind") == "onprem" and (
+            "cluster_endpoint" in environment
+            or any(environment.get(k, v) != v for k, v in ONPREM_DEFAULTS.items() if k != "kind")):
+        raise StackError("onprem_environment_names_fixed")
+    endpoint = environment.get("cluster_endpoint")
+    if endpoint is not None and by_id.get(endpoint["from"], {}).get("kind") != "terraform":
+        raise StackError("cluster_endpoint_without_terraform")
     return Stack(document, sha256_text(canonical(document)), _levels(steps))
 
 
