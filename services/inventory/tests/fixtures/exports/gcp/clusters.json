@@ -1,0 +1,1 @@
+{"kind": "ClusterList", "items": [{"metadata": {"name": "chat-db", "namespace": "chat"}, "spec": {"instances": 2, "postgresql": {"parameters": {"wal_level": "logical"}}}}]}

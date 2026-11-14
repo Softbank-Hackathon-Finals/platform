@@ -42,10 +42,19 @@
 | `grade_by` | `rule` · `agent` | `agent`면 `rationale` 10자 이상 필수. 규칙이 `none`으로 정한 항목은 에이전트가 바꾸지 못한다 |
 | `rationale` | 1자 이상 | 등급 근거 |
 | `agent_needed` | bool | 규칙이 못 정했거나(미지 역할, 와일드카드 정책) 배포에만 있는 항목 |
-| `code_refs[]` | `id` · `kind` · `file` · `line` · `snippet` · `detail` | `snippet`은 마스킹된 한 줄. 비밀처럼 보이는 값은 `<masked>` |
-| `deploy_refs[]` | `kind` · `name` · `via` · `actions` · `attributes` | `via`는 네임스페이스에서 자원까지의 경로 문장 |
+| `code_refs[]` | `id` · `kind` · `file` · `line` · `snippet` · `detail`, 선택: `source_kind` · `cloud_dependency` | `snippet`은 마스킹된 한 줄. 비밀처럼 보이는 값은 `<masked>` |
+| `deploy_refs[]` | `kind` · `name` · `via` · `actions` · `attributes`, 선택: `cloud_dependency` | `via`는 네임스페이스에서 자원까지의 경로 문장 |
 | `target` | `env_kind` · `impl` · `verify` | 첫 후보 종류 기준의 목적지 구현과 검증 방법(게이트 질문의 근거). 다른 종류의 후보에는 쓰지 않는다 |
 | `risk` | `""` · `migration_omission` | |
+
+**출발지 증거 표시(선택 필드, [ADR-0034](../adr/0034-environment-kind-adapters.md) A3).** 아래 규칙의 "선택 필드 추가"로 v1(`"1.0"`) 안에서 더했다. 필수가 아니고, 소비자는 몰라도 된다. 등급 · `verdict` · `summary` 계산에 쓰지 않으며, aws 출발지 문서의 값은 이 필드를 빼면 추가 전과 같다(`services/inventory/tests/test_develop_parity.py`).
+
+| 필드 | 값 | 의미 |
+|---|---|---|
+| `code_refs[].source_kind` | `aws` · `gcp` · `onprem` | 이 증거를 읽은 출발지 정적 규칙의 종류(`source.static_rules`). 문서의 `source.env_kind`와 같다 |
+| `code_refs[].cloud_dependency` · `deploy_refs[].cloud_dependency` | bool | 이 증거가 퍼블릭 클라우드 관리형 서비스에 묶이는지. 온프렘 출발지의 `boto3` + `endpoint_url`(S3 호환 저장소) · OpenBao 증거는 `false`. `false`는 "클라우드 표지가 없다"는 뜻이지, 뒤의 서비스가 자체 운영이라는 증명이 아니다(aws의 `DB_HOST`는 `false`여도 RDS일 수 있다) |
+
+온프렘 출발지 항목에서 코드 · 배포 증거가 모두 `cloud_dependency: false`이면 `rationale` 끝에 그 사실을 한 문장 덧붙인다. aws · gcp 출발지에는 덧붙이지 않는다.
 
 ## 후보(`candidates[]`)와 제공 기능
 

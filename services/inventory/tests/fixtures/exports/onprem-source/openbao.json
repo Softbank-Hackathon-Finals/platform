@@ -1,0 +1,13 @@
+{
+  "auth_mount": "kubernetes",
+  "kubernetes_roles": {
+    "chat": {"bound_service_account_names": ["chat"], "bound_service_account_namespaces": ["chat"], "token_policies": ["chat-read"]},
+    "chat-eso": {"bound_service_account_names": ["external-secrets"], "bound_service_account_namespaces": ["chat"], "token_policies": ["chat-eso", "missing-policy"]},
+    "other-app": {"bound_service_account_names": ["chat"], "bound_service_account_namespaces": ["other"], "token_policies": ["other"]}
+  },
+  "policies": {
+    "chat-read": "path \"secret/data/chat/*\" { capabilities = [\"read\"] }\npath \"transit/encrypt/chat-attachments\" { capabilities = [\"update\"] }\npath \"transit/decrypt/chat-attachments\" { capabilities = [\"update\"] }\npath \"auth/token/lookup-self\" { capabilities = [\"read\"] }\n",
+    "chat-eso": {"path": {"secret/data/chat/db": {"capabilities": ["read"]}, "secret/metadata/chat/db": {"capabilities": ["read", "list"]}}},
+    "other": "path \"secret/data/other/*\" { capabilities = [\"read\"] }\n"
+  }
+}

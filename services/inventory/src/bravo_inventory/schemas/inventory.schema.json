@@ -25,6 +25,8 @@
   "$defs": {
     "Digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "Grade": {"enum": ["config_swap", "adapter", "code_change", "none", "unknown"]},
+    "Kind": {"enum": ["aws", "gcp", "onprem"]},
+    "CloudDependency": {"type": "boolean", "description": "ADR-0034 선택 필드(v1 호환 추가): 이 증거가 퍼블릭 클라우드 관리형 서비스에 묶이는지. 온프렘 boto3 + endpoint_url(S3 호환 저장소) · OpenBao는 false. false라고 해서 등급이 바뀌지 않는다"},
     "Item": {"type": "object", "additionalProperties": false,
       "required": ["id", "role", "service", "found_in", "grade", "grade_by", "rationale", "agent_needed", "code_refs", "deploy_refs", "target", "risk"],
       "properties": {
@@ -36,8 +38,10 @@
         "grade_by": {"enum": ["rule", "agent"]},
         "rationale": {"type": "string", "minLength": 1},
         "agent_needed": {"type": "boolean"},
-        "code_refs": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "file", "line", "snippet"]}},
-        "deploy_refs": {"type": "array", "items": {"type": "object", "required": ["kind", "name", "via"]}},
+        "code_refs": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "file", "line", "snippet"],
+          "properties": {"source_kind": {"$ref": "#/$defs/Kind", "description": "ADR-0034: 이 증거를 읽은 출발지 정적 규칙(source.static_rules)"}, "cloud_dependency": {"$ref": "#/$defs/CloudDependency"}}}},
+        "deploy_refs": {"type": "array", "items": {"type": "object", "required": ["kind", "name", "via"],
+          "properties": {"cloud_dependency": {"$ref": "#/$defs/CloudDependency"}}}},
         "target": {"type": "object"},
         "risk": {"enum": ["", "migration_omission"]}
       },
