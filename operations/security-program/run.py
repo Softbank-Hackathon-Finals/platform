@@ -45,7 +45,7 @@ def relay(context, request, *, deadline, clock=time.monotonic):
 
 def require_pass(answer):
     if answer.get("status") != "PASS":
-        print(json.dumps(answer, indent=2, sort_keys=True))
+        print(json.dumps(answer, sort_keys=True))  # one line: the happy path records the last line
         raise SystemExit(10 if answer.get("status") == "HOLD" else 1)
     return answer
 
@@ -148,7 +148,7 @@ def main():
         answer = require_pass(relay(args.context, {"op": "revoke", "plan_id": args.plan_id,
             "expected_revision": args.expected_revision, "command_key": args.command_key,
             "kind": args.kind, "phase": args.phase}, deadline=deadline))
-    print(json.dumps(answer, indent=2, sort_keys=True))
+    print(json.dumps(answer, sort_keys=True))  # one line: the happy path records the last line
 
 
 if __name__ == "__main__":
