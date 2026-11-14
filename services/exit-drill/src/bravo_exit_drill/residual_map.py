@@ -93,12 +93,15 @@ def _entry(**fields) -> dict:
 
 
 def _block_checks(role: str, plan: dict) -> list[str]:
-    return sorted(
+    """그 역할을 잰 차단 시험과, 범위로 구분 불가라 못 잰 항목(scope:*). 뒤의 것은 판정이 UNKNOWN이다."""
+    blocks = [
         f"block:{d['route_id']}:{owner}"
         for d in plan["decisions"]
         if d["action"] == "BLOCK" and role in d["roles"]
         for owner in d["owners"]
-    )
+    ]
+    scoped = [f"scope:{item['id']}" for item in plan.get("scope_indistinct", []) if role in item["roles"]]
+    return sorted([*blocks, *scoped])
 
 
 def _combined(check_ids: list[str], results: dict[str, str]) -> str:

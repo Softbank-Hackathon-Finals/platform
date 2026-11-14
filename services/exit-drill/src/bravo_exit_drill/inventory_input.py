@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .aws_endpoints import is_known_service
+from .gcp_endpoints import canonical_service as gcp_service
 
 SUPPORTED_VERSION = "1.0"
 _ITEM_FIELDS = ("id", "role", "service", "found_in", "grade", "grade_by", "agent_needed", "target", "risk")
@@ -40,6 +41,26 @@ _ROLE_AWS_SERVICES = {
     "ai": ("bedrock-runtime",),
     "db_managed": ("dynamodb",),
 }
+# 출발지가 GCP일 때 같은 역할이 기대는 Google API. iam은 자격을 받는 iamcredentials · sts까지 함께 잰다.
+_ROLE_GCP_SERVICES = {
+    "object_store": ("storage",),
+    "secrets": ("secretmanager",),
+    "kms": ("cloudkms",),
+    "iam": ("iamcredentials", "sts"),
+    "audit": ("logging",),
+    "observability": ("monitoring",),
+    "runtime": ("container",),
+    "registry": ("artifactregistry",),
+    "messaging": ("pubsub",),
+    "function": ("cloudfunctions",),
+    "ai": ("aiplatform",),
+    "db_managed": ("firestore",),
+}
+
+
+# 버킷으로 읽는 자원 종류와, 주소에 포트가 없을 때 역할로 정하는 기본 포트(SeaweedFS S3 · OpenBao · Postgres).
+_BUCKET_KINDS = {"s3_bucket", "gcs_bucket"}
+_ROLE_PORTS = {"object_store": 8333, "secrets": 8200, "kms": 8200, "db": 5432}
 
 
 class ContractError(ValueError):
@@ -61,6 +82,24 @@ class Dependency:
     target_impl: str
     risk: str
     found_in: str
+    # 차단을 재야 할 출발지 클라우드 API. aws면 aws_services와 같고, gcp면 Google API 이름, onprem이면 비어 있다.
+    source_services: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SourceResource:
+    """T16이 배포를 따라가며 찾은 출발지 자원 하나(deploy.resources). 값은 T16이 적은 글자 그대로다."""
+
+    kind: str
+    name: str
+    role: str
+    attributes: tuple[tuple[str, str], ...]
+    is_bucket: bool = False  # S3 · GCS 버킷. 이름이 곧 출발지에만 해당하는 가상 호스트 주소가 된다
+    endpoint: str = ""  # 출발지 안의 접속 주소(온프렘 SeaweedFS · OpenBao · DB 등). 없으면 빈 글자
+    default_port: int | None = None  # 주소에 포트가 없을 때 역할로 정한 포트. 모르면 None
+
+    def attr(self, key: str) -> str:
+        return dict(self.attributes).get(key, "")
 
 
 @dataclass(frozen=True)
@@ -73,6 +112,10 @@ class InventoryView:
     residuals: tuple[str, ...]
     missing_capabilities: tuple[str, ...]
     trace_notes: tuple[str, ...]  # T16이 배포를 따라가며 남긴 메모. 못 읽은 입력이 여기 적힌다
+    # 환경 종류(aws · gcp · onprem). 출구 시험 범위(exit_scope.py)가 차단 대상을 고르는 기준이다.
+    source_kind: str = "aws"
+    target_kind: str = "onprem"
+    resources: tuple[SourceResource, ...] = ()
 
 
 def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
@@ -92,6 +135,9 @@ def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
             residuals=tuple(fit["residual_dependencies"]),
             missing_capabilities=tuple(fit["missing_capabilities"]),
             trace_notes=_trace_notes(doc["deploy"]["notes"]),
+            source_kind=_text(doc["source"]["env_kind"], "source env_kind"),
+            target_kind=_text(fit["env_kind"], "candidate env_kind"),
+            resources=_resources(doc["deploy"].get("resources", [])),
         )
     except (KeyError, TypeError, AttributeError) as exc:
         raise ContractError(f"inventory field missing: {exc}") from exc
@@ -102,6 +148,35 @@ def _trace_notes(notes: Any) -> tuple[str, ...]:
     if not isinstance(notes, list) or not all(isinstance(note, str) for note in notes):
         raise ContractError("inventory deploy notes malformed")
     return tuple(notes)
+
+
+def _text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ContractError(f"inventory {label} malformed")
+    return value
+
+
+def _resources(items: Any) -> tuple[SourceResource, ...]:
+    """출발지 자원. 버킷 이름 · 내부 주소(endpoint) · 범위 값(account_id · project_id · cluster_uid)을 여기서 읽는다."""
+    if not isinstance(items, list):
+        raise ContractError("inventory deploy resources malformed")
+    found = []
+    for item in items:
+        if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in ("kind", "name", "role")):
+            raise ContractError("inventory deploy resource malformed")
+        attributes = item.get("attributes", {})
+        if not isinstance(attributes, dict):
+            raise ContractError("inventory deploy resource attributes malformed")
+        found.append(SourceResource(
+            kind=item["kind"],
+            name=item["name"],
+            role=item["role"],
+            attributes=tuple(sorted((str(k), str(v)) for k, v in attributes.items())),
+            is_bucket=item["kind"] in _BUCKET_KINDS,
+            endpoint=str(attributes.get("endpoint", "")),
+            default_port=_ROLE_PORTS.get(item["role"]),
+        ))
+    return tuple(found)
 
 
 def _verify_digest(doc: dict) -> None:
@@ -136,11 +211,15 @@ def _dependency(item: dict, source_kind: str, candidate_kind: str) -> Dependency
     aws_services: set[str] = set()
     if source_kind == "aws":
         aws_services = {*_ROLE_AWS_SERVICES.get(item["role"], ()), *(s for s in services if is_known_service(s))}
+    gcp_services: set[str] = set()
+    if source_kind == "gcp":
+        gcp_services = {*_ROLE_GCP_SERVICES.get(item["role"], ()), *(gcp_service(s) for s in services if gcp_service(s))}
     return Dependency(
         id=item["id"],
         role=item["role"],
         services=services,
         aws_services=tuple(sorted(aws_services)),
+        source_services=tuple(sorted(aws_services or gcp_services)),
         grade=grade,
         grade_by=item["grade_by"],
         replacement=grade if grade == "none" else "replaceable" if grade in _REPLACEABLE_GRADES else "unknown",

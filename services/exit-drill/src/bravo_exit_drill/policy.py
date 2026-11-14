@@ -9,7 +9,6 @@ tailnet을 거쳐 출발지로 가는 길은 이름을 몰라도 전부 닫힌�
 
 from dataclasses import asdict, dataclass
 
-from .aws_endpoints import endpoint_host
 from .cluster import (
     Snapshot,
     canonical_digest,
@@ -17,6 +16,7 @@ from .cluster import (
     selector_matches,
     undeclared_egress,
 )
+from .exit_scope import ExitScope, resolve
 from .inventory_input import InventoryView
 from .spec import Destination, DrillSpec, Port, Route, Workload
 
@@ -38,6 +38,8 @@ _DIGEST_FIELDS = (
     "unmapped_dependencies",
     "declared_residuals",
 )
+# 같은 종류 간 이전처럼 호스트로 가를 수 없는 의존성이 있을 때만 계획에 생기는 칸. 있으면 해시에 들어간다.
+SCOPE_FIELD = "scope_indistinct"
 ACTIONS = {"local": "ALLOW", "source_access": "BLOCK", "replication": "KEEP"}
 REASONS = {
     "ALLOW": "목적지 안의 경로라서 허용 목록에 넣는다",
@@ -61,10 +63,12 @@ class PlanRefused(Exception):
 
 
 def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) -> dict:
-    routes = _routes_with_aws(spec, inventory)
+    scope = exit_scope_for(spec, inventory)
+    routes = _routes_with_source(spec, scope)
     manifests = _render_manifests(spec, routes)
     violations = [
-        *_check_workloads(spec, inventory),
+        *[Violation(code, subject) for code, subject in scope.violations],
+        *_check_workloads(spec, inventory, scope),
         *_check_routes(spec, routes),
         *_check_pods(spec, snapshot),
         *_check_existing_policies(spec, routes, manifests, snapshot),
@@ -79,9 +83,15 @@ def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) ->
         "decisions": [_decision(r) for r in routes],
         "manifests": manifests,
         "new_connection_checks": sorted(spec.new_connection_checks, key=lambda c: c["id"]),
-        "unmapped_dependencies": _unmapped(inventory, routes),
+        "unmapped_dependencies": _unmapped(inventory, routes, scope),
         "declared_residuals": sorted(spec.declared_residuals),
     }
+    if scope.indistinct:
+        core[SCOPE_FIELD] = [
+            {"id": i.id, "host": i.host, "roles": list(i.roles), "reason": i.reason,
+             "source_kind": scope.source_kind, "target_kind": scope.target_kind}
+            for i in scope.indistinct
+        ]
     digest = compute_digest(core)
     for manifest in core["manifests"]:
         manifest["metadata"]["annotations"] = {DIGEST_ANNOTATION: digest}
@@ -102,6 +112,8 @@ def compute_digest(plan: dict) -> str:
     정책에 붙이는 해시 주석 자신도 뺀다.
     """
     core = {key: plan.get(key) for key in _DIGEST_FIELDS}
+    if SCOPE_FIELD in plan:
+        core[SCOPE_FIELD] = plan[SCOPE_FIELD]
     core["manifests"] = [
         {**m, "metadata": {k: v for k, v in m["metadata"].items() if k != "annotations"}}
         for m in plan.get("manifests") or []
@@ -117,25 +129,33 @@ def plan_is_intact(plan: dict) -> bool:
         return False
 
 
-def _routes_with_aws(spec: DrillSpec, inventory: InventoryView) -> list[Route]:
-    """인벤토리가 쓴다고 한 AWS 서비스마다 차단 경로를 하나씩 만든다."""
-    roles_by_service: dict[str, set[str]] = {}
-    for dependency in inventory.dependencies:
-        for service in dependency.aws_services:
-            roles_by_service.setdefault(service, set()).add(dependency.role)
+def exit_scope_for(spec: DrillSpec, inventory: InventoryView) -> ExitScope:
+    """출발지 종류의 등록부로 차단 대상을 고른다. 범위 값은 명세, 종류와 자원은 인벤토리에서 온다."""
+    return resolve(
+        inventory.source_kind,
+        inventory.target_kind,
+        spec.source_scope,
+        spec.target_scope,
+        inventory.dependencies,
+        inventory.resources,
+    )
+
+
+def _routes_with_source(spec: DrillSpec, scope: ExitScope) -> list[Route]:
+    """등록부가 고른 출발지 주소마다 차단 경로를 하나씩 만든다. 출발지 클라우드 API를 부르는 Pod에서 잰다."""
     clients = tuple(sorted(w.name for w in spec.workloads.values() if w.aws_client))
     derived = [
         Route(
-            id=f"aws-{service}",
+            id=target.id,
             klass="source_access",
             owners=clients,
-            to=Destination(None, None, endpoint_host(service, spec.aws_region)),
-            ports=(HTTPS,),
-            probe={"kind": "tcp", "host": endpoint_host(service, spec.aws_region), "port": HTTPS.port},
-            roles=tuple(sorted(roles)),
+            to=Destination(None, None, target.host),
+            ports=(HTTPS if target.port == HTTPS.port else Port("TCP", target.port),),
+            probe={"kind": "tcp", "host": target.host, "port": target.port},
+            roles=target.roles,
             evidence=None,
         )
-        for service, roles in sorted(roles_by_service.items())
+        for target in scope.targets
     ]
     return sorted([*spec.routes, *derived], key=lambda r: r.id)
 
@@ -195,12 +215,14 @@ def _decision(route: Route) -> dict:
     }
 
 
-def _unmapped(inventory: InventoryView, routes: list[Route]) -> list[dict]:
+def _unmapped(inventory: InventoryView, routes: list[Route], scope: ExitScope) -> list[dict]:
     """차단을 잴 경로가 없는 의존성. 빼지 않고 적어 두면 판정이 UNKNOWN이 된다.
 
     복제 경로에 역할을 적어도 소용없다. 거기는 막히는지가 아니라 열려 있는지를 잰다.
+    범위로 구분 불가(scope_indistinct)로 이미 드러낸 역할은 여기 다시 적지 않는다.
     """
     covered = {role for r in routes if r.klass == "source_access" for role in r.roles}
+    covered |= {role for item in scope.indistinct for role in item.roles}
     return [
         {"id": d.id, "role": d.role, "services": list(d.services)}
         for d in inventory.dependencies
@@ -212,11 +234,11 @@ def _by_role(spec: DrillSpec, role: str) -> list[Workload]:
     return [w for w in spec.workloads.values() if w.role == role]
 
 
-def _check_workloads(spec: DrillSpec, inventory: InventoryView) -> list[Violation]:
+def _check_workloads(spec: DrillSpec, inventory: InventoryView, scope: ExitScope) -> list[Violation]:
     found = [Violation("EMPTY_SELECTOR", w.name) for w in spec.workloads.values() if not w.selector]
     if not _by_role(spec, "control"):
         found.append(Violation("NO_CONTROL", "control"))
-    needs_client = any(d.aws_services for d in inventory.dependencies)
+    needs_client = bool(scope.targets)
     if needs_client and not any(w.aws_client for w in spec.workloads.values()):
         found.append(Violation("NO_AWS_CLIENT", "workloads"))
     listed = {*inventory.residuals, *spec.declared_residuals}

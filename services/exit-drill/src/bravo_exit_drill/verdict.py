@@ -56,6 +56,8 @@ def _judge(plan: dict, before: Any, after: Any) -> dict:
     checks = [
         *_check_required(plan),
         *[Check(f"coverage:{d['id']}", UNKNOWN, "UNMAPPED_DEPENDENCY") for d in plan["unmapped_dependencies"]],
+        # 같은 종류 간 이전에서 출발지와 목적지가 같은 주소를 쓰는 의존성. 막혔는지 잴 수 없으니 통과가 아니다.
+        *[Check(f"scope:{d['id']}", UNKNOWN, "SCOPE_INDISTINCT") for d in plan.get("scope_indistinct", [])],
         _check_cutover(after),
         _check_pod_scope(after),
         _check_host_network(plan, after),

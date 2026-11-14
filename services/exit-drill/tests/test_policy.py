@@ -468,7 +468,10 @@ def test_no_source_route_means_nothing_to_block():
     spec = spec_doc()
     spec["routes"] = [r for r in spec["routes"] if r["class"] != "source_access"]
     doc = inventory_doc()
-    doc["source"]["env_kind"] = "gcp"
+    # 온프렘 출발지인데 인벤토리가 내부 주소를 하나도 알려 주지 않았다. 잴 출발지 경로가 없다.
+    doc["source"]["env_kind"] = "onprem"
+    del spec["aws_region"]
+    spec["source_scope"] = {}
     assert "NO_SOURCE_ROUTE" in refused_codes(spec=spec, inventory=redigest(doc))
 
 
