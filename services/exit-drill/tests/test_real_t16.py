@@ -137,11 +137,14 @@ def test_candidate_gaps_from_t16_appear_on_the_map(real_inventory, tmp_path, cap
 
 
 def test_real_scan_of_unmapped_sdks_stays_on_the_map(t16, tmp_path, capsys):
-    """규칙이 못 정한 SDK와 대체 없는 SDK를 실제로 스캔한다. 추측으로 지우지 않는다."""
+    """규칙이 못 정한 SDK와 대체 없는 SDK를 실제로 스캔한다. 추측으로 지우지 않는다.
+
+    대체 없는 SDK는 SNS다. SQS는 11/8부터 T16이 ElasticMQ 설정 교체로 판정한다(T46).
+    """
     repo = tmp_path / "repo"
     (repo / "app").mkdir(parents=True)
     (repo / "app/main.py").write_text(
-        "import boto3\nboto3.client('sqs')\nboto3.client('textract')\nboto3.client('secretsmanager')\n", encoding="utf-8",
+        "import boto3\nboto3.client('sns')\nboto3.client('textract')\nboto3.client('secretsmanager')\n", encoding="utf-8",
     )
     inventory = scan(t16[1], tmp_path, repo)
     capsys.readouterr()  # T16 CLI가 찍은 요약을 비운다.
