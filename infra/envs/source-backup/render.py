@@ -15,6 +15,9 @@ from bravo_controls.cnpg_backup import archive_patch, backup_request, object_sto
 
 WRITER_STORE = "source-db-backup"
 READER_STORE = "source-db-backup-read"
+# The CNPG operator that manages the restore Cluster (source-cnpg Helm release); the only inbound path.
+OPERATOR = {"namespace": "cnpg-system", "labels": {"app.kubernetes.io/name": "cloudnative-pg"}}
+INSTANCE_MANAGER_PORT = 8000
 
 
 def stores(reg):
@@ -64,6 +67,34 @@ def restore(reg, backup_id, image, storage_class, storage_gib):
                             storage_gib=storage_gib, iam_role_arn=reg["reader_role_arn"])]
 
 
+def restore_isolation(reg):
+    """The restore namespace takes no business traffic and cannot reach the source DB.
+
+    Default deny both ways; the CNPG operator may reach the instance manager; the restore Pods may
+    resolve names and open HTTPS only (S3 and STS for the read role, the EKS API for the instance
+    manager). PostgreSQL, the pooler and every other port stay closed in both directions.
+    """
+    namespace = reg["reader"]["namespace"]
+    labels = {"component": "source", "app.kubernetes.io/part-of": "t35-restore-check"}
+
+    def policy(name, spec):
+        return {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+                "metadata": {"name": name, "namespace": namespace, "labels": labels}, "spec": spec}
+
+    dns = {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                   "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+           "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}
+    https = {"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+    operator = {"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": OPERATOR["namespace"]}},
+                          "podSelector": {"matchLabels": OPERATOR["labels"]}}],
+                "ports": [{"protocol": "TCP", "port": INSTANCE_MANAGER_PORT}]}
+    return [
+        policy("t35-restore-default-deny", {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}),
+        policy("t35-restore-from-operator", {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [operator]}),
+        policy("t35-restore-egress", {"podSelector": {}, "policyTypes": ["Egress"], "egress": [dns, https]}),
+    ]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registration", required=True, type=argparse.FileType(),
@@ -72,6 +103,7 @@ def main(argv=None):
     sub.add_parser("stores")
     sub.add_parser("role-patch")
     sub.add_parser("archive-patch")
+    sub.add_parser("restore-isolation", help="NetworkPolicies for the restore namespace; apply before restore")
     b = sub.add_parser("backup")
     b.add_argument("--run-id", required=True, help="fixed for this T35 run; reuse it after a lost response")
     r = sub.add_parser("restore")
@@ -87,6 +119,8 @@ def main(argv=None):
         return
     if args.step == "stores":
         items = stores(reg)
+    elif args.step == "restore-isolation":
+        items = restore_isolation(reg)
     elif args.step == "backup":
         items = backup(reg, args.run_id)
     else:

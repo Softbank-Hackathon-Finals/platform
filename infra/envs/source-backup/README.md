@@ -10,7 +10,12 @@
 - 확인(`--stage before-restore`): 설정 읽기 9개 항목 통과. 삭제 시험은 쓰기·앱 DENIED, 시험 객체 버전 보존, 관리자가 시험 객체 삭제. 복원 SA는 아직 없다. Executor는 `UNKNOWN_NO_CREDENTIALS`로 판정이 `UNKNOWN`이다. 출발지 노드는 IMDSv2 hop limit 1이라 IRSA가 없는 Pod가 노드 역할 자격을 받지 못한다. 즉 Executor는 AWS 신원 자체가 없다. 아래 4단계의 "노드 역할로 나간다"는 이 클러스터에는 맞지 않는다. 판정 규칙은 완화하지 않았다.
 - **T35 결정(11/8):** Executor에 삭제 거부를 보이려고 AWS 역할을 새로 주지 않는다. AWS를 쓰지 않는 구성요소에 신원을 더하면 공격 면만 늘어난다. 대신 "AWS 신원이 없음"을 시험으로 보이는 `--executor-without-aws`로 등록한다(4단계). 판정 기준은 그대로이고, `NO_AWS_IDENTITY`는 Executor에만 인정한다. 컷오버 Executor는 **출발지가 아니라 플랫폼 RKE2(`bravo-platform/cutover-executor`)에서 돈다.** 출발지에는 `source-dev/bravo-executor` SA와 권한만 있고 Pod는 없다. 그래서 11/6의 출발지 `bravo-executor` 시험 Pod는 실제 Executor의 신원을 본 것이 아니다. 확인은 `--executor-kubeconfig`로 플랫폼 클러스터에서 한다.
 - **재확인(11/8 05:2x KST, `--stage before-restore`):** `PARTIAL`(exit 3). 설정 읽기 9개 통과, 쓰기 · 앱 `DENIED`, 복원 SA 없음(`UNKNOWN_SA_NOT_FOUND`), Executor `NO_AWS_IDENTITY`(플랫폼 노드 IMDSv2 필수 · hop 1, Pod에 AWS 자격 출처 없음, 그 노드에 고정한 시험 Pod의 두 삭제 모두 자격 없음), 시험 객체 버전 보존 · 삭제 표식 없음 · 관리자가 제거. 남은 시험 Pod · 객체 0개.
-- 5단계(표식 · 백업)부터는 T35 담당이 이어간다. 실제 백업 · 복원은 아직 실행하지 않았다. 출발지 DB에 표식을 쓰고 같은 EKS에 복원 Cluster를 만드므로 해피패스 실행(S1~S3)과 겹치지 않는 창에서 한다.
+- **실행(11/8 06:52–07:02 KST, 표식 없음):** 출발지 쓰기 창을 받기 전이라 원본 DB에 쓰지 않는 단계만 했다. **표식이 없으므로 DR-01.1은 UNKNOWN이다.** 표식은 쓰기 창(#57)에서 넣고 백업 · 복원을 다시 한다.
+  - 백업: 실행 ID `r202611072152-faf71f`, Backup `source-db-t35-r202611072152-faf71f` `completed`, backup ID `20261107T215217`. 요청 21:52:12Z ≤ 공급자 시작 21:52:17Z(종료 21:52:23Z).
+  - 복원 격리(6단계 전제): `t35-restore-check`에 NetworkPolicy가 **없었다.** 정책 없이 띄운 시험 Pod는 원본 DB `source-db-rw.source-dev:5432`에 붙었다(exit 0). `$R restore-isolation`을 적용한 뒤에는 막혔고(exit 124, HTTPS 443은 허용), 다른 namespace에서 복원 DB 5432로 들어오는 연결도 막혔다(exit 124). VPC CNI 집행 모드가 `standard`라 새 Pod는 정책이 반영되기 전 몇 초 동안 열려 있다(클러스터 전체 `strict` 전환은 T6 범위).
+  - 복원: `source-db-restore`(이미지 원본과 같은 `18.4-system-trixie@sha256:42708a75…`, `source-gp3` 암호화 1Gi)가 80초 뒤 healthy. 원본 · 복원본의 시스템 ID가 같고, `messages` 2행(max id 4) · `attachments` 1행 · 테이블 5개가 같다.
+  - `--stage final`: **PASS**(exit 0). 설정 읽기 9개, 쓰기 · 복원 · 앱 `DENIED`, Executor `NO_AWS_IDENTITY`, 시험 객체 보존 후 관리자가 제거.
+  - 복원 Cluster는 남겨 두었다(정리는 별도 승인, 아래 7단계). `source-gp3`는 Retain이라 Cluster를 지운 뒤 PV와 EBS 볼륨도 지워야 한다.
 
 ## 등록 값 (T6 등록안 #57에 대한 답)
 
@@ -74,8 +79,8 @@
    ```
 
    이름(`source-db-t35-<실행 ID>`)과 `bravo.t35/run-id` 주석이 실행에 묶인다. `create`라서 같은 이름이 이미 있으면 덮어쓰지 않고 실패한다. **응답을 못 받았으면 다시 만들지 말고** `kubectl -n source-dev get backup <이름> -o json`으로 UID · `spec.cluster.name` · 주석을 대조해 이번 실행의 Backup인지 확인한다. 그 뒤 `completed`와 backup ID를 기록한다.
-6. **복원:** 복원 namespace의 격리(업무 경로 없음, 실제로 강제되는 NetworkPolicy)를 먼저 확인한다. `$R restore --backup-id <ID> --image <원본 이미지 태그@digest> --storage-class <SC>` 적용 → 새 Cluster에서 표식 · 행 수 비교(T14 DR-01 관찰기). `verify.py --delete-probe --stage final`로 복원 SA까지 확인해 `PASS`를 받는다.
-7. **정리:** 복원 Cluster 삭제는 별도 승인 효과로. 데모 뒤에는 관리자가 버킷을 비우고 `terraform destroy`(`force_destroy=false`라 객체가 남아 있으면 멈춘다).
+6. **복원:** 복원 namespace의 격리(업무 경로 없음, 실제로 강제되는 NetworkPolicy)를 먼저 적용 · 확인한다: `$R restore-isolation | kubectl apply --server-side -f -`(기본 차단, CNPG 운영자 → 8000만 들어옴, DNS · HTTPS만 나감). 정책 반영 뒤(20초 이상) 시험 Pod로 원본 DB 5432가 막히는지 본다. `$R restore --backup-id <ID> --image <원본 이미지 태그@digest> --storage-class <SC>` 적용 → 새 Cluster에서 표식 · 행 수 비교(T14 DR-01 관찰기). `verify.py --delete-probe --stage final`로 복원 SA까지 확인해 `PASS`를 받는다.
+7. **정리:** 복원 Cluster 삭제는 별도 승인 효과로. `source-gp3`는 Retain이라 Cluster · PVC를 지운 뒤 남는 PV와 EBS 볼륨(복원 데이터 사본)도 지운다. 데모 뒤에는 관리자가 버킷을 비우고 `terraform destroy`(`force_destroy=false`라 객체가 남아 있으면 멈춘다).
 
 ## 검증 (로컬)
 
