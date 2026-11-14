@@ -4,6 +4,8 @@ import base64
 import copy
 import json
 
+import pytest
+
 from bravo_apply.deploy import FakeKube
 from bravo_apply.desired import get_desired_result, planned_application_id
 from bravo_apply.path import apply, validate_outcome
@@ -18,7 +20,8 @@ def kube(state="open-demo"):
     return FakeKube(OLD, secrets={"target-seaweedfs-auth": secret_obj(s3_json(state))})
 
 
-def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=True, pull_secret=None):  # noqa: F811
+def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=True, pull_secret=None,  # noqa: F811
+        kind="onprem"):
     claim = copy.deepcopy(claim)
     if bound is not False:
         claim["binding"]["iac_plan_digest"] = bound or plan["plan_digest"]
@@ -26,7 +29,7 @@ def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=T
     out = apply(claim["application_id"], claim, proposal, kube=k, receipts_dir=tmp_path / "receipts",
                 target_environment_id="onprem-dev", namespace="target-dev", deployment="demo-chat", container="app",
                 repository=REPO, sources={"app/db_secret.py": BEFORE}, now=NOW, policy_hooks=Probes().hooks(),
-                pull_secret=pull_secret,
+                pull_secret=pull_secret, image_target_kind=kind,
                 exposure={"environment_id": "target-dev", "iac_plan": plan, "target": TARGET,
                           "base_revision": repo.opened, "repo_root": repo.root} if exposure else None)
     return out, k
@@ -114,3 +117,14 @@ def test_the_candidate_pull_secret_and_the_close_work_in_the_same_application(cl
     assert pod["imagePullSecrets"] == [{"name": "bravo-ghcr-reader"}]
     assert not anonymous(k) and [s["step"] for s in out.steps][-2:] == ["exposure_close", "gate_recheck"]
 
+
+
+@pytest.mark.parametrize("kind", ["aws", "gcp"])
+def test_the_close_is_onprem_only_and_other_kinds_are_refused_before_anything(claim, proposal, tmp_path, repo,  # noqa: F811
+                                                                             kind):
+    # A6: the close lives in the onprem applier (T44 target-object-exposure is SeaweedFS s3.json).
+    out, k = run(claim, proposal, tmp_path, repo, plan=repo.plan, kind=kind)
+    assert (out.outcome, out.reason) == ("REFUSED", "EXPOSURE_TARGET_KIND_UNSUPPORTED")
+    assert out.cluster_mutation_attempted is False and k.patches == [] and k.secret_writes == [] and anonymous(k)
+    assert "started" not in [s["step"] for s in out.steps]
+    validate_outcome(out.as_dict())

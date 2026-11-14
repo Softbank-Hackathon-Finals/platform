@@ -34,13 +34,19 @@ class CatalogUnavailable(RuntimeError):
     """No valid registration exists for this plan and task."""
 
 
-def build_task(kind: str, source_sha: str, source_policy: str | None = None, target_bucket: str | None = None):
+DEFAULT_KINDS = {"source_kind": "aws", "target_kind": "onprem"}  # omitted from records: old MACs still verify
+
+
+def build_task(kind: str, source_sha: str, source_policy: str | None = None, target_bucket: str | None = None,
+               *, source_kind: str = "aws", target_kind: str = "onprem"):
     if kind == "bucket-policy":
-        return prepare_bucket_policy_task(PLACEHOLDER_RUN, source_policy, target_bucket, source_sha=source_sha)
+        return prepare_bucket_policy_task(PLACEHOLDER_RUN, source_policy, target_bucket, source_sha=source_sha,
+                                          source_kind=source_kind, target_kind=target_kind)
     if kind == "credential-migration":
         if source_policy is not None or target_bucket is not None:
             raise ValueError("credential task takes only a source revision")
-        return prepare_credential_migration(PLACEHOLDER_RUN, source_sha)
+        return prepare_credential_migration(PLACEHOLDER_RUN, source_sha, source_kind=source_kind,
+                                            target_kind=target_kind)
     raise ValueError("unsupported task kind")
 
 
@@ -64,15 +70,19 @@ class TaskCatalog:
         return hmac.new(self.key, _canonical(value), hashlib.sha256).hexdigest()
 
     def register(self, *, plan_id: str, tenant_id: str, plan_digest: str, task_id: str, kind: str,
-                 source_sha: str, source_policy: str | None = None, target_bucket: str | None = None) -> dict:
+                 source_sha: str, source_policy: str | None = None, target_bucket: str | None = None,
+                 source_kind: str = "aws", target_kind: str = "onprem") -> dict:
         """Write one registration; an existing one is never replaced."""
         if _ID.fullmatch(tenant_id or "") is None or re.fullmatch(r"[a-f0-9]{64}", plan_digest or "") is None:
             raise ValueError("invalid plan binding")
-        build_task(kind, source_sha, source_policy, target_bucket)
+        kinds = {"source_kind": source_kind, "target_kind": target_kind}
+        build_task(kind, source_sha, source_policy, target_bucket, **kinds)
         record = {"plan_id": plan_id, "tenant_id": tenant_id, "plan_digest": plan_digest, "task_id": task_id,
                   "kind": kind, "source_sha": source_sha}
         if kind == "bucket-policy":
             record |= {"source_policy": source_policy, "target_bucket": target_bucket}
+        if kinds != DEFAULT_KINDS:
+            record |= kinds
         envelope = _canonical({"record": record, "mac": self._mac(record)})
         if len(envelope) > MAX_REGISTRATION_BYTES:
             raise ValueError("registration too large")
@@ -110,7 +120,8 @@ class TaskCatalog:
     @staticmethod
     def _task(record: dict) -> BucketPolicyTask | CredentialMigrationTask:
         return build_task(record["kind"], record["source_sha"], record.get("source_policy"),
-                          record.get("target_bucket"))
+                          record.get("target_bucket"),
+                          **{k: record.get(k, v) for k, v in DEFAULT_KINDS.items()})
 
     def for_plan(self, connection: object, plan: dict, task_id: str):
         """Read in T10's plan transaction; the registration must match the current plan."""

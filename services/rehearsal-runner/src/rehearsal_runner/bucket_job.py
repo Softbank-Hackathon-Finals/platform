@@ -14,11 +14,12 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import ClassVar, Literal
 
 from .bucket_proposal_source import BoundBucketProposalSource
 from .bucket_verifier import BucketVerificationRequest
 from .credential_candidate import file_diff
+from .neutral.registry import UNSUPPORTED
 from .recovery_lookup import recovery_identity
 
 # Each Job applies one policy and then reads the canary signed, unsigned, signed.
@@ -113,6 +114,10 @@ class SeaweedBucketJob:
     source_policy_path: str = "src/source-policy.json"
     poll_seconds: float = 2.0
     deadline_seconds: int = 180
+    # Source policy text → control policy in the target's dialect. ``None`` applies the source as is
+    # (aws → onprem: SeaweedFS accepts the S3 policy). Other pairs pass `rehearsal_policy.control_policy`.
+    control: Callable[[str], str] | None = field(default=None, repr=False)
+    target_kind: ClassVar[str] = "onprem"
 
     def verify(self, request: BucketVerificationRequest) -> BucketEvidence:
         namespace = request.namespace
@@ -131,15 +136,10 @@ class SeaweedBucketJob:
         diff = file_diff(path, before, resolved.replacement)
         if not diff:
             raise ValueError("candidate contains no changes")
-        access, secret = self.credential()
         labels, annotations = recovery_identity(request.run_id, request.attempt)
         meta = {"namespace": namespace.name, "labels": labels, "annotations": annotations}
-        self.kube.create({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                          "metadata": meta | {"name": "bucket-verifier-auth"},
-                          "stringData": {"access": access, "secret": secret}})
-        self.kube.create({"apiVersion": "v1", "kind": "ConfigMap", "immutable": True,
-                          "metadata": meta | {"name": "bucket-policies"},
-                          "data": {"source.json": source, "candidate.json": resolved.replacement}})
+        self._auth_objects(meta)
+        self.kube.create(self.policies_config_map(meta, source, resolved.replacement))
         observations, executions = {}, {}
         for name, policy in (("bucket-control", "source.json"), ("bucket-candidate", "candidate.json")):
             observations[name], executions[name] = self._run(namespace, name, policy, meta)
@@ -155,7 +155,23 @@ class SeaweedBucketJob:
         if meta.get("uid") != namespace.uid or meta.get("deletionTimestamp"):
             raise VerificationUnknown("namespace_identity_changed")
 
-    def _job(self, namespace, name: str, policy: str, meta: dict) -> dict:
+    def _auth_objects(self, meta: dict) -> None:
+        """SeaweedFS: the host's static test credential, as a Secret in the rehearsal namespace."""
+        access, secret = self.credential()
+        self.kube.create({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                          "metadata": meta | {"name": "bucket-verifier-auth"},
+                          "stringData": {"access": access, "secret": secret}})
+
+    def policies_config_map(self, meta: dict, source: str, candidate: str) -> dict:
+        control = source if self.control is None else self.control(source)
+        return {"apiVersion": "v1", "kind": "ConfigMap", "immutable": True,
+                "metadata": meta | {"name": "bucket-policies"},
+                "data": {"source.json": control, "candidate.json": candidate}}
+
+    def _script(self) -> str:
+        return SCRIPT
+
+    def _env(self, policy: str) -> list[dict]:
         fixture = self.fixture
         env = [{"name": key, "value": value} for key, value in (
             ("ENDPOINT", fixture.endpoint), ("BUCKET", fixture.bucket), ("KEY", fixture.canary_key),
@@ -164,8 +180,15 @@ class SeaweedBucketJob:
             ("AWS_MAX_ATTEMPTS", "1"))]
         env += [{"name": key, "valueFrom": {"secretKeyRef": {"name": "bucket-verifier-auth", "key": part}}}
                 for key, part in (("AWS_ACCESS_KEY_ID", "access"), ("AWS_SECRET_ACCESS_KEY", "secret"))]
+        return env
+
+    def _service_account(self) -> str:
+        return "default"
+
+    def _job(self, namespace, name: str, policy: str, meta: dict) -> dict:
+        fixture = self.fixture
         container = {"name": "run", "image": fixture.image, "imagePullPolicy": "IfNotPresent",
-                     "command": ["/bin/sh", "-c", SCRIPT], "env": env,
+                     "command": ["/bin/sh", "-c", self._script()], "env": self._env(policy),
                      "resources": {"requests": {"cpu": "20m", "memory": "96Mi"},
                                    "limits": {"cpu": "500m", "memory": "256Mi"}},
                      "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
@@ -176,7 +199,7 @@ class SeaweedBucketJob:
                 "spec": {"backoffLimit": 0, "activeDeadlineSeconds": self.deadline_seconds, "template": {
                     "metadata": {"labels": {"role": "bucket-verifier"}},
                     "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
-                             "serviceAccountName": "default",
+                             "serviceAccountName": self._service_account(),
                              "securityContext": {"runAsNonRoot": True, "runAsUser": 65532, "runAsGroup": 65532,
                                                  "seccompProfile": {"type": "RuntimeDefault"}},
                              "volumes": [{"name": "tmp", "emptyDir": {}},
@@ -217,3 +240,84 @@ class SeaweedBucketJob:
         record = {key: execution[key] for key in ("job_uid", "pod_uid", "container_id", "image_id", "exit_code")}
         record["log_sha256"] = hashlib.sha256(log.encode("utf-8")).hexdigest()
         return observation, record
+
+
+# --- cloud targets (ADR-0034 `target.rehearsal`) ---------------------------------------------------
+# Same observation contract and judge as SeaweedFS. No static key enters the rehearsal namespace:
+# the Job runs as a host-prepared service account bound to the rehearsal bucket's admin identity
+# (IRSA role / GKE Workload Identity) that may administer that one bucket only.
+
+S3_SCRIPT = SCRIPT.replace('aws --endpoint-url "$ENDPOINT" ', "aws ")
+GCS_SCRIPT = '''set -u
+applied=no; before=unknown; anon=unknown; after=unknown
+if gcloud storage buckets set-iam-policy "gs://$BUCKET" /policies/"$POLICY" >/dev/null 2>&1; then applied=yes; fi
+if gcloud storage cat "gs://$BUCKET/$KEY" > /tmp/before 2>/dev/null; then
+  if [ "$(sha256sum /tmp/before | cut -d ' ' -f 1)" = "$CANARY_SHA256" ]; then before=matches; else before=differs; fi
+else before=failed; fi
+code=$(curl -s -o /tmp/anon -w '%{http_code}' "$ENDPOINT/$BUCKET/$KEY") || code=000
+if [ "$code" = "200" ]; then anon=allowed; elif [ "$code" = "401" ] || [ "$code" = "403" ]; then anon=denied; fi
+if gcloud storage cat "gs://$BUCKET/$KEY" > /tmp/after 2>/dev/null; then
+  if [ "$(sha256sum /tmp/after | cut -d ' ' -f 1)" = "$CANARY_SHA256" ]; then after=matches; else after=differs; fi
+else after=failed; fi
+printf '{"applied":"%s","authenticated_before":"%s","anonymous":"%s","authenticated_after":"%s"}\\n' "$applied" "$before" "$anon" "$after"
+'''
+_ACCOUNT = re.compile(r"[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?")
+
+
+@dataclass(frozen=True)
+class _CloudBucketJob(SeaweedBucketJob):
+    """``credential`` is unused (pass ``None``); ``service_account`` carries the cloud identity."""
+
+    service_account: str = "rehearsal-bucket-admin"
+    region: str = "us-east-1"
+
+    def __post_init__(self):
+        if _ACCOUNT.fullmatch(self.service_account or "") is None or self.service_account == "default":
+            raise ValueError("a dedicated rehearsal bucket service account is required")
+
+    def _auth_objects(self, meta: dict) -> None:
+        return None
+
+    def _service_account(self) -> str:
+        return self.service_account
+
+
+@dataclass(frozen=True)
+class S3BucketJob(_CloudBucketJob):
+    target_kind: ClassVar[str] = "aws"
+
+    def _script(self) -> str:
+        return S3_SCRIPT
+
+    def _env(self, policy: str) -> list[dict]:
+        f = self.fixture
+        return [{"name": k, "value": v} for k, v in (
+            ("BUCKET", f.bucket), ("KEY", f.canary_key), ("CANARY_SHA256", f.canary_sha256), ("POLICY", policy),
+            ("HOME", "/tmp"), ("AWS_DEFAULT_REGION", self.region), ("AWS_EC2_METADATA_DISABLED", "true"),
+            ("AWS_MAX_ATTEMPTS", "1"))]
+
+
+@dataclass(frozen=True)
+class GcsBucketJob(_CloudBucketJob):
+    """``fixture.endpoint`` is the public object endpoint for the unsigned read
+    (``https://storage.googleapis.com:443``)."""
+
+    target_kind: ClassVar[str] = "gcp"
+
+    def _script(self) -> str:
+        return GCS_SCRIPT
+
+    def _env(self, policy: str) -> list[dict]:
+        f = self.fixture
+        return [{"name": k, "value": v} for k, v in (
+            ("ENDPOINT", f.endpoint), ("BUCKET", f.bucket), ("KEY", f.canary_key), ("CANARY_SHA256", f.canary_sha256),
+            ("POLICY", policy), ("HOME", "/tmp"), ("CLOUDSDK_CONFIG", "/tmp/gcloud"),
+            ("CLOUDSDK_CORE_DISABLE_PROMPTS", "1"))]
+
+
+BUCKET_JOBS: dict[str, type[SeaweedBucketJob]] = {"onprem": SeaweedBucketJob, "aws": S3BucketJob, "gcp": GcsBucketJob}
+
+
+def bucket_job_class(target_kind: str) -> type[SeaweedBucketJob] | str:
+    """The verification Job for a target kind, or ``UNSUPPORTED``."""
+    return BUCKET_JOBS.get(target_kind, UNSUPPORTED)
