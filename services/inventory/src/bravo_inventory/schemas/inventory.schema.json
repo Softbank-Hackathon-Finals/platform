@@ -38,7 +38,9 @@
         "agent_needed": {"type": "boolean"},
         "code_refs": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "file", "line", "snippet"]}},
         "deploy_refs": {"type": "array", "items": {"type": "object", "required": ["kind", "name", "via"]}},
-        "target": {"type": "object"},
+        "target": {"type": "object",
+          "properties": {"source_kind": {"enum": ["aws", "gcp", "onprem"], "description": "ADR-0034 선택 필드: 조합 카탈로그가 목적지 기본값과 다른 값을 줄 때만 쓴다"},
+            "basis": {"enum": ["same_kind", "pair_exception", "target_default"], "description": "ADR-0034 선택 필드: 같은 종류 기본값 · (출발지, 목적지, 역할) 예외 · 목적지 기본값"}}},
         "risk": {"enum": ["", "migration_omission"]}
       },
       "allOf": [
@@ -53,11 +55,15 @@
         "grade_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
         "missing_capabilities": {"type": "array", "items": {"type": "string"}, "description": "역할마다 한 문장. 기능 키를 작은따옴표로 한 번 인용한다(T32가 키를 뽑는다)"},
         "residual_dependencies": {"type": "array", "items": {"type": "string"}},
-        "capabilities": {"type": "object", "additionalProperties": {"$ref": "#/$defs/Capability"}}
+        "capabilities": {"type": "object", "additionalProperties": {"$ref": "#/$defs/Capability"}},
+        "source_kind": {"enum": ["aws", "gcp", "onprem"], "description": "ADR-0034 선택 필드: 출발지 종류(source.env_kind와 같다)"},
+        "migration": {"enum": ["cross_kind", "same_kind_cluster"], "description": "ADR-0034 선택 필드: 같은 종류면 다른 클러스터 · 계정으로의 이전"}
       }},
     "Capability": {"type": "object", "required": ["value", "source"], "additionalProperties": false,
       "description": "value가 unknown이면 감지 불가, absent면 관측했으나 없음. 둘 다 적합성에서 '제공'으로 세지 않는다",
-      "properties": {"value": {"type": "string", "minLength": 1}, "source": {"type": "string", "pattern": "^(declared|observed|unknown): "}},
-      "allOf": [{"if": {"properties": {"value": {"const": "unknown"}}}, "then": {"properties": {"source": {"pattern": "^unknown: "}}}}]}
+      "properties": {"value": {"type": "string", "minLength": 1}, "source": {"type": "string", "pattern": "^(declared|observed|unknown): "},
+        "basis": {"enum": ["managed"], "description": "ADR-0034 선택 필드: managed면 목적지 종류(aws · gcp)의 관리형 서비스라 종류 등록으로 정해진 값. 출처는 declared"}},
+      "allOf": [{"if": {"properties": {"value": {"const": "unknown"}}}, "then": {"properties": {"source": {"pattern": "^unknown: "}}}},
+        {"if": {"required": ["basis"]}, "then": {"properties": {"source": {"pattern": "^declared: "}}}}]}
   }
 }

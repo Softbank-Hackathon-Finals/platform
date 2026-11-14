@@ -56,9 +56,16 @@
 | `grade_counts` | 등급별 개수 |
 | `missing_capabilities` | 역할마다 한 문장. 기능 키를 작은따옴표로 한 번 인용한다(`… 's3_compatible' 기능이 등록되지 않음` 또는 `… 관측되지 않음`). T32가 이 인용으로 키를 뽑으므로 문장 형식을 바꾸면 새 버전이다 |
 | `residual_dependencies` | 이전 뒤에도 남는 외부 의존성(문자열) |
-| `capabilities` | `{기능 키: {value, source}}`. 아래 규칙 |
+| `capabilities` | `{기능 키: {value, source}}`, 선택: `basis`. 아래 규칙 |
+| `source_kind` · `migration` (선택) | 출발지 종류(`source.env_kind`와 같다)와 `cross_kind` · `same_kind_cluster`(같은 종류: 다른 클러스터 · 계정으로의 이전). 판정에 쓰지 않는다 |
 
 `capabilities[*].source`는 `declared: …`(운영자가 등록한 프로필), `observed: …`(읽기 전용으로 본 것), `unknown: …`(감지 불가) 중 하나로 시작한다. `value`가 `unknown`이면 출처도 `unknown:`이어야 한다(스키마가 강제). `value: "absent"`는 완전한 답(서빙 중인 API 그룹 목록, RKE2 노드 인자)에서 없음을 관측한 것이다. `unknown`과 `absent`는 적합성에서 "제공"으로 세지 않는다. 관측이 `unknown`이면 등록값을 덮지 않고, `absent`는 등록값을 덮는다.
+
+**목적지 종류의 관리형 서비스와 조합 카탈로그(선택 필드, [ADR-0034](../adr/0034-environment-kind-adapters.md) A4).** 아래 규칙의 "선택 필드 추가"로 v1(`"1.0"`) 안에서 더했다. 출처 접두어는 늘리지 않는다.
+
+- aws · gcp 후보는 종류 자체가 제공하는 관리형 서비스(aws: `s3_compatible: s3` · `secret_store: secrets-manager` · `kms` · `audit`, gcp: 같은 키의 GCP 서비스)를 프로필에 적지 않아도 가진다. 이 값은 종류 등록으로 정해진 등록값이라 `source: "declared: <종류> 관리형 서비스(종류 기본값)"`, `basis: "managed"`로 쓴다(`basis`가 있으면 출처는 `declared:`, 스키마가 강제). 우선순위는 관리형 < 프로필 등록 < 관측이고, 위 관측 규칙(unknown은 덮지 않음, absent는 덮음, 둘 다 제공 아님)을 그대로 따른다. 온프렘에는 관리형 기본값이 없어 aws→onprem 문서에는 `basis`가 나오지 않는다.
+- `items[].target`에는 조합 카탈로그가 목적지 기본값과 다른 값을 줄 때(같은 종류 이전, `(출발지, 목적지, 역할)` 예외) `source_kind`와 `basis`(`same_kind` · `pair_exception` · `target_default`)가 붙는다. aws→onprem은 모두 목적지 기본값이라 붙지 않는다.
+- aws→onprem 문서는 이 선택 필드를 빼면 추가 전과 같다(`services/inventory/tests/test_develop_parity.py`).
 
 ### 환경 제공 기능 감지(등록 시)
 

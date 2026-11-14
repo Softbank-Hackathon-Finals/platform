@@ -176,3 +176,77 @@ def test_schema_still_rejects_an_overlong_reason():
     doc["excluded"][0]["reason"] = "x" * 201
     with pytest.raises(jsonschema.ValidationError):
         _validator().validate(doc)
+
+
+# --- ADR-0034: any source kind, any candidate kind ----------------------------------------------
+
+def _unlabelled(inv: dict) -> dict:
+    for c in inv["candidates"]:
+        c.pop("source_kind", None)
+        c.pop("migration", None)
+    return inv
+
+
+def test_candidates_of_every_kind_are_scored_the_same_way():
+    base = _unlabelled(_inventory())["candidates"][0]
+    candidates = [dict(base, env_id=f"{kind}-x", env_kind=kind) for kind in ("onprem", "gcp", "aws")]
+    ranked, _ = rule_rank(candidates, "aws")
+    assert len({tuple(c["score"]) for c in ranked}) == 1  # equal counts, equal score, whatever the kind
+    assert [c["env_id"] for c in ranked] == ["aws-x", "gcp-x", "onprem-x"]  # ties break on env_id only
+    assert {c["env_id"]: c["migration"] for c in ranked} == {"aws-x": "same_kind_cluster", "gcp-x": "cross_kind", "onprem-x": "cross_kind"}
+
+
+@pytest.mark.parametrize("source", ["aws", "gcp", "onprem"])
+def test_source_kind_is_read_from_the_inventory_not_assumed(source):
+    inv = _unlabelled(_inventory())
+    inv["source"] = dict(inv["source"], env_kind=source)
+    doc = recommend(inv)
+    assert doc["source_kind"] == source
+    assert all(c["migration"] == ("same_kind_cluster" if c["env_kind"] == source else "cross_kind") for c in doc["candidates"])
+
+
+def test_source_services_are_kind_neutral_and_old_inventories_still_work():
+    doc = recommend(_inventory())
+    assert doc["source_services"] and all(isinstance(s, str) for s in doc["source_services"])
+    old_inv = _unlabelled(_inventory())
+    del old_inv["source"]
+    old = recommend(old_inv)  # pre-ADR-0034 inventory: no kind labels, same ranking
+    assert "source_kind" not in old and all("migration" not in c for c in old["candidates"])
+    assert [c["env_id"] for c in old["candidates"]] == [c["env_id"] for c in doc["candidates"]]
+
+
+def test_model_sees_the_migration_label():
+    seen = {}
+
+    class Spy:
+        def rank(self, candidates):
+            seen["view"] = candidates
+            return {"ranking": [{"env_id": c["env_id"], "rank": i} for i, c in enumerate(candidates, 1)]}
+
+    recommend(_inventory(), Spy())
+    assert seen["view"] and all(c["migration"] == "cross_kind" for c in seen["view"])
+
+
+def test_gcp_credentials_in_ai_reason_are_rejected():
+    ranking = [{"env_id": "onprem-full", "rank": 1, "reason": "key AIza" + "A" * 35}, {"env_id": "onprem-demo", "rank": 2}, {"env_id": "gcp-demo", "rank": 3}]
+    with pytest.raises(AIRankingRejected) as info:
+        validate_ai_ranking({"ranking": ranking}, ["onprem-full", "onprem-demo", "gcp-demo"], [])
+    assert info.value.code == "AI_REASON_POLICY"
+
+
+def test_real_t16_inventory_with_aws_gcp_and_onprem_candidates(tmp_path):
+    """Real T16 scan of an onprem source against one candidate of each kind."""
+    repo = tmp_path / "demo-chat"
+    shutil.copytree(T16 / "tests/fixtures/demo-chat", repo)
+    out = tmp_path / "inventory.json"
+    cli = Path(sys.executable).with_name("bravo-inventory")
+    subprocess.run([str(cli), "scan", "--app-id", "demo-chat", "--repo", str(repo), "--app-path", "app", "--source-env", "onprem-src",
+                    "--source-kind", "onprem", "--namespace", "chat", "--exports", str(T16 / "tests/fixtures/exports/aws"),
+                    "--profile", str(T16 / "profiles/onprem-rke2.json"), "--profile", str(T16 / "tests/fixtures/profiles/aws-eks.json"),
+                    "--profile", str(T16 / "tests/fixtures/profiles/gcp-gke.json"),
+                    "--target-exports", f"onprem-demo={T16 / 'tests/fixtures/exports/onprem'}", "--output", str(out)],
+                   check=True, capture_output=True, text=True)
+    doc = recommend(json.loads(out.read_text(encoding="utf-8")))
+    kinds = {c["env_id"]: (c["env_kind"], c["migration"]) for c in doc["candidates"]}
+    assert kinds == {"onprem-demo": ("onprem", "same_kind_cluster"), "aws-target": ("aws", "cross_kind"), "gcp-target": ("gcp", "cross_kind")}
+    assert doc["recommendation"] == "onprem-demo" and doc["source_kind"] == "onprem"  # same kind: settings only

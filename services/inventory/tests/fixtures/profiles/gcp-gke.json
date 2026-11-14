@@ -1,0 +1,10 @@
+{
+  "env_id": "gcp-target",
+  "env_kind": "gcp",
+  "provides": {
+    "k8s": "gke",
+    "postgres_operator": "cnpg",
+    "secrets_injection": "eso"
+  },
+  "residual_dependencies": ["cloudflare (edge · tunnel)"]
+}

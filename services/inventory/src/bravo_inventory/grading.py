@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .catalog import target_entry
+from .catalog import rationale, target_entry
 from .static_scan import Finding
 
 
@@ -74,24 +74,60 @@ def _grade_object_store(direct: list[Finding], env_names: set[str]) -> tuple[str
     )
 
 
-def grade_role(role: str, sdk_calls: list[Finding], env_names: set[str], env_kind: str) -> tuple[str, str, bool]:
-    """Return (grade, rationale, agent_needed) for one role from its code evidence."""
-    entry = target_entry(env_kind, role)
+def grade_role(role: str, sdk_calls: list[Finding], env_names: set[str], env_kind: str, source_kind: str | None = None) -> tuple[str, str, bool]:
+    """Return (grade, rationale, agent_needed) for one role from its code evidence.
+
+    ``env_kind`` is the target kind. With ``source_kind`` the (source, target, role) hub entry is
+    used (same kind → config_swap, pair exceptions); without it the target default (legacy callers).
+    """
+    entry = target_entry(source_kind, env_kind, role) if source_kind else target_entry(env_kind, role)
     if entry is None:
-        return ("unknown", f"카탈로그에 {env_kind} 목적지의 '{role}' 항목이 없다", True)
+        return ("unknown", rationale(env_kind, "missing", role=role), True)
+    if entry.get("override"):
+        return (str(entry["grade"]), str(entry["reason"]), False)
+    impl, verify = str(entry["impl"]), str(entry["verify"])
     if entry["grade"] == "none":
-        return ("none", f"{env_kind}에 대체 구현이 없다: {entry['verify']}", False)
+        return ("none", rationale(env_kind, "none", verify=verify), False)
     direct = [c for c in sdk_calls if c.kind == "sdk_call"]
     if role == "object_store":
         return _grade_object_store(direct, env_names)
     if role in {"secrets", "kms"}:
         if direct:
-            return ("code_change", f"{entry['impl']}로 바꾸려면 SDK 직접 호출을 주입 방식으로 고쳐야 한다", False)
-        return ("config_swap", "설정 참조만 있어 주입 경로 교체로 충분", False)
+            return ("code_change", rationale(env_kind, "direct_sdk", impl=impl), False)
+        return ("config_swap", rationale(env_kind, "config_only"), False)
     if role == "iam":
-        return ("adapter", "IAM 역할·정책은 목적지 RBAC·저장소 정책으로 번역한다", False)
+        return ("adapter", rationale(env_kind, "iam", impl=impl), False)
     if role == "db":
-        return ("config_swap", "같은 엔진(CNPG). 접속 주소만 교체, 데이터는 복제로 이전", False)
+        return ("config_swap", rationale(env_kind, "db", impl=impl), False)
     if role in {"runtime", "audit", "registry", "observability", "policy"}:
-        return (entry["grade"], entry["verify"], False)
+        return (str(entry["grade"]), str(entry.get("reason") or verify), False)
+    if entry["grade"] == "code_change":  # messaging · function · ai on a cloud target
+        return ("code_change", rationale(env_kind, "api_change", impl=impl, verify=verify), False)
     return ("unknown", "규칙이 판단하지 못한 역할", True)
+
+
+def apply_pair(items: list[Item], source_kind: str, target_kind: str, env_names: set[str]) -> list[Item]:
+    """Re-grade reconciled items for the (source, target) pair (ADR-0034 role hub).
+
+    ``reconcile`` grades against the target default; this pass applies the same-kind default and
+    the pair exceptions. Items whose pair entry is the target default are left untouched, so the
+    aws→onprem output is exactly what it was. Rules only: an agent-needed flag is never cleared.
+    """
+    for it in items:
+        if it.role == "unknown" or it.grade_by != "rule":
+            continue
+        entry = target_entry(source_kind, target_kind, it.role)
+        if entry is None or entry["basis"] == "target_default":
+            continue
+        before = it.rationale
+        if it.risk:  # deploy-only: the catalog default for the pair applies
+            it.grade = str(entry["grade"])
+            it.rationale = f"{before} 조합 {source_kind}→{target_kind}: {entry['reason']}"
+        else:
+            calls = [Finding(r["id"], r["kind"], it.role, it.service, r["file"], r["line"], r["snippet"], dict(r.get("detail", {}))) for r in it.code_refs]
+            grade, text, agent = grade_role(it.role, calls, env_names, target_kind, source_kind)
+            it.grade = grade
+            it.rationale = text if not it.agent_needed or agent else f"{text} / 규칙 메모: {before}"
+            it.agent_needed = it.agent_needed or agent
+        it.target = {**it.target, "impl": str(entry["impl"]), "verify": str(entry["verify"]), "source_kind": source_kind, "basis": str(entry["basis"])}
+    return items
