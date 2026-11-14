@@ -9,7 +9,7 @@
 2. 사용자의 작업은 이슈 Assignees로 찾고, **선행** 작업이 끝났는지 확인한다. `통합 시점` 작업은 시작 조건이 아니다(모의 환경으로 먼저 시작하고 완료 확인만 그 뒤에 한다).
 3. `develop`에서 `feature/T번호-설명` 브랜치를 만들고 `develop`으로 PR을 올린다. `main`은 release/hotfix로 반영한다. 승인·CODEOWNERS·tasks.md 전용 예외·봇 PR 병합은 [개발 규약](docs/development.md#브랜치와-병합)과 현재 GitHub 규칙을 따른다. 보호 규칙을 우회하지 않는다.
    다른 담당자의 열린 태스크를 바꾸기 전에는 [담당 범위 규약](docs/development.md#담당-태스크를-넘는-변경)에 따라 범위를 합의한다. 로컬 세션 배정이나 사후 승인은 이를 대신하지 않는다.
-4. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 PR 머지 후 **이슈에서** 체크한다(`python3 scripts/sync_tasks.py tick T번호 순번`). tasks.md 체크박스와 담당은 봇이 고친다.
+4. 커밋 메시지와 PR 제목 앞에 `[T번호]`. [ADR-0034](docs/adr/0034-environment-kind-adapters.md) 3×3 작업은 `[A번호]`와 `feature/A번호-설명` 브랜치를 쓴다. 끝낸 할 일은 PR 머지 후 **이슈에서** 체크한다(`python3 scripts/sync_tasks.py tick T번호 순번`). tasks.md 체크박스와 담당은 봇이 고친다.
 
 리뷰 요청 대상은 [파트별 리뷰 기준](docs/review-routing.md)에 따라 작업 번호의 주·부 참여자를 모두 포함하고 작성자는 제외한다. 초기 허들 댓글만으로 후속 공식 배정을 되돌리지 않는다.
 

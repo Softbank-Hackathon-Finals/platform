@@ -45,7 +45,8 @@ class BucketVerifier:
         if not isinstance(task, BucketPolicyTask):
             raise ValueError("bucket task required")
         if task != prepare_bucket_policy_task(
-            task.run_id, task.source_policy, task.target_bucket, source_sha=task.source_sha
+            task.run_id, task.source_policy, task.target_bucket, source_sha=task.source_sha,
+            source_kind=task.source_kind, target_kind=task.target_kind,
         ):
             raise ValueError("invalid bucket task")
         if (not isinstance(proposal, ProposalRef) or proposal.run_id != task.run_id

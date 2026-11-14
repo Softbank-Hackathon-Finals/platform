@@ -285,3 +285,19 @@ PYTHONPATH=../rehearsal-runner/src:../rehearsal-runner/tests uv run --frozen --n
 ```
 
 시험은 응답·기록을 계약 스키마 파일로 검증한다. 가짜 kubectl과 로컬 소켓만 쓰며, 실제 클러스터의 가장 권한·도구용 Pod 기동·NetworkPolicy 아래 접속 확인은 아직 실측하지 않았다.
+
+## 중립 번역과 목적지 종류 (A5, ADR-0034)
+
+번역은 `출발지 정책 → 중립 모델 → 목적지 렌더` 한 길뿐이다(`rehearsal_runner/neutral/`, 표준 라이브러리만 쓴다).
+
+| 칸 | aws | gcp | onprem |
+|---|---|---|---|
+| `source.neutral_export` 객체 | S3 버킷 정책 | GCS IAM 정책 | SeaweedFS `s3.json` |
+| `source.neutral_export` 비밀(메타데이터만) | Secrets Manager `describe-secret` | Secret Manager `Secret` | OpenBao KV 경로 |
+| `target.neutral_apply` 객체 | S3 버킷 정책 | GCS IAM 바인딩 | `s3.json`(현재 파일 위에 덧씀, 자격은 옮기기만) |
+| `target.neutral_apply` 비밀 | SecretStore(IRSA) + ExternalSecret | SecretStore(Workload Identity) + ExternalSecret | T9 OpenBao 전달 |
+| `target.rehearsal` | Job 명세만(`S3BucketJob`, ESO 작성 Job) → `UNSUPPORTED` | Job 명세만(`GcsBucketJob`) → `UNSUPPORTED` | 기존 구현 → `READY` |
+
+* 주체를 워크로드(namespace/serviceaccount)로 매핑하지 못하면 `unresolved`로 남기고 렌더러는 권한을 주지 않는다(`skipped`). 의미를 바꾸지 않고는 표현할 수 없는 문장(모두에게 거는 Deny 등)은 `NeutralError`로 거부한다. 비밀 값이 든 입력은 걸러 내지 않고 거부한다.
+* 작업(`BucketPolicyTask`, `CredentialMigrationTask`)은 `source_kind`·`target_kind`를 가진다. 기본 aws → onprem은 모델 입력·요약·작업 digest·SeaweedFS Job 명세가 바이트 단위로 같다(`tests/test_neutral_golden.py`). 다른 조합은 대조군 정책을 `rehearsal_policy.control_policy`로 렌더한다.
+* aws·gcp 리허설이 `UNSUPPORTED`인 이유: 격리 프로필(`isolation/profile.py`)이 클러스터 밖 API 송신 범위를 확인하지 못하고(A8), 자격 Job이 실제 EKS·GKE에서 돌지 않았다(A11). 계획 등록은 `adapters.rejections()`로 `adapter_missing:target.rehearsal`을 받는다.

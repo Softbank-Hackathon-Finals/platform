@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .runner import Namespace, ProposalRef
-from .secret_task import CredentialMigrationTask, prepare_credential_migration
+from .secret_task import CredentialMigrationTask, same_task
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class CredentialVerifier:
         if type(self.attempt) is not int or not 1 <= self.attempt <= 3:
             raise ValueError("invalid verification attempt")
         if (not isinstance(task, CredentialMigrationTask)
-                or task != prepare_credential_migration(task.run_id, task.source_sha)):
+                or task != same_task(task)):
             raise ValueError("invalid credential migration task")
         if (not isinstance(proposal, ProposalRef) or proposal.run_id != task.run_id
                 or proposal.source_sha != task.source_sha
