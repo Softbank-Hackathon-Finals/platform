@@ -37,8 +37,8 @@ def prepare(root: Path, new: str, base: str, today: str) -> tuple[str, str]:
     """Validate all inputs before any write; never switch, stage, tag or push."""
     number(new)
     branch = git(root, "branch", "--show-current").decode().strip()
-    if not re.fullmatch(r"feature/T[0-9]+-.+", branch):
-        raise ValueError("run on a feature/Tnumber-description branch")
+    if not re.fullmatch(r"feature/[TA][0-9]+-.+", branch):
+        raise ValueError("run on a feature/Tnumber-description or feature/Anumber-description branch")
     if base.startswith("-"):
         raise ValueError("invalid base revision")
     commit = git(root, "rev-parse", "--verify", base + "^{commit}").decode().strip()

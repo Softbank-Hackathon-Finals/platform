@@ -11,7 +11,17 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from .aws_identity import RegisteredRole, verified_client
-from .aws_probes import ObjectTarget, _canonical, _digest, _failure, _http, _principal
+from .aws_probes import (
+    ObjectTarget,
+    _canonical,
+    _digest,
+    _failure,
+    _http,
+    _object_client,
+    _object_principal,
+    _object_read,
+    _principal,
+)
 from .runner import Observation, RunContext, TestSpec, _utc
 
 SPEC = TestSpec("ISO-01.1", "ISO-01", "1", "deny", "required")
@@ -51,6 +61,8 @@ class S3IsolationReader:
         if (
             not isinstance(owner, ObjectTarget)
             or not isinstance(other, ObjectTarget)
+            or owner.provider != "s3"
+            or other.provider != "s3"
             or owner.app == other.app
             or owner.environment != other.environment
             or owner.bucket == other.bucket
@@ -148,6 +160,108 @@ class S3IsolationReader:
             _utc(self.clock()),
             {
                 "identity_sha256": _digest(_canonical([owner_identity, other_identity])),
+                "positive_before": before,
+                "positive_after": after,
+                "cross": outcome,
+            },
+        )
+
+
+class ClientObjectIsolationReader:
+    """ISO-01.1 object leg for onprem SeaweedFS (``s3-compatible``) and gcp (``gcs``).
+
+    Same positive-before / cross / positive-after method as ``S3IsolationReader``, but
+    the server supplies two pre-bound clients: SeaweedFS static S3 identities, or two
+    GKE Workload Identity principals (KSA → GSA). There is no STS here, so identity
+    verification belongs to the server registration; labels are bound into evidence.
+    """
+
+    providers = ("s3-compatible", "gcs")
+
+    def __init__(
+        self,
+        owner,
+        other,
+        *,
+        owner_client,
+        other_client,
+        owner_principal,
+        other_principal,
+        read_registration,
+        clock=lambda: datetime.now(UTC),
+    ):
+        if (
+            not isinstance(owner, ObjectTarget)
+            or not isinstance(other, ObjectTarget)
+            or owner.provider not in self.providers
+            or owner.provider != other.provider
+            or owner.app == other.app
+            or owner.environment != other.environment
+            or owner.bucket == other.bucket
+            or (owner.account_id, owner.endpoint_url) != (other.account_id, other.endpoint_url)
+            or owner_client is other_client
+            or owner_principal == other_principal
+            or not all(callable(x) for x in (read_registration, clock))
+        ):
+            raise ValueError("distinct registered apps, resources and principals required")
+        for principal in (owner_principal, other_principal):
+            _object_principal(owner, principal)
+        self.owner, self.other = owner, other
+        self.owner_client, self.other_client = owner_client, other_client
+        self.principals = (owner_principal, other_principal)
+        self.registration, self.clock = read_registration, clock
+        self.app, self.other_app, self.environment = owner.app, other.app, owner.environment
+        self._validate()
+
+    def _validate(self):
+        _object_client(self.owner, self.owner_client)
+        _object_client(self.other, self.other_client)
+
+    @property
+    def binding(self):
+        return _digest(
+            _canonical(
+                {
+                    "owner": self.owner.binding(),
+                    "other": self.other.binding(),
+                    "apps": [self.app, self.other_app],
+                    "principals": list(self.principals),
+                }
+            )
+        )
+
+    def __call__(self, context, nonce):
+        if context.app != self.app or context.environment != self.environment:
+            raise ValueError("object scope mismatch")
+        binding = self.binding
+        if self.registration(context) != binding:
+            raise ValueError("object registration unavailable")
+        self._validate()
+
+        def read(client, target):
+            outcome, _, reason = _object_read(target, client)
+            return outcome, reason
+
+        before = [read(self.owner_client, self.owner)[0], read(self.other_client, self.other)[0]]
+        cross = (
+            read(self.other_client, self.owner) if before == ["allow", "allow"] else (None, "NOT_RUN")
+        )
+        after = [read(self.owner_client, self.owner)[0], read(self.other_client, self.other)[0]]
+        if self.registration(context) != binding:
+            raise ValueError("object registration changed")
+        positive = before == after == ["allow", "allow"]
+        outcome, reason = cross if positive else (None, "POSITIVE_CONTROL_FAILED")
+        return AccessLeg(
+            context,
+            nonce,
+            binding,
+            positive,
+            outcome,
+            reason,
+            _utc(self.clock()),
+            {
+                "provider": self.owner.provider,
+                "identity_sha256": _digest(_canonical(list(self.principals))),
                 "positive_before": before,
                 "positive_after": after,
                 "cross": outcome,

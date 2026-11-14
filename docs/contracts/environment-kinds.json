@@ -1,0 +1,54 @@
+{
+  "schema_version": "bravo.environment-kinds/v1",
+  "adr": "docs/adr/0034-environment-kind-adapters.md",
+  "kinds": {
+    "aws": {
+      "runtime": "eks",
+      "identity": "irsa",
+      "object_store": "s3",
+      "secrets": "secrets-manager",
+      "kms": "kms",
+      "audit": "cloudtrail+cloudwatch",
+      "endpoint_suffixes": ["amazonaws.com"],
+      "scope_keys": ["account_id", "region"]
+    },
+    "gcp": {
+      "runtime": "gke",
+      "identity": "workload-identity",
+      "object_store": "gcs",
+      "secrets": "secret-manager",
+      "kms": "cloud-kms",
+      "audit": "cloud-audit-logs",
+      "endpoint_suffixes": ["googleapis.com"],
+      "scope_keys": ["project_id", "region"]
+    },
+    "onprem": {
+      "runtime": "rke2",
+      "identity": "k8s-sa+openbao",
+      "object_store": "seaweedfs",
+      "secrets": "openbao+eso",
+      "kms": "openbao-transit",
+      "audit": "rke2-audit+pgaudit",
+      "endpoint_suffixes": [],
+      "scope_keys": ["cluster_uid"]
+    }
+  },
+  "roles": ["source", "target"],
+  "slots": {
+    "source.static_rules": "SDK · IaC · endpoint usage → platform role. A source kind decides whether an S3-compatible call is a cloud dependency.",
+    "source.deploy_trace": "namespace → workload identity → policy → resources (DeployAdapter).",
+    "source.neutral_export": "source object/secret policy → neutral model (neutral-models.schema.json).",
+    "source.exit_scope": "residual-dependency block list for the exit drill, scoped so a same-kind target is not blocked.",
+    "target.catalog": "role → target implementation, grade, verification, capability.",
+    "target.neutral_apply": "neutral model → target object exposure and secret delivery.",
+    "target.rehearsal": "isolated rehearsal profile, credential job and bucket job on the target.",
+    "target.build": "stack that builds the target with the common base (Kubernetes, CNPG, PgBouncer, Tailscale operator, cloudflared).",
+    "both.control_probes": "(kind, test_id) → probe for the control tests that are not kind-neutral.",
+    "both.identity": "read-only identity and connectivity check at registration."
+  },
+  "kind_neutral_controls": ["ENC-01", "NET-01", "DR-01"],
+  "unsupported": "UNSUPPORTED",
+  "plan_rejection_prefix": "adapter_missing:",
+  "common_base": ["kubernetes", "cnpg", "pgbouncer", "tailscale-operator", "cloudflared"],
+  "same_kind": "allowed when the two environments differ in cluster identity and database identity"
+}

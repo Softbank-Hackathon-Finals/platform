@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Softbank-Hackathon-Finals/platform/docs/contracts/neutral-models.schema.json",
+  "title": "Neutral models for cross-kind translation (ADR-0034)",
+  "description": "Exporters turn a source policy into one of these documents; appliers render it for the target. Documents never carry secret values or credentials.",
+  "oneOf": [
+    {"$ref": "#/$defs/ObjectAccessPolicy"},
+    {"$ref": "#/$defs/SecretBinding"}
+  ],
+  "$defs": {
+    "Kind": {"enum": ["aws", "gcp", "onprem"]},
+    "Workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "namespace", "service_account"],
+      "properties": {
+        "kind": {"const": "workload"},
+        "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
+        "service_account": {"type": "string", "pattern": "^[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$"}
+      }
+    },
+    "Principal": {
+      "oneOf": [
+        {"$ref": "#/$defs/Workload"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "anonymous"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "ref"],
+          "description": "A principal the exporter could not map to a workload. Appliers must not grant it; the item becomes agent_needed.",
+          "properties": {"kind": {"const": "unresolved"}, "ref": {"type": "string", "maxLength": 256}}
+        }
+      ]
+    },
+    "SourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/Kind"},
+        "ref": {"type": "string", "maxLength": 512, "description": "Masked source identifier (bucket name, secret name). Never a value."}
+      }
+    },
+    "ObjectAccessPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "bucket", "source", "grants", "public_read", "public_list", "tls_required"],
+      "properties": {
+        "schema": {"const": "bravo.neutral.object-access/v1"},
+        "bucket": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"},
+        "source": {"$ref": "#/$defs/SourceRef"},
+        "grants": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["principal", "actions"],
+            "properties": {
+              "principal": {"$ref": "#/$defs/Principal"},
+              "actions": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"enum": ["read", "write", "list", "delete"]}
+              },
+              "prefix": {"type": "string", "maxLength": 256, "default": ""}
+            }
+          }
+        },
+        "public_read": {"type": "boolean"},
+        "public_list": {"type": "boolean"},
+        "tls_required": {"type": "boolean"}
+      }
+    },
+    "SecretBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "logical_name", "source", "keys", "consumers"],
+      "properties": {
+        "schema": {"const": "bravo.neutral.secret-binding/v1"},
+        "logical_name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
+        "source": {"$ref": "#/$defs/SourceRef"},
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$"}
+        },
+        "consumers": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/Workload"}},
+        "rotation_required": {"type": "boolean", "default": false}
+      }
+    }
+  }
+}

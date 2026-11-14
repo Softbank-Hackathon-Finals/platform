@@ -6,7 +6,9 @@ uploaded JSON. In particular scope binds the environment, immutable input revisi
 scanner configuration and exclusions. ``complete`` means that collector verified the
 whole approved scope was scanned without truncation, timeout or collection errors.
 
-No IAM-01.2 mapping is provided: real tool/version/target qualification is still due.
+No *qualified* IAM-01.2 mapping is provided: real tool/version/target qualification is
+still due. ``iam_probes.rke2_rbac_mapping`` is the onprem candidate (kube-bench 0.10.2,
+rke2-cis-1.7 section 5.1); its checks are manual, so it yields UNKNOWN, never PASS.
 Shapes were checked against upstream sources. Synthetic tests are supplemented by
 captured manual/WARN output projections; those are not live cluster qualifications.
 See docs/evidence/t14-kube-bench-2026-11-03 in the repository root.
