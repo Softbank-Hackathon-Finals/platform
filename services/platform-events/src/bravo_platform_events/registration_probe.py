@@ -1,4 +1,4 @@
-"""Read-only registration adapter for the P0 EKS and on-prem Kubernetes pair."""
+"""Read-only registration adapter for EKS, GKE and on-prem Kubernetes (both.identity)."""
 
 import hashlib
 import json
@@ -6,12 +6,15 @@ import os
 import re
 import ssl
 import subprocess
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+
+from .registration_kinds import KINDS, LEGACY_DEFAULT_ROLES, ROLES
 
 
 class ProbeUnavailable(RuntimeError):
@@ -31,25 +34,35 @@ class EnvironmentRef:
     read_token: Callable[[], str] = field(repr=False)
     tls_name: str | None = None
     catalog_role: str | None = field(default=None, kw_only=True)
+    # Owner-provisioned metadata.uid of the kube-system namespace. When set, the
+    # probe verifies it and records a cluster identity; same-kind plans need it.
+    cluster_uid: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self):
         url = urlsplit(self.endpoint)
         if (url.scheme != "https" or not url.hostname or url.username or url.password
                 or url.path not in ("", "/") or url.query or url.fragment):
             raise ValueError("invalid_registration_endpoint")
-        if self.kind not in ("aws", "onprem") or not self.database_uid:
+        if self.kind not in KINDS or not self.database_uid:
             raise ValueError("invalid_environment_reference")
-        if self.catalog_role is not None:
-            allowed = ("source", "target") if self.kind == "onprem" else ("source",)
-            if self.catalog_role not in allowed:
-                raise ValueError("invalid_environment_role")
+        if self.cluster_uid is not None and (type(self.cluster_uid) is not str or not self.cluster_uid):
+            raise ValueError("invalid_environment_reference")
+        # Any kind may be a source or a target (ADR-0034). The role is never inferred
+        # from the kind, except the deprecated default for P0 catalogs below.
+        if self.catalog_role is None:
+            if self.kind not in LEGACY_DEFAULT_ROLES:
+                raise ValueError("environment_role_required")
+            warnings.warn("catalog_role is required; the aws=source, onprem=target default is deprecated",
+                          DeprecationWarning, stacklevel=3)
+        elif self.catalog_role not in ROLES:
+            raise ValueError("invalid_environment_role")
         for name in (self.namespace, self.database):
             if not re.fullmatch(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?", name):
                 raise ValueError("invalid_resource_name")
 
     @property
     def role(self):
-        return self.catalog_role or {"aws": "source", "onprem": "target"}[self.kind]
+        return self.catalog_role or LEGACY_DEFAULT_ROLES[self.kind]
 
 
 @dataclass(frozen=True)
@@ -240,6 +253,12 @@ class KubernetesProbe:
                 observed = dict(namespace=env.namespace, database=env.database,
                                 database_identity=hashlib.sha256(env.database_uid.encode()).hexdigest(),
                                 collector=subject, read_access="verified", warnings=warnings, write_checks=writes)
+                if env.cluster_uid is not None:
+                    # Needs only `get` on namespaces/kube-system (resourceNames-scoped ClusterRole).
+                    ns = request("GET", "/api/v1/namespaces/kube-system")["metadata"]
+                    if ns["name"] != "kube-system" or ns["uid"] != env.cluster_uid:
+                        raise ProbeUnavailable("environment_replaced")
+                    observed["cluster_identity"] = hashlib.sha256(env.cluster_uid.encode()).hexdigest()
                 if release is not None:
                     observed.update(_observe_release(env, release, request))
                 return observed

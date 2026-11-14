@@ -10,6 +10,7 @@ from threading import Barrier
 import pytest
 from fastapi.testclient import TestClient
 
+from bravo_platform_events import registration_kinds
 from bravo_platform_events.operator_identity import OperatorPrincipal
 from bravo_platform_events.registration import Registry
 from bravo_platform_events.registration_api import create_registration_app
@@ -37,6 +38,8 @@ class Probe:
             raise ProbeUnavailable("required_read_denied")
         result = dict(namespace=env.namespace, database="chat", database_identity=env.database_uid,
                       collector="scoped-reader", warnings=[], read_access="verified")
+        if env.cluster_uid is not None:
+            result["cluster_identity"] = "cluster:" + env.cluster_uid
         if self.fault == "replacement":
             result["database_identity"] = "recreated"
         if release:
@@ -163,6 +166,22 @@ def test_profile_policy_is_tenant_bound_and_missing_policy_denies_new_plans(regi
         assert f.probe.results == []
 
 
+def test_happy_path_plan_is_accepted_with_packaged_readiness(registered):
+    """operations/demo-set/register_plan.py: aws -> onprem, demo-gate/1 + apply-recheck/1, P0 catalog
+    without catalog_role or cluster_uid. ADR-0034 checks must not change this develop flow."""
+    f = registered
+    assert f.registry.adapter_readiness == registration_kinds.adapter_readiness()
+    f.registry.evaluation_profiles = frozenset({(TENANT, "demo-gate", "1"), (TENANT, "apply-recheck", "1")})
+    body = f.setup_workload() | {"profile_id": "demo-gate", "profile_version": "1"} | RECHECK
+    created = f.post("plans", body, "demo-key")
+    assert created.status_code == 201
+    receipt = created.json()
+    assert (receipt["source_environment_id"], receipt["target_environment_id"], receipt["state"],
+            receipt["version"]) == ("env-src", "env-dst", "COLLECT", 1)
+    assert (receipt["profile_id"], receipt["recheck_profile_id"]) == ("demo-gate", "apply-recheck")
+    assert f.post("plans", body, "demo-key").json() == receipt
+
+
 def test_recheck_profile_is_immutable_tenant_allowed_and_digest_bound(registered):
     from bravo_platform_events.registration import digest
 
@@ -258,6 +277,29 @@ def test_missing_foreign_or_unapproved_refs_never_probe(registered):
     assert f.probe.results == []
 
 
+def same_kind(f, kind, *, source_cluster="cluster-a", target_cluster="cluster-b"):
+    """Re-provision both references as one kind; same-kind plans need cluster identity."""
+    for ref, role, cluster in ((SRC["connection_ref"], "source", source_cluster),
+                               (DST["connection_ref"], "target", target_cluster)):
+        key = (TENANT, ref)
+        f.registry.environments[key] = replace(f.registry.environments[key], kind=kind,
+                                               catalog_role=role, cluster_uid=cluster)
+    return SRC | {"kind": kind}, DST | {"kind": kind}
+
+
+def register_pair(f, source, target):
+    assert f.post("environments", source, "src-key").status_code == 201
+    assert f.post("environments", target, "dst-key").status_code == 201
+    app = f.post("workloads", APP, "app-key")
+    assert app.status_code == 201
+    return {"workload_id": app.json()["workload_id"], "target_environment_id": "env-dst", **PROFILE}
+
+
+def all_slots_ready(f, *kinds):
+    f.registry.adapter_readiness = registration_kinds.adapter_readiness(
+        {kind: list(registration_kinds.SLOTS) for kind in kinds})
+
+
 def test_onprem_source_requires_its_own_catalog_role(registered):
     f = registered
     ref = (TENANT, SRC["connection_ref"])
@@ -275,11 +317,155 @@ def test_onprem_source_requires_its_own_catalog_role(registered):
     assert f.post("plans", body, "plan-key").json() == receipt
 
 
-@pytest.mark.parametrize(("kind", "role"), [("aws", "target"), ("onprem", "both"), ("onprem", "")])
+@pytest.mark.parametrize(("kind", "role"), [("onprem", "both"), ("onprem", ""), ("gcp", "primary")])
 def test_invalid_catalog_role_is_rejected(tmp_path, kind, role):
     with pytest.raises(ValueError, match="invalid_environment_role"):
         EnvironmentRef(TENANT, "env", kind, "app", "db", "uid", "https://api.example.invalid",
                        tmp_path / "ca", lambda: "test-only", catalog_role=role)
+
+
+@pytest.mark.parametrize("kind", registration_kinds.KINDS)
+@pytest.mark.parametrize("role", registration_kinds.ROLES)
+def test_every_kind_takes_either_role_from_the_catalog(tmp_path, kind, role):
+    env = EnvironmentRef(TENANT, "env", kind, "app", "db", "uid", "https://api.example.invalid",
+                         tmp_path / "ca", lambda: "test-only", catalog_role=role)
+    assert env.role == role
+
+
+def test_role_default_is_legacy_only_and_deprecated(tmp_path):
+    args = (TENANT, "env")
+    rest = ("app", "db", "uid", "https://api.example.invalid", tmp_path / "ca", lambda: "test-only")
+    with pytest.warns(DeprecationWarning):
+        assert EnvironmentRef(*args, "aws", *rest).role == "source"
+    with pytest.warns(DeprecationWarning):
+        assert EnvironmentRef(*args, "onprem", *rest).role == "target"
+    with pytest.raises(ValueError, match="environment_role_required"):
+        EnvironmentRef(*args, "gcp", *rest)
+    with pytest.raises(ValueError, match="invalid_environment_reference"):
+        EnvironmentRef(*args, "azure", *rest, catalog_role="source")
+
+
+def test_gcp_environment_registers_with_its_catalog_role(registered):
+    f = registered
+    for ref, role in ((SRC["connection_ref"], "source"), (DST["connection_ref"], "target")):
+        key = (TENANT, ref)
+        f.registry.environments[key] = replace(f.registry.environments[key], kind="gcp", catalog_role=role)
+    created = f.post("environments", SRC | {"kind": "gcp"}, "gcp-src")
+    assert created.status_code == 201 and created.json()["kind"] == "gcp" and created.json()["role"] == "source"
+    target = f.post("environments", DST | {"kind": "gcp"}, "gcp-dst")
+    assert target.status_code == 201 and target.json()["role"] == "target"
+    assert f.post("environments", SRC | {"kind": "azure"}, "azure").status_code == 422
+
+
+def test_aws_target_is_registered_but_pair_needs_ready_adapters(registered):
+    f = registered
+    ref = (TENANT, DST["connection_ref"])
+    f.registry.environments[ref] = replace(f.registry.environments[ref], kind="aws", catalog_role="target",
+                                           cluster_uid="cluster-b")
+    src_ref = (TENANT, SRC["connection_ref"])
+    f.registry.environments[src_ref] = replace(f.registry.environments[src_ref], catalog_role="source",
+                                               cluster_uid="cluster-a")
+    assert f.post("environments", SRC, "src-key").status_code == 201
+    target = f.post("environments", DST | {"kind": "aws"}, "dst-key")
+    assert target.status_code == 201 and target.json()["role"] == "target"
+    app = f.post("workloads", APP, "app-key").json()
+    body = {"workload_id": app["workload_id"], "target_environment_id": "env-dst", **PROFILE}
+    f.probe.results.clear()
+    refused = f.post("plans", body, "plan-key")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "adapter_missing:target.rehearsal"
+    assert f.probe.results == []
+    all_slots_ready(f, "aws")
+    assert f.post("plans", body, "plan-key2").status_code == 201
+
+
+@pytest.mark.parametrize(("source_kind", "target_kind", "code"), [
+    ("aws", "onprem", None),
+    ("gcp", "onprem", None),
+    ("onprem", "onprem", None),
+    ("aws", "aws", "target.rehearsal"),
+    ("aws", "gcp", "target.rehearsal"),
+    ("gcp", "aws", "target.rehearsal"),
+    ("gcp", "gcp", "target.rehearsal"),
+    ("onprem", "aws", "target.rehearsal"),
+    ("onprem", "gcp", "target.rehearsal"),
+])
+def test_default_readiness_follows_the_implemented_slots(source_kind, target_kind, code):
+    # A3-A10 fill every slot for every kind except target.rehearsal, which A5 has
+    # only for onprem (aws and gcp report UNSUPPORTED).
+    readiness = registration_kinds.adapter_readiness()
+    assert registration_kinds.missing_slot(readiness, source_kind, target_kind) == code
+
+
+def test_partial_target_readiness_names_the_missing_slot():
+    slots = [s for s in registration_kinds.SLOTS if s != "target.rehearsal"]
+    readiness = registration_kinds.adapter_readiness({"gcp": slots})
+    assert registration_kinds.missing_slot(readiness, "aws", "gcp") == "target.rehearsal"
+    readiness = registration_kinds.adapter_readiness({"gcp": [s for s in slots if s != "both.identity"]})
+    assert registration_kinds.missing_slot(readiness, "gcp", "onprem") == "both.identity"
+
+
+@pytest.mark.parametrize("override", [{"azure": []}, {"aws": ["target.unknown"]}, {"aws": "source.static_rules"},
+                                      {"aws": ["both.identity", "both.identity"]}, []])
+def test_invalid_readiness_override_is_rejected(override):
+    with pytest.raises(ValueError, match="invalid_adapter_readiness"):
+        registration_kinds.adapter_readiness(override)
+
+
+@pytest.mark.parametrize("kind", registration_kinds.KINDS)
+def test_same_kind_plan_needs_distinct_cluster_identity(registered, kind):
+    f = registered
+    source, target = same_kind(f, kind, source_cluster="shared", target_cluster="shared")
+    all_slots_ready(f, kind)
+    body = register_pair(f, source, target)
+    refused = f.post("plans", body, "plan-key")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "same_cluster_identity"
+
+
+@pytest.mark.parametrize("kind", ["aws", "gcp"])
+def test_same_kind_plan_without_cluster_identity_is_refused(registered, kind):
+    f = registered
+    source, target = same_kind(f, kind, source_cluster=None)
+    all_slots_ready(f, kind)
+    body = register_pair(f, source, target)
+    refused = f.post("plans", body, "plan-key")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "cluster_identity_unverified"
+
+
+def test_onprem_same_kind_plan_keeps_the_t10_rule_without_cluster_identity(registered):
+    """e38c5983: on-prem -> on-prem on distinct databases was accepted before cluster identity."""
+    f = registered
+    source, target = same_kind(f, "onprem", source_cluster=None, target_cluster=None)
+    body = register_pair(f, source, target)
+    created = f.post("plans", body, "plan-key")
+    assert created.status_code == 201 and created.json()["state"] == "COLLECT"
+
+
+def test_same_kind_plan_with_distinct_clusters_and_databases_is_created(registered):
+    f = registered
+    source, target = same_kind(f, "aws")
+    all_slots_ready(f, "aws")
+    body = register_pair(f, source, target)
+    created = f.post("plans", body, "plan-key")
+    assert created.status_code == 201 and created.json()["state"] == "COLLECT"
+
+
+def test_registered_cluster_identity_must_not_change(registered):
+    f = registered
+    source, target = same_kind(f, "aws")
+    all_slots_ready(f, "aws")
+    body = register_pair(f, source, target)
+    key = (TENANT, DST["connection_ref"])
+    f.registry.environments[key] = replace(f.registry.environments[key], cluster_uid="rebuilt")
+    refused = f.post("plans", body, "plan-key")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "environment_changed"
+
+
+def test_kind_constants_match_the_contract():
+    contract = json.loads((Path(__file__).parents[3] / "docs/contracts/environment-kinds.json").read_text())
+    assert set(registration_kinds.KINDS) == set(contract["kinds"])
+    assert list(registration_kinds.ROLES) == contract["roles"]
+    assert list(registration_kinds.SLOTS) == list(contract["slots"])
+    assert registration_kinds.REJECTION_PREFIX == contract["plan_rejection_prefix"]
 
 
 def test_existing_source_receipt_cannot_be_rebound_to_another_kind(registered):

@@ -6,10 +6,18 @@ const paths = {
   workload: "/v1/workloads",
   plan: "/v1/plans",
 };
-const environmentChoices = new Map([
-  ["aws", { kind: "aws", role: "source" }],
-  ["onprem", { kind: "onprem", role: "target" }],
-  ["onprem-source", { kind: "onprem", role: "source" }],
+// ADR-0034: every kind may be a source or a target. The server catalog decides
+// which role an alias has; the console offers kind x role as one choice. The
+// first three values are the P0 screen's choices and keep their meaning.
+export const environmentKinds = Object.freeze(["aws", "gcp", "onprem"]);
+export const environmentRoles = Object.freeze(["source", "target"]);
+export const environmentChoices = new Map([
+  ["aws", Object.freeze({ kind: "aws", role: "source" })],
+  ["onprem", Object.freeze({ kind: "onprem", role: "target" })],
+  ["onprem-source", Object.freeze({ kind: "onprem", role: "source" })],
+  ["aws-target", Object.freeze({ kind: "aws", role: "target" })],
+  ["gcp-source", Object.freeze({ kind: "gcp", role: "source" })],
+  ["gcp-target", Object.freeze({ kind: "gcp", role: "target" })],
 ]);
 const fields = {
   environment: ["name", "kind", "roles", "connection_ref"],
@@ -91,9 +99,8 @@ export function registrationInput(kind, input) {
     kind === "environment" &&
     (!Array.isArray(value.roles) ||
       value.roles.length !== 1 ||
-      !Array.from(environmentChoices.values()).some(
-        ({ kind, role }) => kind === value.kind && role === value.roles[0],
-      ))
+      !environmentKinds.includes(value.kind) ||
+      !environmentRoles.includes(value.roles[0]))
   )
     throw new ApiError("invalid_registration_input");
   if (kind === "workload") {

@@ -2,13 +2,14 @@
 
 import asyncio
 import sqlite3
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .registration_kinds import Kind, Role
 from .registration_probe import ProbeUnavailable
 from .store import EventError
 
@@ -24,8 +25,8 @@ class Input(BaseModel):
 
 class Environment(Input):
     name: Name
-    kind: Literal["aws", "onprem"]
-    roles: list[Literal["source", "target"]] = Field(min_length=1, max_length=1)
+    kind: Kind
+    roles: list[Role] = Field(min_length=1, max_length=1)
     connection_ref: Identifier
 
 

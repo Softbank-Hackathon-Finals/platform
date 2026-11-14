@@ -1,0 +1,40 @@
+{
+  "schema_version": "bravo.adapter-readiness/v1",
+  "description": "Adapter slots (docs/contracts/environment-kinds.json) implemented per kind across ADR-0034 A1-A11: A3 source.static_rules and source.deploy_trace (aws, gcp, onprem), A5 source.neutral_export (S3, GCS, SeaweedFS exporters), A8 source.exit_scope (aws, gcp, onprem), A4 target.catalog (aws, gcp, onprem), A5/A6 target.neutral_apply (s3.json, S3 bucket policy, GCS IAM, OpenBao/ESO), A5 target.rehearsal (onprem only; aws and gcp report UNSUPPORTED), A10 target.build (EKS, GKE stacks and the on-prem stack), A7 both.control_probes (aws, gcp, onprem), A2/A10 both.identity (Kubernetes read probe with kube-system UID). A plan is accepted only when its source kind has every source.* and both.* slot and its target kind has every target.* and both.* slot. Update this file when a slot is added or removed. Operators may replace a kind's entry with adapter_readiness in the registration catalog.",
+  "kinds": {
+    "aws": [
+      "source.static_rules",
+      "source.deploy_trace",
+      "source.neutral_export",
+      "source.exit_scope",
+      "target.catalog",
+      "target.neutral_apply",
+      "target.build",
+      "both.control_probes",
+      "both.identity"
+    ],
+    "gcp": [
+      "source.static_rules",
+      "source.deploy_trace",
+      "source.neutral_export",
+      "source.exit_scope",
+      "target.catalog",
+      "target.neutral_apply",
+      "target.build",
+      "both.control_probes",
+      "both.identity"
+    ],
+    "onprem": [
+      "source.static_rules",
+      "source.deploy_trace",
+      "source.neutral_export",
+      "source.exit_scope",
+      "target.catalog",
+      "target.neutral_apply",
+      "target.rehearsal",
+      "target.build",
+      "both.control_probes",
+      "both.identity"
+    ]
+  }
+}

@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 import anyio
 from bravo_platform_events.api import event_stream
+from bravo_platform_events.registration_kinds import REJECTION_PREFIX, Kind, Role
 from bravo_platform_events.store import EventError
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
@@ -104,6 +105,10 @@ HINTS = {
     "plan_conflict": "같은 입력의 계획이 다른 상태로 이미 있습니다. 기존 계획을 확인하세요.",
     "command_key_conflict": "같은 확인 토큰이 다른 입력에 쓰였습니다. 미리보기부터 다시 하세요.",
     "invalid_request": "요청 형식이 맞지 않습니다. 입력을 확인하세요.",
+    # ADR-0034 kind pairs (A2).
+    "same_cluster_identity": "출발지와 목적지가 같은 클러스터입니다. 다른 클러스터의 목적지를 고르세요.",
+    "cluster_identity_unverified": "같은 종류 간 이전은 양쪽 클러스터 신원(cluster_uid)이 등록돼 있어야 합니다. 운영자에게 확인하세요.",
+    REJECTION_PREFIX: "이 출발지·목적지 종류 조합에 필요한 어댑터가 아직 없습니다(코드의 칸 이름 참고). 다른 목적지를 고르세요.",
 }
 FIELD_HINTS = {
     "connection_ref": "연결 참조는 URL이 아니라 운영자가 등록한 이름입니다(영문·숫자·-·_, 128자 이하).",
@@ -118,7 +123,8 @@ FIELD_HINTS = {
 
 
 def _fail(code: str):
-    raise ToolError(json.dumps({"detail": {"code": code}, "hint": HINTS.get(code)}, ensure_ascii=False))
+    hint = HINTS.get(REJECTION_PREFIX if code.startswith(REJECTION_PREFIX) else code)
+    raise ToolError(json.dumps({"detail": {"code": code}, "hint": hint}, ensure_ascii=False))
 
 
 VALIDATION = re.compile(r"^Error executing tool \S+: \d+ validation errors? for \S+\n")
@@ -255,10 +261,10 @@ def build_server(backend: SovaBackend, confirmations: Confirmations | None = Non
     # --- register / plan (state-making, two-step) --------------------------------------
     @mcp.tool(annotations=WRITE, title="환경 등록")
     async def sova_register_environment(
-        name: str = Field(min_length=1, max_length=128), kind: Literal["aws", "onprem"] = "aws",
-        role: Literal["source", "target"] = "source", connection_ref: str = Field(pattern=IDENT),
+        name: str = Field(min_length=1, max_length=128), kind: Kind = "aws",
+        role: Role = "source", connection_ref: str = Field(pattern=IDENT),
         confirmation: str | None = None, ctx: Context = None) -> Result:
-        """출발지 또는 목적지 환경을 등록합니다. 자격 값은 받지 않고 서버에 등록된 connection_ref만 씁니다. 두 번 호출(미리보기→확인)."""
+        """출발지 또는 목적지 환경을 등록합니다. 종류(aws · gcp · onprem)와 역할은 서버 카탈로그와 같아야 합니다(ADR-0034). 자격 값은 받지 않고 서버에 등록된 connection_ref만 씁니다. 두 번 호출(미리보기→확인)."""
         body = {"name": name, "kind": kind, "roles": [role], "connection_ref": connection_ref}
         return await write(ctx, "sova_register_environment", "environment", body, confirmation,
                            f"{role} 환경 '{name}'({kind}, 연결 {connection_ref})을 등록합니다.")

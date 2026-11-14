@@ -125,6 +125,33 @@ def test_read_only_hides_and_refuses_write_tools(server):
     assert result["isError"] and "read_only_connection" in result["content"][0]["text"]
 
 
+def test_environment_tool_offers_every_kind_and_role(server):
+    """ADR-0034: the tool takes the registration API's kinds and roles; the server catalog decides."""
+    base, _, _ = server
+    tools = rpc(base, "tools/list", query="?read_only=false").json()["result"]["tools"]
+    schema = json.dumps(next(t for t in tools if t["name"] == "sova_register_environment")["inputSchema"])
+    for value in ('"aws"', '"gcp"', '"onprem"', '"source"', '"target"'):
+        assert value in schema
+    q = "?read_only=false"
+    env = {"name": "g", "kind": "gcp", "role": "target", "connection_ref": "target-reader"}
+    _, preview = call(base, "sova_register_environment", env, query=q)
+    assert preview["status"] == "NEEDS_CONFIRMATION" and preview["data"]["input"]["kind"] == "gcp"
+    refused, _ = call(base, "sova_register_environment", env | {"confirmation": preview["confirmation"]}, query=q)
+    assert refused["isError"]  # target-reader is provisioned as an on-prem target
+
+
+@pytest.mark.parametrize("code", ["adapter_missing:target.rehearsal", "same_cluster_identity",
+                                  "cluster_identity_unverified"])
+def test_kind_pair_refusals_keep_the_code_and_carry_a_hint(code):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from sova_mcp.server import _fail
+    with pytest.raises(ToolError) as raised:
+        _fail(code)
+    body = json.loads(str(raised.value))
+    assert body["detail"] == {"code": code} and body["hint"]
+
+
 def test_guided_registration_needs_matching_confirmation_then_plan_flows(server):
     base, _, store = server
     q = "?read_only=false"

@@ -24,6 +24,7 @@
 | 8.5·8.6 GATE 데이터 준비 관찰(Executor, 목적지 시퀀스 올리기만)과 운영자 capture의 readiness 서명(T19·T13) | [0036 GATE 준비 관찰과 capture](0036-gate-readiness-capture.md) |
 | 7.5·8.3 플랫폼 자체 서비스의 GitFlow·Helm·Argo CD 배포(T43) | [0029 플랫폼 GitOps 배포](0029-platform-gitops-delivery.md) |
 | FR-3 · NFR-7 · 8.3 목적지 IaC 모듈·원하는 상태(Git)·plan API와 에이전트 계획 도구(T44) | [0032 목적지 IaC API](0032-destination-iac-api.md) |
+| 8.11 환경 어댑터: aws · gcp · onprem 3×3 이전, 중립 모델(A1~A11) | [0034 환경 종류 어댑터와 중립 모델](0034-environment-kind-adapters.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
 | 7.3·8.4·8.6 SQS → Lambda 호환 런타임: 구조·동등성 검증 위치, 목적지 큐 위치, 컷오버·되돌리기의 큐 처리(T46) | [0045 호환 런타임 구조](0045-sqs-lambda-compat-runtime.md), [0046 목적지 큐는 업무 DB 밖](0046-target-queue-outside-business-db.md), [0047 컷오버 큐 처리 규칙](0047-cutover-queue-handling.md) |

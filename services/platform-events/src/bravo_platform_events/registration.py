@@ -8,6 +8,12 @@ from datetime import UTC, datetime
 from .contract import validate_identifier
 from .operator_identity import OperatorPrincipal
 from .plans import PlanSpec, _canonical, validate_profile
+from .registration_kinds import (
+    REJECTION_PREFIX,
+    UNVERIFIED_SAME_KIND,
+    adapter_readiness,
+    missing_slot,
+)
 from .registration_probe import KubernetesProbe
 from .registration_sso import SsoRegistrationPrincipal
 from .store import EventError
@@ -19,8 +25,10 @@ def digest(value):
 
 class Registry:
     def __init__(self, store, *, environments, releases, can_register: Callable,
-                 probe=None, clock=None, evaluation_profiles=()):
+                 probe=None, clock=None, evaluation_profiles=(), readiness=None):
         self.store = store
+        # Packaged slot readiness; an operator catalog may replace a kind's entry.
+        self.adapter_readiness = adapter_readiness(readiness)
         # Keys are (tenant, opaque connection ref); values are provisioned by the owner.
         self.environments = dict(environments)
         seen = set()
@@ -81,7 +89,26 @@ class Registry:
         obs = self.probe.inspect(env, release)
         if any(obs[k] != registered["checks"][k] for k in ("namespace", "database_identity", "collector")):
             raise EventError("environment_changed")
+        # Receipts written before cluster identity existed carry none; they stay valid
+        # but cannot take part in a same-kind plan.
+        if "cluster_identity" in registered["checks"] and obs.get("cluster_identity") != registered["checks"]["cluster_identity"]:
+            raise EventError("environment_changed")
         return obs
+
+    def _pair_allowed(self, source, target):
+        """ADR-0034 3.2: any kind pair, distinct clusters and databases, ready adapters."""
+        if target["role"] != "target" or target["checks"]["database_identity"] == source["checks"]["database_identity"]:
+            raise EventError("environment_role_mismatch")
+        clusters = (source["checks"].get("cluster_identity"), target["checks"].get("cluster_identity"))
+        if clusters[0] is not None and clusters[0] == clusters[1]:
+            raise EventError("same_cluster_identity")
+        # T10 accepted on-prem -> on-prem on distinct databases before cluster identity
+        # existed (e38c5983). That pair keeps working without it; new same-kind pairs need it.
+        if source["kind"] == target["kind"] and None in clusters and source["kind"] not in UNVERIFIED_SAME_KIND:
+            raise EventError("cluster_identity_unverified")
+        missing = missing_slot(self.adapter_readiness, source["kind"], target["kind"])
+        if missing is not None:
+            raise EventError(REJECTION_PREFIX + missing)
 
     def _workload_scope(self, tenant, source, app):
         if source["role"] != "source":
@@ -128,8 +155,7 @@ class Registry:
             app = self._read(c, tenant, "workload", body["workload_id"])
             source = self._read(c, tenant, "environment", app["source_environment_id"])
             target = self._read(c, tenant, "environment", body["target_environment_id"])
-        if target["role"] != "target" or target["checks"]["database_identity"] == source["checks"]["database_identity"]:
-            raise EventError("environment_role_mismatch")
+        self._pair_allowed(source, target)
         scope, warnings = self._workload_scope(tenant, source, app)
         if app["scope"] != scope:
             raise EventError("workload_changed")

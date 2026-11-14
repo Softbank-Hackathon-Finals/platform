@@ -84,6 +84,7 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 
 - **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다.
 - **수신 구분도 Collector가 붙인다.** `bravo.domain`은 `platform`(플랫폼 클러스터 자신) 또는 `customer`(출발지 · 목적지)이고 저장소 라벨 `bravo_domain`이 된다. 앱이 보낸 값은 허용 목록이 먼저 지운다. 라벨 체계(namespace · Pod의 `tier: observability` · `role` · `domain`)는 [eco2-team/backend](https://github.com/eco2-team/backend) `workloads/namespaces`를 따른다. 지금 클러스터는 단일 노드라 관측 전용 노드 · taint(eco2의 `workload=monitoring`, `domain=observability:NoSchedule`)는 쓰지 않는다.
+- **역할도 Collector가 붙인다.** `BRAVO_ROLE`(`source` · `target`)이 `bravo_role` 라벨이 된다. 환경 이름 기준 경보(`aws` · `onprem` · `platform`)는 그대로 두고, 출발지 · 목적지를 이 라벨로 고르는 역할 기준 경보(`bravo-roles` 그룹)를 더했다([ADR-0034](../../docs/adr/0034-environment-kind-adapters.md), 종류는 aws · gcp · onprem 무엇이든 된다). `collector-source` · `collector-target` 배포는 역할을 정해 둔다. 비워 두면 P0 호환으로 `aws`=source, `onprem`=target으로만 본다(deprecated). 플랫폼 Collector에는 역할이 없다.
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 저장되지 않는다.
   - 리소스: `service.name` · `service.instance.id`
   - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
@@ -147,7 +148,7 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 - **Pod 보안:** 다섯 워크로드(PgBouncer exporter 포함) 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
 - **배포 전에 만들 것(git에 두지 않음)**
   - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`
-  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
+  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `BRAVO_ROLE`(선택, `collector-source` · `collector-target`은 배포가 정한다), `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
   - 창 수신 참조 배치의 Secret `bravo-window-intake-token` · ConfigMap `bravo-window-intake`는 k8s.sh가 만든다. 운영 수신의 자격은 T10 절차를 따른다.
   - PgBouncer 오버레이: Secret `bravo-pgbouncer-stats`(`connection-string`, `ca.crt`). 형식은 [component 주석](deploy/components/pgbouncer/kustomization.yaml). PgBouncer 쪽은 `stats_users`와 auth_file에 통계 계정을 더한다(T6 · T30)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).

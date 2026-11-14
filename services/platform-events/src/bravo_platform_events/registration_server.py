@@ -41,7 +41,8 @@ def build_registry(store, config, grants_file):
             return False
 
     return Registry(store, environments=environments, releases=releases, can_register=can_register,
-                    evaluation_profiles=config.get("evaluation_profiles", ()))
+                    evaluation_profiles=config.get("evaluation_profiles", ()),
+                    readiness=config.get("adapter_readiness"))
 
 
 def build_app(store, config_file, grants_file):

@@ -373,6 +373,37 @@ test("on-prem source selection sends one role and cannot promote a target alias"
   await expect(page.locator("#registration-receipts li")).toHaveCount(0);
 });
 
+test("ADR-0034 kind x role selection sends the chosen kind and one role; the server catalog decides", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "fixture-session",
+      value: "test-only",
+      url: "http://127.0.0.1:18121",
+    },
+  ]);
+  await page.goto("/console/");
+  await page.locator("#registration-panel summary").click();
+  const form = page.locator("#registration-environment-form");
+  await form.locator('[name="name"]').fill("GCP target");
+  await form.locator('[name="kind"]').selectOption({ label: "GCP · 목적지" });
+  await form.locator('[name="connection_ref"]').fill("target-reader");
+  const response = page.waitForResponse("**/v1/environments");
+  await form.locator("button").click();
+  const result = await response;
+  expect(result.request().postDataJSON()).toEqual({
+    name: "GCP target",
+    kind: "gcp",
+    roles: ["target"],
+    connection_ref: "target-reader",
+  });
+  // The alias is provisioned as an on-prem target, so the server refuses the gcp claim.
+  expect(result.status()).toBe(409);
+  await expect(page.locator("#registration-receipts li")).toHaveCount(0);
+});
+
 test("registration recovers lost response and connects the real T10 COLLECT plan", async ({
   page,
   context,

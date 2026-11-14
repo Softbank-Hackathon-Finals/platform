@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
+  environmentChoices,
+  environmentKinds,
+  environmentRoles,
   RegistrationAttempt,
   registrationInput,
   registrationReceipt,
@@ -27,19 +31,46 @@ const response = (value) =>
 
 test("registration accepts only fixed fields and registered aliases", () => {
   assert.deepEqual(registrationInput("environment", input), input);
-  for (const role of ["source", "target"]) {
-    const onprem = { ...input, kind: "onprem", roles: [role] };
-    assert.deepEqual(registrationInput("environment", onprem), onprem);
-  }
+  // ADR-0034: every kind x role pair is a valid request; the server catalog decides.
+  for (const kind of ["aws", "gcp", "onprem"])
+    for (const role of ["source", "target"]) {
+      const body = { ...input, kind, roles: [role] };
+      assert.deepEqual(registrationInput("environment", body), body);
+    }
   for (const body of [
     { ...input, token: "secret" },
     { ...input, connection_ref: "https://foreign.invalid" },
-    { ...input, roles: ["target"] },
-    { ...input, kind: "gcp" },
+    { ...input, kind: "azure" },
+    { ...input, roles: ["both"] },
+    { ...input, roles: [] },
     { ...input, kind: "onprem", roles: ["source", "target"] },
     { ...input, kind: "onprem-source" },
   ])
     assert.throws(() => registrationInput("environment", body));
+  // The screen offers every kind x role once; the P0 choices keep their values.
+  assert.deepEqual(
+    Array.from(
+      environmentChoices.values(),
+      ({ kind, role }) => kind + "/" + role,
+    ).sort(),
+    environmentKinds
+      .flatMap((kind) => environmentRoles.map((role) => kind + "/" + role))
+      .sort(),
+  );
+  assert.deepEqual(Array.from(environmentChoices).slice(0, 3), [
+    ["aws", { kind: "aws", role: "source" }],
+    ["onprem", { kind: "onprem", role: "target" }],
+    ["onprem-source", { kind: "onprem", role: "source" }],
+  ]);
+  const screen = readFileSync(
+    new URL("../src/bravo_console/static/index.html", import.meta.url),
+    "utf8",
+  );
+  const select = screen.match(/<select name="kind">([\s\S]*?)<\/select>/)[1];
+  assert.deepEqual(
+    Array.from(select.matchAll(/<option value="([^"]+)">/g), (m) => m[1]),
+    Array.from(environmentChoices.keys()),
+  );
   const app = {
     name: "app",
     repo_url: "https://example.invalid/app",

@@ -160,3 +160,35 @@ PAUSE 지표가 없으면 이 경보는 발화하지 않는다. 조회 API는 �
 ## BravoForwardSlotUnobservable
 
 출발지 Collector가 살아 있어도 DB 수집 설정이 없으면 슬롯 오류·WAL 경보는 작동하지 않는다. 출발지 슬롯 표본 부재·75초 초과가 1분 이어지면 확인 불가로 알린다. `collector-db` 설정, `source-dev` Pod 발견 RBAC, 9187 네트워크 접근, 실제 CNPG query 오류와 슬롯 존재를 확인한다. 새 슬롯을 임의로 만들거나 지표 부재를 슬롯 비활성 0으로 바꾸지 않는다. 정상 표본 수신 시 경보가 해소되는지 확인한다.
+
+## 역할 기준 경보 (ADR-0034)
+
+아래 경보는 위 환경 이름 기준 경보를 그대로 둔 채 더한 것이다. 출발지 · 목적지를 Collector의 `BRAVO_ROLE`이 붙인 `bravo_role`(`source` · `target`)로 고르므로 환경 종류(aws · gcp · onprem)와 무관하다. 같은 사건을 두 번 알리지 않도록 P0 이름이 맡는 쌍(`aws`=source, `onprem`=target)은 환경 이름 경보에 맡긴다. 그래서 aws → onprem 배포에서는 한 역할의 Collector가 5분 조회 범위를 넘어 통째로 사라진 경우(BravoRoleUnobservable)만 함께 뜬다. 역할 라벨을 붙이는 Collector가 하나도 없으면(역할 도입 전 배포) 역할 경보는 조용하다.
+
+## BravoRoleUnobservable
+
+한 역할 환경의 Collector 생존 신호가 30초 넘게 오지 않았거나, 그 역할을 보고하는 환경이 하나도 없다. 확인 순서와 조치는 [BravoEnvUnobservable](#bravoenvunobservable)과 같다. 역할 자체가 없다고 알리면 Collector 설정(`bravo-collector-env`)의 `BRAVO_ROLE`이 빠졌거나 `source` · `target` 밖의 값인지 먼저 확인한다(빈 값이면 `aws`=source, `onprem`=target 외의 환경은 역할 라벨이 지워진다).
+
+## BravoForwardSubscriptionOffByRole
+
+P0 이름이 아닌 목적지 역할 환경의 정방향 구독이 2분 넘게 OFF다. 절차는 [BravoForwardSubscriptionOff](#bravoforwardsubscriptionoff)와 같다.
+
+## BravoForwardSubscriptionErrorByRole
+
+P0 이름이 아닌 목적지 역할 환경에서 최근 10분 안에 적용 오류가 증가했다. 절차는 [BravoForwardSubscriptionError](#bravoforwardsubscriptionerror)와 같다.
+
+## BravoForwardSubscriptionRetryingByRole
+
+P0 이름이 아닌 목적지 역할 환경에서 5분 안에 적용 오류가 5건 이상 늘었다. 절차는 [BravoForwardSubscriptionRetrying](#bravoforwardsubscriptionretrying)과 같다.
+
+## BravoForwardReplicationNotRecoveringByRole
+
+P0 이름이 아닌 출발지 역할 환경의 정방향 논리 슬롯이 2분 넘게 비활성이다. 절차는 [BravoForwardReplicationNotRecovering](#bravoforwardreplicationnotrecovering)과 같다.
+
+## BravoForwardSubscriptionUnobservableByRole
+
+P0 이름이 아닌 목적지 역할 환경의 정방향 enabled 또는 적용 오류 지표가 없거나 75초보다 오래됐다. 지표 부재는 그 역할의 Collector가 살아 있을 때만 판정한다(Collector가 사라지면 BravoRoleUnobservable이 알린다). 절차는 [BravoForwardSubscriptionUnobservable](#bravoforwardsubscriptionunobservable)과 같다.
+
+## BravoForwardSlotUnobservableByRole
+
+P0 이름이 아닌 출발지 역할 환경의 정방향 슬롯 지표가 없거나 75초보다 오래됐다. 절차는 [BravoForwardSlotUnobservable](#bravoforwardslotunobservable)과 같다.

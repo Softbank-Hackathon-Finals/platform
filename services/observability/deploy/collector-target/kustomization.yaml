@@ -10,3 +10,19 @@ resources:
 components:
   - ../components/app-mtls
   - ../components/app-mtls-openbao
+# 이전 역할: 이 Collector의 지표는 bravo_role=target(목적지, ADR-0034). 환경 종류(aws · gcp · onprem)와 무관하게 역할로 정한다.
+# bravo-collector-env의 BRAVO_ROLE(선택)보다 이 값이 우선한다. 환경 이름(BRAVO_ENV)은 그대로 ConfigMap이 정한다.
+patches:
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-collector
+      spec:
+        template:
+          spec:
+            containers:
+              - name: collector
+                env:
+                  - {name: BRAVO_ROLE, value: target, valueFrom: null}
