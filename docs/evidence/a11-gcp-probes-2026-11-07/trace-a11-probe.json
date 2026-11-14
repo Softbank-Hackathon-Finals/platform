@@ -1,0 +1,176 @@
+{
+  "namespace": "a11-probe",
+  "source_kind": "gcp",
+  "resources": [
+    {
+      "kind": "image",
+      "name": "python:3.12-slim",
+      "via": "Deployment/a11-app",
+      "actions": [],
+      "attributes": {
+        "digest_pinned": "no"
+      }
+    },
+    {
+      "kind": "gcp_service_account",
+      "name": "bravo-a11-app@GCP_PROJECT_001.iam.gserviceaccount.invalid",
+      "via": "Deployment/a11-app → ServiceAccount/a11-app",
+      "actions": [],
+      "attributes": {}
+    },
+    {
+      "kind": "image",
+      "name": "python:3.12-slim",
+      "via": "Deployment/a11-intruder",
+      "actions": [],
+      "attributes": {
+        "digest_pinned": "no"
+      }
+    },
+    {
+      "kind": "gcp_service_account",
+      "name": "bravo-a11-intruder@GCP_PROJECT_001.iam.gserviceaccount.invalid",
+      "via": "Deployment/a11-intruder → ServiceAccount/a11-intruder",
+      "actions": [],
+      "attributes": {}
+    },
+    {
+      "kind": "image",
+      "name": "python:3.12-slim",
+      "via": "Deployment/a11-reader",
+      "actions": [],
+      "attributes": {
+        "digest_pinned": "no"
+      }
+    },
+    {
+      "kind": "gcp_secret",
+      "name": "bravo-a11-ctl-db",
+      "via": "Deployment/a11-app → ServiceAccount/a11-app → GSA/bravo-a11-app@GCP_PROJECT_001.iam.gserviceaccount.invalid → binding roles/secretmanager.secretAccessor",
+      "actions": [
+        "roles/secretmanager.secretAccessor"
+      ],
+      "attributes": {
+        "replication": "user-managed",
+        "rotation": "False",
+        "kms_key_name": "projects/GCP_PROJECT_001/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets",
+        "referenced_by_env": "Deployment/a11-app:DB_SECRET"
+      }
+    },
+    {
+      "kind": "gcs_bucket",
+      "name": "bravo-a11-ctl-attach-SUFFIX",
+      "via": "Deployment/a11-app → ServiceAccount/a11-app → GSA/bravo-a11-app@GCP_PROJECT_001.iam.gserviceaccount.invalid → binding roles/storage.objectViewer",
+      "actions": [
+        "roles/storage.objectViewer"
+      ],
+      "attributes": {
+        "public": "False",
+        "location": "ASIA-NORTHEAST3",
+        "versioning": "False",
+        "uniform_access": "True",
+        "retention_policy": "False",
+        "referenced_by_env": "Deployment/a11-app:ATTACH_BUCKET"
+      }
+    },
+    {
+      "kind": "gcs_bucket",
+      "name": "bravo-a11-ctl-other-SUFFIX",
+      "via": "Deployment/a11-intruder → ServiceAccount/a11-intruder → GSA/bravo-a11-intruder@GCP_PROJECT_001.iam.gserviceaccount.invalid → binding roles/storage.objectViewer",
+      "actions": [
+        "roles/storage.objectViewer"
+      ],
+      "attributes": {
+        "public": "False",
+        "location": "ASIA-NORTHEAST3",
+        "versioning": "False",
+        "uniform_access": "True",
+        "retention_policy": "False"
+      }
+    },
+    {
+      "kind": "gcp_wi_principal",
+      "name": "ns/a11-probe/sa/a11-reader",
+      "via": "Deployment/a11-reader → ServiceAccount/a11-reader",
+      "actions": [],
+      "attributes": {}
+    },
+    {
+      "kind": "gcp_project_role",
+      "name": "roles/logging.viewer",
+      "via": "Deployment/a11-reader → ServiceAccount/a11-reader → WI principal → project binding",
+      "actions": [
+        "roles/logging.viewer"
+      ],
+      "attributes": {
+        "scope": "project"
+      }
+    },
+    {
+      "kind": "gcp_secret",
+      "name": "bravo-a11-ctl-db",
+      "via": "Deployment/a11-reader → ServiceAccount/a11-reader → WI principal → binding roles/secretmanager.viewer",
+      "actions": [
+        "roles/secretmanager.viewer"
+      ],
+      "attributes": {
+        "replication": "user-managed",
+        "rotation": "False",
+        "kms_key_name": "projects/GCP_PROJECT_001/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets",
+        "referenced_by_env": "Deployment/a11-app:DB_SECRET"
+      }
+    },
+    {
+      "kind": "gcp_kms_key",
+      "name": "projects/GCP_PROJECT_001/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets",
+      "via": "Deployment/a11-reader → ServiceAccount/a11-reader → WI principal → binding roles/cloudkms.viewer",
+      "actions": [
+        "roles/cloudkms.viewer"
+      ],
+      "attributes": {
+        "purpose": "ENCRYPT_DECRYPT",
+        "state": "ENABLED",
+        "protection_level": "SOFTWARE",
+        "rotation_period": "None"
+      }
+    },
+    {
+      "kind": "gcp_kms_key",
+      "name": "projects/GCP_PROJECT_001/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets",
+      "via": "Deployment/a11-app → ServiceAccount/a11-app → GSA/bravo-a11-app@GCP_PROJECT_001.iam.gserviceaccount.invalid → binding roles/secretmanager.secretAccessor → Secret/bravo-a11-ctl-db CMEK",
+      "actions": [],
+      "attributes": {
+        "reached_by": "cmek",
+        "purpose": "ENCRYPT_DECRYPT",
+        "state": "ENABLED",
+        "protection_level": "SOFTWARE",
+        "rotation_period": "None"
+      }
+    },
+    {
+      "kind": "gcp_kms_key",
+      "name": "projects/GCP_PROJECT_001/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets",
+      "via": "Deployment/a11-reader → ServiceAccount/a11-reader → WI principal → binding roles/secretmanager.viewer → Secret/bravo-a11-ctl-db CMEK",
+      "actions": [],
+      "attributes": {
+        "reached_by": "cmek",
+        "purpose": "ENCRYPT_DECRYPT",
+        "state": "ENABLED",
+        "protection_level": "SOFTWARE",
+        "rotation_period": "None"
+      }
+    }
+  ],
+  "notes": [],
+  "api_calls": [
+    "file:deployments.json",
+    "file:serviceaccounts.json",
+    "gcloud asset search-all-iam-policies",
+    "gcloud iam service-accounts get-iam-policy",
+    "gcloud kms keys describe",
+    "gcloud projects describe",
+    "gcloud projects get-iam-policy",
+    "gcloud secrets describe",
+    "gcloud storage buckets describe"
+  ]
+}

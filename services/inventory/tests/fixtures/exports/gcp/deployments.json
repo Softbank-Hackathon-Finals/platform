@@ -1,0 +1,8 @@
+{"kind": "DeploymentList", "items": [{"metadata": {"name": "chat", "namespace": "chat"},
+  "spec": {"template": {"spec": {"serviceAccountName": "chat",
+    "containers": [{"name": "chat", "image": "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "env": [{"name": "APP_ENV", "value": "gcp"}, {"name": "DB_HOST", "value": "chat-pooler-rw"},
+              {"name": "GCS_BUCKET", "value": "demo-chat-attachments"},
+              {"name": "SECRET_ID", "value": "demo-chat-db"},
+              {"name": "KMS_KEY_NAME", "value": "projects/example-project/locations/asia-northeast3/keyRings/chat/cryptoKeys/attachments"},
+              {"name": "ADMIN_TOKEN", "valueFrom": {"secretKeyRef": {"name": "chat-admin", "key": "token"}}}]}]}}}}]}

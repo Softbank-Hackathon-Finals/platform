@@ -28,6 +28,9 @@ REASONS = frozenset(
         "NOT_RUN",
     }
 )
+# ADR-0034 docs/contracts/environment-kinds.json; a test keeps these in sync.
+KINDS = ("aws", "gcp", "onprem")
+KIND_NEUTRAL_CONTROLS = frozenset({"ENC-01", "NET-01", "DR-01"})
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,255}\Z")
 SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 MAX_TTL = timedelta(hours=24)
@@ -54,12 +57,17 @@ class Environment:
     id: str
     role: str
     ref: str
+    # Registered environment kind (ADR-0034). Optional so existing callers keep working;
+    # the probe registry requires it before selecting kind-specific collectors.
+    kind: str | None = None
 
     def __post_init__(self):
         _identifier(self.id)
         _identifier(self.ref)
         if self.role not in {"source", "target", "rehearsal"}:
             raise ValueError("invalid environment role")
+        if self.kind is not None and self.kind not in KINDS:
+            raise ValueError("invalid environment kind")
 
 
 @dataclass(frozen=True)
@@ -273,7 +281,11 @@ class Runner:
             "tool_version": observation.tool_version,
             "output_sha256": observation.output_sha256,
         }
-        if spec.positive_control == "required" and observation.positive_control != "pass":
+        if observation.observed is None and observation.unknown_reason == "NOT_RUN":
+            # The collector declined to run (e.g. UNSUPPORTED environment kind); its
+            # positive control was never attempted, so it did not fail either.
+            row["unknown_reason"] = "NOT_RUN"
+        elif spec.positive_control == "required" and observation.positive_control != "pass":
             row["unknown_reason"] = "POSITIVE_CONTROL_FAILED"
         elif observation.unknown_reason is not None:
             row["unknown_reason"] = observation.unknown_reason

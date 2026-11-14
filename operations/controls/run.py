@@ -57,10 +57,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ADAPTERS = {"source": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}, "AUD-01.1": {"pod-log"},
-                       "ENC-01.1": {"pooler-tls"}},
-            "target": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}, "AUD-01.1": {"pod-log"},
-                       "ENC-01.1": {"pooler-tls"}}}
+# ADR-0034 both.control_probes: operator adapters by environment kind. Each test id here is one the
+# kind's probe registry (bravo_controls.default_registry) supports; gcp has no operator adapter yet.
+KIND_ADAPTERS = {"aws": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}, "AUD-01.1": {"pod-log"},
+                         "ENC-01.1": {"pooler-tls"}},
+                 "onprem": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}, "AUD-01.1": {"pod-log"},
+                            "ENC-01.1": {"pooler-tls"}},
+                 "gcp": {}}
+# The registration names a role; the aws->onprem demo fixes each role's kind.
+ROLE_KIND = {"source": "aws", "target": "onprem"}
+ADAPTERS = {role: KIND_ADAPTERS[kind] for role, kind in ROLE_KIND.items()}
 # ENC-01.1 from outside the namespace: the client is the port-forward, recorded as such in the evidence.
 POOLER_CLIENT = "port-forward"
 SESSION_SECONDS = 900

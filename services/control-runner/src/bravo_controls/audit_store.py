@@ -15,7 +15,14 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from .audit_probes import MAX_BYTES, MAX_EVENTS, AuditBatch, CanaryReceipt, _utc
-from .otlp_audit import MAX_PAYLOAD, AuditOrigin, decode_export
+from .otlp_audit import (
+    MAX_PAYLOAD,
+    AppLogOrigin,
+    AuditOrigin,
+    decode_app_log_export,
+    decode_export,
+)
+from .secret_logs import LogCanaryReceipt, LogWindow
 
 BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 PREFIX = re.compile(r"[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*\Z")
@@ -48,28 +55,33 @@ class ObjectStoreAuditSearch:
         skew=timedelta(minutes=1),
         clock=lambda: datetime.now(UTC),
         monotonic=time.monotonic,
+        endpoint_url: str | None = None,
     ):
         if (
             not isinstance(bucket, str)
             or not BUCKET.fullmatch(bucket)
             or not isinstance(prefix, str)
             or not PREFIX.fullmatch(prefix)
-            or not isinstance(origin, AuditOrigin)
+            or not isinstance(origin, self._origin_type)
             or not isinstance(skew, timedelta)
             or not timedelta(0) <= skew <= timedelta(minutes=2)
         ):
             raise ValueError("registered audit bucket, prefix and origin required")
         self.client, self.bucket, self.prefix, self.region = client, bucket, prefix, region
         self.origin, self.skew = origin, skew
+        # Optional pin of the S3-compatible store (onprem SeaweedFS) endpoint.
+        self.endpoint_url = endpoint_url
         self.source_binding = f"s3://{bucket}/{prefix}/"
         self.streams = origin.streams
         self.clock, self.monotonic = clock, monotonic
         self._validate_client()
 
+    _origin_type = AuditOrigin
+
     def _validate_client(self):
         from .aws_probes import _client
 
-        _client(self.client, "s3", self.region)
+        _client(self.client, "s3", self.region, endpoint_url=self.endpoint_url)
 
     def _call(self, operation, started, **params):
         from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
@@ -122,10 +134,33 @@ class ObjectStoreAuditSearch:
         through = _utc(through)
         if not isinstance(receipt, CanaryReceipt) or not receipt.started_at <= through <= receipt.deadline:
             raise ValueError("search interval outside authorized canary window")
+        events, queried_at = self._collect(
+            receipt.started_at,
+            through,
+            through,
+            lambda event: receipt.marker in event.message,
+        )
+        return AuditBatch(
+            receipt.context,
+            receipt.marker,
+            self.source_binding,
+            self.streams,
+            receipt.started_at,
+            through,
+            queried_at,
+            events,
+            True,
+        )
+
+    def _decode(self, payload, received, receipt_id):
+        return decode_export(payload, origin=self.origin, received_at=received, receipt_id=receipt_id)
+
+    def _collect(self, window_start, window_end, through, keep):
+        """Retained events with window_start <= timestamp <= window_end acknowledged by through."""
         started = self.monotonic()
         # Partitions are named by the writer's clock at upload; widen by the allowed skew.
         objects = {}
-        for minute in _minutes(receipt.started_at - self.skew, through + self.skew):
+        for minute in _minutes(window_start - self.skew, through + self.skew):
             partition = f"{self.prefix}/{minute:%Y/%m/%d/%H/%M}/"
             for row in self._versions(partition, started):
                 key, version = row.get("Key"), row.get("VersionId")
@@ -173,8 +208,8 @@ class ObjectStoreAuditSearch:
             if len(payload) != row["Size"]:
                 raise ValueError("audit store object size mismatch")
             receipt_id = hashlib.sha256(f"{key}\0{row['VersionId']}".encode()).hexdigest()
-            for event in decode_export(payload, origin=self.origin, received_at=received, receipt_id=receipt_id):
-                if not receipt.started_at <= event.timestamp <= through or receipt.marker not in event.message:
+            for event in self._decode(payload, received, receipt_id):
+                if not window_start <= event.timestamp <= window_end or not keep(event):
                     continue
                 size += len(event.message.encode())
                 if len(events) >= MAX_EVENTS or size > MAX_BYTES:
@@ -183,14 +218,47 @@ class ObjectStoreAuditSearch:
         queried_at = _utc(self.clock())
         if earliest_retention is not None and earliest_retention <= queried_at:
             raise ValueError("audit store object retention missing or expired")
-        return AuditBatch(
+        return tuple(events), queried_at
+
+
+class ObjectStoreSecretLogSearch(ObjectStoreAuditSearch):
+    """SEC-01.3 onprem: raw app logs from the same retained OTLP object store (T34 path).
+
+    Reuses the audit store's listing, tamper and retention checks, but decodes an
+    ``AppLogOrigin`` export and returns every event in the closed canary window with no
+    text filter, so SecretLogProbe sees both the positive marker and any leaked secret.
+    The forwarder for this origin must retain raw (unfiltered) app log lines.
+    """
+
+    _origin_type = AppLogOrigin
+
+    def _decode(self, payload, received, receipt_id):
+        return decode_app_log_export(
+            payload, origin=self.origin, received_at=received, receipt_id=receipt_id
+        )
+
+    def __call__(self, receipt: LogCanaryReceipt) -> LogWindow:
+        self._validate_client()
+        now = _utc(self.clock())
+        if (
+            not isinstance(receipt, LogCanaryReceipt)
+            or receipt.source_binding != self.source_binding
+            or receipt.streams != self.streams
+            or receipt.settled_at > now
+        ):
+            raise ValueError("registered settled log window required")
+        # The host's logs_drained acknowledgement (settled_at) bounds the store horizon.
+        events, queried_at = self._collect(
+            receipt.started_at, receipt.ended_at, receipt.settled_at, lambda _: True
+        )
+        return LogWindow(
             receipt.context,
-            receipt.marker,
             self.source_binding,
             self.streams,
             receipt.started_at,
-            through,
+            receipt.ended_at,
             queried_at,
-            tuple(events),
+            events,
+            True,
             True,
         )

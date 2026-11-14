@@ -43,14 +43,27 @@ def _principal(value: str, account: str, partition: str = "aws") -> None:
         raise ValueError("registered IAM role required")
 
 
-def _client(client: Any, service: str, region: str, *, anonymous: bool = False) -> None:
-    """Require bounded, server-preconfigured SDK clients; never alter credentials."""
+def _client(
+    client: Any,
+    service: str,
+    region: str,
+    *,
+    anonymous: bool = False,
+    endpoint_url: str | None = None,
+) -> None:
+    """Require bounded, server-preconfigured SDK clients; never alter credentials.
+
+    ``endpoint_url`` pins an S3-compatible store (onprem SeaweedFS). Without it the
+    client keeps whatever endpoint the server configured for the AWS provider.
+    """
     try:
         from botocore import UNSIGNED
 
         meta = client.meta
         config = meta.config
         if meta.service_model.service_name != service or meta.region_name != region:
+            raise ValueError
+        if endpoint_url is not None and getattr(meta, "endpoint_url", None) != endpoint_url:
             raise ValueError
         for value in (config.connect_timeout, config.read_timeout):
             if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 10:
@@ -88,8 +101,22 @@ class SecretTarget:
             raise ValueError("invalid registered Secret target")
 
 
+OBJECT_PROVIDERS = ("s3", "s3-compatible", "gcs")
+_ENDPOINT = re.compile(r"https?://[A-Za-z0-9.-]{1,253}(?::[0-9]{1,5})?\Z")
+_GCP_PROJECT = re.compile(r"[a-z][a-z0-9-]{4,28}[a-z0-9]\Z")
+
+
 @dataclass(frozen=True)
 class ObjectTarget:
+    """One registered, pinned object (ADR-0034 kinds share this target).
+
+    ``s3`` (aws): account_id is the 12-digit bucket owner, version_id the S3 VersionId.
+    ``s3-compatible`` (onprem SeaweedFS): endpoint_url is required and account_id is
+    empty (no ExpectedBucketOwner); version_id is the VersionId or, for an unversioned
+    bucket, the object ETag. ``gcs`` (gcp): account_id is the project ID, region the
+    bucket location and version_id the object generation.
+    """
+
     app: str
     environment: Environment
     account_id: str
@@ -98,6 +125,8 @@ class ObjectTarget:
     key: str
     version_id: str
     partition: str = "aws"
+    provider: str = "s3"
+    endpoint_url: str | None = None
 
     def __post_init__(self):
         values = (self.app, self.account_id, self.region, self.bucket, self.key, self.version_id)
@@ -105,16 +134,111 @@ class ObjectTarget:
             not all(isinstance(value, str) for value in values)
             or not _ID.fullmatch(self.app)
             or not isinstance(self.environment, Environment)
-            or not re.fullmatch(r"[0-9]{12}", self.account_id)
-            or not re.fullmatch(r"[a-z0-9-]{3,40}", self.region)
-            or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.bucket)
+            or self.provider not in OBJECT_PROVIDERS
+            or not re.fullmatch(r"[a-z0-9-]{2,40}", self.region)
+            or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]", self.bucket)
             or not 1 <= len(self.key.encode()) <= 1024
             or any(ord(c) < 32 for c in self.key)
             or not re.fullmatch(r"[A-Za-z0-9._+/=-]{1,1024}", self.version_id)
             or self.version_id == "null"
-            or self.partition not in {"aws", "aws-cn", "aws-us-gov"}
         ):
             raise ValueError("invalid registered versioned S3 target")
+        if self.provider == "s3":
+            valid = (
+                re.fullmatch(r"[0-9]{12}", self.account_id)
+                and re.fullmatch(r"[a-z0-9-]{3,40}", self.region)
+                and re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.bucket)
+                and self.partition in {"aws", "aws-cn", "aws-us-gov"}
+                and self.endpoint_url is None
+            )
+        elif self.provider == "s3-compatible":
+            valid = (
+                self.account_id == ""
+                and isinstance(self.endpoint_url, str)
+                and _ENDPOINT.fullmatch(self.endpoint_url)
+            )
+        else:
+            valid = (
+                _GCP_PROJECT.fullmatch(self.account_id)
+                and re.fullmatch(r"[0-9]{1,20}", self.version_id)
+                and self.endpoint_url is None
+            )
+        if not valid:
+            raise ValueError("invalid registered versioned S3 target")
+
+    def binding(self) -> dict:
+        if self.provider == "s3":
+            # Pre-ADR-0034 shape, so existing aws evidence stays comparable.
+            return {
+                "account_id": self.account_id,
+                "bucket": self.bucket,
+                "key": self.key,
+                "version_id": self.version_id,
+            }
+        return {
+            "provider": self.provider,
+            "account_id": self.account_id,
+            "endpoint_url": self.endpoint_url,
+            "bucket": self.bucket,
+            "key": self.key,
+            "version_id": self.version_id,
+        }
+
+
+def _object_principal(target: ObjectTarget, value: str) -> None:
+    """aws: IAM role ARN; onprem: registered S3 identity label; gcp: GCP principal."""
+    if target.provider == "s3":
+        _principal(value, target.account_id, target.partition)
+    elif target.provider == "s3-compatible":
+        if not isinstance(value, str) or not _ID.fullmatch(value) or value == "anonymous":
+            raise ValueError("registered S3-compatible identity required")
+    else:
+        from .gcp_probes import _gcp_principal
+
+        _gcp_principal(value)
+
+
+def _object_client(target: ObjectTarget, client: Any, *, anonymous: bool = False) -> None:
+    if target.provider == "gcs":
+        from .gcp_probes import _gcp_client
+
+        _gcp_client(client, target.account_id, anonymous=anonymous)
+    else:
+        _client(client, "s3", target.region, anonymous=anonymous, endpoint_url=target.endpoint_url)
+
+
+def _object_read(target: ObjectTarget, client: Any) -> tuple[str | None, int | None, str | None]:
+    """One ordinary read of the pinned object → (outcome, http_status, reason).
+
+    Contents are never read, logged, hashed or persisted.
+    """
+    if target.provider == "gcs":
+        from .gcp_probes import _gcs_read
+
+        return _gcs_read(target, client)
+    params = {"Bucket": target.bucket, "Key": target.key}
+    if target.provider == "s3":
+        params["ExpectedBucketOwner"] = target.account_id
+    try:
+        response = client.get_object(**params)
+    except Exception as error:
+        result = _failure(error, secret=False)
+        return result["outcome"], result["http_status"], result["reason"]
+    status = _http(response)
+    body = response.get("Body") if isinstance(response, dict) else None
+    version = response.get("VersionId") if isinstance(response, dict) else None
+    if target.provider == "s3-compatible" and version is None and isinstance(response, dict):
+        etag = response.get("ETag")
+        version = etag.strip('"') if isinstance(etag, str) else None
+    valid = (
+        status == 200 and version == target.version_id and callable(getattr(body, "close", None))
+    )
+    if callable(getattr(body, "close", None)):
+        try:
+            body.close()
+        except Exception:
+            valid = False
+    return ("allow", status, None) if valid else (None, status, "UNEXPECTED_RESPONSE")
 
 
 def _http(response: Any) -> int | None:
@@ -325,11 +449,15 @@ class S3AnonymousReadProbe(_ReadProbe):
     A denied anonymous GET is followed by an authorized current-version GET:
     a missing object can also produce 403 when the anonymous caller cannot list.
     This brackets the observation; it is not an atomic policy/object snapshot.
+
+    Works for ``s3`` (aws) and ``s3-compatible`` (onprem SeaweedFS S3 API, client
+    pinned to the registered endpoint). GCS uses ``gcp_probes.GcsAnonymousReadProbe``.
     """
 
     test_id = "IAM-01.1"
     action = "s3:GetObject"
     _recheck_denial = True
+    providers = ("s3", "s3-compatible")
 
     def __init__(
         self,
@@ -341,9 +469,9 @@ class S3AnonymousReadProbe(_ReadProbe):
         evidence_sink: Callable[[bytes], None],
         clock=lambda: datetime.now(UTC),
     ):
-        if not isinstance(target, ObjectTarget):
+        if not isinstance(target, ObjectTarget) or target.provider not in self.providers:
             raise ValueError("registered S3 target required")
-        _principal(app_principal_arn, target.account_id, target.partition)
+        _object_principal(target, app_principal_arn)
         self._setup(
             target,
             app_client,
@@ -356,41 +484,12 @@ class S3AnonymousReadProbe(_ReadProbe):
         self._validate_clients()
 
     def _validate_clients(self):
-        _client(self.app_client, "s3", self.target.region)
-        _client(self.negative_client, "s3", self.target.region, anonymous=True)
+        _object_client(self.target, self.app_client)
+        _object_client(self.target, self.negative_client, anonymous=True)
 
     def _resource_binding(self):
-        return {
-            "account_id": self.target.account_id,
-            "bucket": self.target.bucket,
-            "key": self.target.key,
-            "version_id": self.target.version_id,
-        }
+        return self.target.binding()
 
     def _read(self, client):
-        try:
-            response = client.get_object(
-                Bucket=self.target.bucket,
-                Key=self.target.key,
-                ExpectedBucketOwner=self.target.account_id,
-            )
-        except Exception as error:
-            return _failure(error, secret=False)
-        status = _http(response)
-        body = response.get("Body") if isinstance(response, dict) else None
-        valid = (
-            status == 200
-            and response.get("VersionId") == self.target.version_id
-            and callable(getattr(body, "close", None))
-        )
-        # GET authorization is enough; never read, log, hash or persist object contents.
-        if callable(getattr(body, "close", None)):
-            try:
-                body.close()
-            except Exception:
-                valid = False
-        return {
-            "outcome": "allow" if valid else None,
-            "http_status": status,
-            "reason": None if valid else "UNEXPECTED_RESPONSE",
-        }
+        outcome, status, reason = _object_read(self.target, client)
+        return {"outcome": outcome, "http_status": status, "reason": reason}

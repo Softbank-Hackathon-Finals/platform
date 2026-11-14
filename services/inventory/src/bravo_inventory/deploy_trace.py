@@ -1,9 +1,17 @@
-"""Read-only deployment tracing: namespace → workload → service account → cloud identity
-→ policy → resources (design 8.11). Two adapters share one output shape:
+"""Read-only deployment tracing: namespace → workload → service account → workload identity
+→ policy → resources (design 8.11, ADR-0034 slot ``source.deploy_trace``).
 
-* ``FileAdapter``  reads ``kubectl get -o json`` exports and an ``aws.json`` fixture.
-* ``Boto3Adapter`` (optional extra ``aws``) calls a fixed allowlist of read-only APIs and
-  records every call so the inventory can prove "no write API was used" (T16 할 일).
+This module is the kind-neutral core: the output shape, the Kubernetes export walk and the
+env-name matching. What a service account's identity reaches is kind-specific and lives in
+``bravo_inventory.sources``:
+
+* ``aws``    IRSA role ARN → IAM policy → S3 · Secrets Manager · KMS (``FileAdapter`` · ``Boto3Adapter``)
+* ``gcp``    Workload Identity GSA → IAM bindings → GCS · Secret Manager · Cloud KMS
+* ``onprem`` OpenBao Kubernetes auth role → policy paths, SeaweedFS ``s3.json`` identity → buckets
+
+``sources.deploy_adapter_for(kind, ...)`` picks the adapter; an unregistered kind is
+``UNSUPPORTED``. Every adapter records the files it read and the APIs it called so the inventory
+can prove "no write API was used" (T16 할 일).
 """
 
 from __future__ import annotations
@@ -11,44 +19,32 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from .catalog import role_for_service
 from .static_scan import safe_endpoint
 
-# Attributes copied from the cloud readback into the inventory. Anything else observed about a
-# resource stays out of the document (the inventory is shared with the console and the model).
-RESOURCE_ATTRIBUTES: dict[str, frozenset[str]] = {
-    "s3_bucket": frozenset({"public", "region", "versioning", "object_lock"}),
-    "secret": frozenset({"rotation_enabled", "kms_key_id"}),
-    "kms_key": frozenset({"key_manager", "key_state", "key_spec"}),
-}
 ENV_SOURCE_KEYS = ("secretKeyRef", "configMapKeyRef", "fieldRef", "resourceFieldRef")
 
-READ_ONLY_API: frozenset[str] = frozenset(
-    {
-        "iam:GetRole",
-        "iam:ListAttachedRolePolicies",
-        "iam:ListRolePolicies",
-        "iam:GetRolePolicy",
-        "iam:GetPolicy",
-        "iam:GetPolicyVersion",
-        "s3:GetBucketPolicyStatus",
-        "s3:GetBucketLocation",
-        "secretsmanager:DescribeSecret",
-        "kms:DescribeKey",
-    }
+# Resource kinds a workload setting can name (bucket, secret, key), per source kind. A granted
+# resource of these kinds that no setting names gets its own deploy-only item (reconcile).
+ENV_NAMED_KINDS: frozenset[str] = frozenset(
+    {"s3_bucket", "secret", "kms_key",  # aws
+     "gcs_bucket", "gcp_secret", "gcp_kms_key",  # gcp
+     "seaweedfs_bucket", "openbao_secret", "openbao_transit_key"}  # onprem
 )
-
-IRSA_ANNOTATION = "eks.amazonaws.com/role-arn"
-ARN_RESOURCE_RE = re.compile(r"^arn:aws:(s3|secretsmanager|kms):[^:]*:[^:]*:(.*)$")
+# Resource kinds that are public-cloud managed services (``cloud_dependency`` on deploy refs).
+CLOUD_RESOURCE_KINDS: frozenset[str] = frozenset(
+    {"s3_bucket", "secret", "kms_key", "iam_role", "gcs_bucket", "gcp_secret", "gcp_kms_key",
+     "gcp_service_account", "gcp_project_role"}
+)
 
 
 @dataclass
 class Resource:
-    kind: str  # s3_bucket | secret | kms_key | iam_role | cnpg_cluster | image
+    kind: str  # s3_bucket | secret | kms_key | iam_role | gcs_bucket | gcp_secret | ... | cnpg_cluster | image
     name: str
     role: str
     via: str  # how we got here, e.g. "ServiceAccount/chat → IAMRole/chat-irsa → policy chat-s3"
@@ -66,10 +62,12 @@ class DeployGraph:
     # (workload, env name, literal value) kept in memory only to match env settings against
     # resource names. Never serialised: ``as_dict`` does not include it.
     env_literals: list[tuple[str, str, str]] = field(default_factory=list, repr=False)
+    source_kind: str = "aws"
 
     def as_dict(self) -> dict:
         return {
             "namespace": self.namespace,
+            "source_kind": self.source_kind,
             "workloads": self.workloads,
             "resources": [asdict(r) for r in self.resources],
             "api_calls": sorted(set(self.api_calls)),
@@ -89,30 +87,7 @@ def _items(doc: Any) -> list[dict]:
     return list(doc or [])
 
 
-def _policy_resources(statements: list[dict], via: str) -> list[Resource]:
-    out: list[Resource] = []
-    for st in statements:
-        if st.get("Effect", "Allow") != "Allow":
-            continue
-        actions = st.get("Action", [])
-        actions = [actions] if isinstance(actions, str) else list(actions)
-        resources = st.get("Resource", [])
-        resources = [resources] if isinstance(resources, str) else list(resources)
-        for arn in resources:
-            m = ARN_RESOURCE_RE.match(arn)
-            if arn == "*":
-                out.append(Resource("wildcard", "*", "iam", via, actions, {"warning": "wildcard resource"}))
-                continue
-            if not m:
-                continue
-            service, tail = m.group(1), m.group(2)
-            kind = {"s3": "s3_bucket", "secretsmanager": "secret", "kms": "kms_key"}[service]
-            name = tail.split("/", 1)[0] if service == "s3" else tail.removeprefix("secret:").removeprefix("key/")
-            out.append(Resource(kind, name, role_for_service(service), via, actions, {"arn": arn}))
-    return out
-
-
-def _merge_resources(resources: list[Resource]) -> list[Resource]:
+def merge_resources(resources: list[Resource]) -> list[Resource]:
     """One entry per (kind, name, via): a bucket ARN and its bucket/* object ARN name the same
     bucket. Actions are unioned; the first entry's attributes are kept."""
     out: dict[tuple[str, str, str], Resource] = {}
@@ -126,6 +101,8 @@ def _merge_resources(resources: list[Resource]) -> list[Resource]:
     return list(out.values())
 
 
+_merge_resources = merge_resources  # T16 name
+
 SECRET_SUFFIX_RE = re.compile(r"-[A-Za-z0-9]{6}$")  # Secrets Manager appends 6 random chars to the ARN
 
 
@@ -133,7 +110,7 @@ def _names_resource(value: str, r: Resource) -> bool:
     value = value.strip()
     if not value:
         return False
-    names = {r.name, r.attributes.get("arn", "")}
+    names = {r.name, r.attributes.get("arn", ""), r.attributes.get("resource", "")} - {""}
     if r.kind == "secret":
         names.add(SECRET_SUFFIX_RE.sub("", r.name))
     if value in names:
@@ -142,10 +119,10 @@ def _names_resource(value: str, r: Resource) -> bool:
 
 
 def mark_env_references(g: DeployGraph) -> None:
-    """Record which workload setting names a cloud resource (``Deployment/x:S3_BUCKET``). Only the
+    """Record which workload setting names a resource (``Deployment/x:S3_BUCKET``). Only the
     env *name* is written; the compared value already is the resource name (or is not copied)."""
     for r in g.resources:
-        if r.kind not in {"s3_bucket", "secret", "kms_key"}:
+        if r.kind not in ENV_NAMED_KINDS:
             continue
         refs = sorted({f"Deployment/{w}:{name}" for w, name, value in g.env_literals if _names_resource(value, r)})
         if refs:
@@ -172,170 +149,90 @@ def _env_summary(containers: list[dict]) -> tuple[dict[str, str], dict[str, str]
     return sources, endpoints
 
 
-class FileAdapter:
-    """Reads a directory of exports. Expected files (any may be absent):
-
-    deployments.json · serviceaccounts.json · clusters.json (CNPG) · aws.json
-    ``aws.json``: {"roles": {arn: {"policies": [{"name":..., "statements":[...]}]}},
-                   "buckets": {name: {"public": bool}}, "secrets": {name: {...}}, "kms": {id: {...}}}
-    """
+class ExportReader:
+    """Reads JSON exports from one directory and remembers which files existed and were read."""
 
     def __init__(self, directory: Path):
         self.dir = Path(directory)
         self.read: list[str] = []
 
-    def _load(self, name: str) -> Any:
+    def load(self, name: str) -> Any:
         p = self.dir / name
         if not p.is_file():
             return None
         self.read.append(f"file:{name}")
         return json.loads(p.read_text(encoding="utf-8"))
 
-    def trace(self, namespace: str) -> DeployGraph:
-        g = DeployGraph(namespace)
-        self.read = []
-        deployments = [d for d in _items(self._load("deployments.json")) if d.get("metadata", {}).get("namespace", namespace) == namespace]
-        sas = {sa["metadata"]["name"]: sa for sa in _items(self._load("serviceaccounts.json")) if sa.get("metadata", {}).get("namespace", namespace) == namespace}
-        aws = self._load("aws.json") or {}
-
-        def follow_role(sa_name: str, via: str) -> None:
-            role_arn = sas.get(sa_name, {}).get("metadata", {}).get("annotations", {}).get(IRSA_ANNOTATION)
-            if not role_arn:
-                g.notes.append(f"{via}: IRSA 역할 주석 없음")
-                return
-            g.resources.append(Resource("iam_role", role_arn, "iam", via, [], {}))
-            for pol in aws.get("roles", {}).get(role_arn, {}).get("policies", []):
-                g.resources.extend(_policy_resources(pol.get("statements", []), f"{via} → IAMRole → policy {pol.get('name', '?')}"))
-
-        used: set[str] = set()
-        for d in deployments:
-            spec = d.get("spec", {}).get("template", {}).get("spec", {})
-            sa_name = spec.get("serviceAccountName", "default")
-            used.add(sa_name)
-            containers = spec.get("containers", [])
-            env_names = sorted({e["name"] for c in containers for e in c.get("env", []) if "name" in e})
-            env_sources, endpoints = _env_summary(containers)
-            g.env_literals.extend((d["metadata"]["name"], e["name"], str(e["value"])) for c in containers for e in c.get("env", []) if "name" in e and "value" in e)
-            images = [c.get("image", "") for c in containers]
-            g.workloads.append({"name": d["metadata"]["name"], "service_account": sa_name, "images": images, "env": env_names, "env_sources": env_sources, "endpoints": endpoints})
-            for image in images:
-                g.resources.append(Resource("image", image, "registry", f"Deployment/{d['metadata']['name']}", [], {"digest_pinned": "yes" if "@sha256:" in image else "no"}))
-            follow_role(sa_name, f"Deployment/{d['metadata']['name']} → ServiceAccount/{sa_name}")
-        # A cloud identity in the namespace that no Deployment uses still reaches cloud resources
-        # for it (ESO SecretStore, operator jobs). Its grants are deploy-side dependencies too.
-        for sa_name in sorted(set(sas) - used):
-            if IRSA_ANNOTATION in sas[sa_name].get("metadata", {}).get("annotations", {}):
-                follow_role(sa_name, f"ServiceAccount/{sa_name} (Deployment 미사용: SecretStore · 운영 작업 등)")
-        for cl in _items(self._load("clusters.json")):
-            if cl.get("metadata", {}).get("namespace", namespace) == namespace:
-                g.resources.append(Resource("cnpg_cluster", cl["metadata"]["name"], "db", f"Namespace/{namespace}", [], {"instances": str(cl.get("spec", {}).get("instances", "")), "wal_level": str(cl.get("spec", {}).get("postgresql", {}).get("parameters", {}).get("wal_level", ""))}))
-        g.resources = _merge_resources(g.resources)
-        # enrich with bucket/secret/kms attributes from fixture (public exposure is a gate input, not decided here)
-        for r in g.resources:
-            section = {"s3_bucket": "buckets", "secret": "secrets", "kms_key": "kms"}.get(r.kind)
-            if section and r.name in aws.get(section, {}):
-                allowed = RESOURCE_ATTRIBUTES[r.kind]
-                r.attributes.update({k: str(v) for k, v in aws[section][r.name].items() if k in allowed})
-        mark_env_references(g)
-        g.api_calls = list(self.read)  # only files that existed and were read
-        return g
+    def text(self, name: str) -> str | None:
+        p = self.dir / name
+        if not p.is_file():
+            return None
+        self.read.append(f"file:{name}")
+        return p.read_text(encoding="utf-8")
 
 
-class Boto3Adapter:
-    """Live, read-only AWS tracing. Kubernetes objects still come from exports (kubeconfig is
-    not handed to this module). Every API call is appended to ``api_calls``; anything outside
-    READ_ONLY_API raises before the call is made.
-    """
+# follow(graph, service account name, service account object, via) adds what the identity reaches.
+Follow = Callable[[DeployGraph, str, dict, str], None]
 
-    def __init__(self, directory: Path, session: Any = None):
-        self.files = FileAdapter(directory)
-        if session is None:  # pragma: no cover - needs the aws extra
-            import boto3
 
-            session = boto3.Session()
-        self.session = session
-        self.calls: list[str] = []
+def walk_namespace(
+    reader: ExportReader,
+    namespace: str,
+    source_kind: str,
+    follow: Follow,
+    has_identity: Callable[[str, dict], bool],
+    unused_note: str = "Deployment 미사용: SecretStore · 운영 작업 등",
+) -> DeployGraph:
+    """Deployments → service accounts → ``follow``; service accounts no Deployment uses but that
+    carry an identity (``has_identity``) are followed too; CNPG clusters. Kind-neutral."""
+    g = DeployGraph(namespace, source_kind=source_kind)
+    deployments = [d for d in _items(reader.load("deployments.json")) if d.get("metadata", {}).get("namespace", namespace) == namespace]
+    sas = {sa["metadata"]["name"]: sa for sa in _items(reader.load("serviceaccounts.json")) if sa.get("metadata", {}).get("namespace", namespace) == namespace}
+    used: set[str] = set()
+    for d in deployments:
+        spec = d.get("spec", {}).get("template", {}).get("spec", {})
+        sa_name = spec.get("serviceAccountName", "default")
+        used.add(sa_name)
+        containers = spec.get("containers", [])
+        env_names = sorted({e["name"] for c in containers for e in c.get("env", []) if "name" in e})
+        env_sources, endpoints = _env_summary(containers)
+        g.env_literals.extend((d["metadata"]["name"], e["name"], str(e["value"])) for c in containers for e in c.get("env", []) if "name" in e and "value" in e)
+        images = [c.get("image", "") for c in containers]
+        g.workloads.append({"name": d["metadata"]["name"], "service_account": sa_name, "images": images, "env": env_names, "env_sources": env_sources, "endpoints": endpoints})
+        for image in images:
+            g.resources.append(Resource("image", image, "registry", f"Deployment/{d['metadata']['name']}", [], {"digest_pinned": "yes" if "@sha256:" in image else "no"}))
+        follow(g, sa_name, sas.get(sa_name, {}), f"Deployment/{d['metadata']['name']} → ServiceAccount/{sa_name}")
+    # An identity in the namespace that no Deployment uses still reaches resources for it (ESO
+    # SecretStore, operator jobs). Its grants are deploy-side dependencies too.
+    for sa_name in sorted(set(sas) - used):
+        if has_identity(sa_name, sas[sa_name]):
+            follow(g, sa_name, sas[sa_name], f"ServiceAccount/{sa_name} ({unused_note})")
+    for cl in _items(reader.load("clusters.json")):
+        if cl.get("metadata", {}).get("namespace", namespace) == namespace:
+            g.resources.append(Resource("cnpg_cluster", cl["metadata"]["name"], "db", f"Namespace/{namespace}", [], {"instances": str(cl.get("spec", {}).get("instances", "")), "wal_level": str(cl.get("spec", {}).get("postgresql", {}).get("parameters", {}).get("wal_level", ""))}))
+    return g
 
-    def _call(self, client: Any, api: str, **kwargs: Any) -> Any:
-        if api not in READ_ONLY_API:
-            raise PermissionError(f"write or unlisted API refused by T16 adapter: {api}")
-        self.calls.append(api)
-        method = api.split(":", 1)[1]
-        method = re.sub(r"(?<!^)(?=[A-Z])", "_", method).lower()
-        return getattr(client, method)(**kwargs)
 
-    def trace(self, namespace: str) -> DeployGraph:
-        g = self.files.trace(namespace)
-        iam = self.session.client("iam")
-        for r in [x for x in g.resources if x.kind == "iam_role"]:
-            role_name = r.name.rsplit("/", 1)[-1]
-            attached = self._call(iam, "iam:ListAttachedRolePolicies", RoleName=role_name)
-            for p in attached.get("AttachedPolicies", []):
-                pol = self._call(iam, "iam:GetPolicy", PolicyArn=p["PolicyArn"])["Policy"]
-                ver = self._call(iam, "iam:GetPolicyVersion", PolicyArn=p["PolicyArn"], VersionId=pol["DefaultVersionId"])
-                stmts = ver["PolicyVersion"]["Document"].get("Statement", [])
-                g.resources.extend(_policy_resources(stmts if isinstance(stmts, list) else [stmts], f"{r.via} → IAMRole → attached {p['PolicyName']}"))
-            inline = self._call(iam, "iam:ListRolePolicies", RoleName=role_name)
-            for name in inline.get("PolicyNames", []):
-                doc = self._call(iam, "iam:GetRolePolicy", RoleName=role_name, PolicyName=name)["PolicyDocument"]
-                stmts = doc.get("Statement", [])
-                g.resources.extend(_policy_resources(stmts if isinstance(stmts, list) else [stmts], f"{r.via} → IAMRole → inline {name}"))
-        g.resources = _merge_resources(g.resources)
-        self._describe(g.resources)
-        mark_env_references(g)
-        g.api_calls = sorted(set(g.api_calls + self.calls))
-        return g
+def annotations(sa: dict) -> dict[str, str]:
+    return sa.get("metadata", {}).get("annotations", {}) or {}
 
-    def _observe(self, client: Any, api: str, **kwargs: Any) -> Any:
-        """A read that may fail (missing permission, deleted resource): the failure is data."""
-        try:
-            return self._call(client, api, **kwargs)
-        except PermissionError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - observation failure is data, not a crash
-            return exc
 
-    def _describe(self, resources: list[Resource]) -> None:
-        """Bucket exposure/region, secret rotation/encrypting key, KMS key state. Each distinct
-        resource is read once; only RESOURCE_ATTRIBUTES are copied. Wildcard names are skipped."""
-        clients: dict[tuple[str, str | None], Any] = {}
+def apply_attributes(resources: list[Resource], data: dict, sections: dict[str, str], allowed: dict[str, frozenset[str]]) -> None:
+    """Copy allowlisted readback attributes (``data[section][name]``) onto resources."""
+    for r in resources:
+        section = sections.get(r.kind)
+        if section and r.name in data.get(section, {}):
+            r.attributes.update({k: str(v) for k, v in data[section][r.name].items() if k in allowed[r.kind]})
 
-        def client(service: str, region: str | None) -> Any:
-            if (service, region) not in clients:
-                clients[(service, region)] = self.session.client(service, region_name=region) if region else self.session.client(service)
-            return clients[(service, region)]
 
-        seen: dict[tuple[str, str], dict[str, str]] = {}
-        for r in resources:
-            if r.kind not in RESOURCE_ATTRIBUTES or "*" in r.name:
-                continue
-            key = (r.kind, r.name)
-            if key not in seen:
-                seen[key] = self._read_attributes(r, client)
-            r.attributes.update(seen[key])
+# T16 names: the AWS adapter moved to ``sources.aws`` (ADR-0034). Resolved lazily so this core
+# module does not import a kind-specific one at import time.
+_AWS_NAMES = frozenset({"FileAdapter", "Boto3Adapter", "READ_ONLY_API", "IRSA_ANNOTATION", "ARN_RESOURCE_RE", "RESOURCE_ATTRIBUTES"})
 
-    def _read_attributes(self, r: Resource, client: Any) -> dict[str, str]:
-        arn = r.attributes.get("arn", "")
-        region = arn.split(":")[3] if arn.count(":") >= 5 and arn.split(":")[3] else None
-        out: dict[str, str] = {}
-        if r.kind == "s3_bucket":
-            s3 = client("s3", None)
-            status = self._observe(s3, "s3:GetBucketPolicyStatus", Bucket=r.name)
-            out["public"] = f"UNKNOWN: {type(status).__name__}" if isinstance(status, Exception) else str(bool(status.get("PolicyStatus", {}).get("IsPublic", False)))
-            loc = self._observe(s3, "s3:GetBucketLocation", Bucket=r.name)
-            out["region"] = f"UNKNOWN: {type(loc).__name__}" if isinstance(loc, Exception) else (loc.get("LocationConstraint") or "us-east-1")
-        elif r.kind == "secret":
-            desc = self._observe(client("secretsmanager", region), "secretsmanager:DescribeSecret", SecretId=arn or r.name)
-            if isinstance(desc, Exception):
-                out["rotation_enabled"] = f"UNKNOWN: {type(desc).__name__}"
-            else:
-                out["rotation_enabled"] = str(bool(desc.get("RotationEnabled", False)))
-                out["kms_key_id"] = str(desc.get("KmsKeyId") or "aws-managed (aws/secretsmanager)")
-        elif r.kind == "kms_key":
-            desc = self._observe(client("kms", region), "kms:DescribeKey", KeyId=arn or r.name)
-            if isinstance(desc, Exception):
-                out["key_state"] = f"UNKNOWN: {type(desc).__name__}"
-            else:
-                meta = desc.get("KeyMetadata", {})
-                out.update({"key_manager": str(meta.get("KeyManager", "")), "key_state": str(meta.get("KeyState", "")), "key_spec": str(meta.get("KeySpec", ""))})
-        return {k: v for k, v in out.items() if k in RESOURCE_ATTRIBUTES[r.kind]}
+
+def __getattr__(name: str) -> Any:
+    if name in _AWS_NAMES:
+        from .sources import aws
+
+        return getattr(aws, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
