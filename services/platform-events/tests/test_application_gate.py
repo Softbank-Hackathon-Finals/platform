@@ -164,3 +164,19 @@ def test_failed_or_fake_apply_never_triggers_recheck(records, kind):  # noqa: F8
                       service_factory=f.factory)
     with pytest.raises(EventError):
         gate.evaluate(f.principal, f.plan.plan_id, result)
+
+
+def test_a_refused_platform_signature_holds_the_gate_without_evaluating(records, gate_pg):  # noqa: F811
+    """ADR-0038: GateRecheck.sign refuses without a live evidence delegation; nothing is evaluated."""
+    f = records
+    stage(f, gate_pg, profile="apply-recheck", complete=True)
+
+    def refuse(*_):
+        raise EventError("delegation_unavailable")
+
+    gate = GateRecheck(f.records, prepare=lambda *a: None, sign=refuse,
+                       service_factory=lambda view: pytest.fail("evaluated without a platform signature"))
+    with pytest.raises(EventError, match="delegation_unavailable"):
+        gate.evaluate(f.principal, f.plan.plan_id, outcome(f.plan.plan_id))
+    assert f.store.snapshot(f.plan.plan_id)["state"] == "GATE"
+

@@ -130,6 +130,33 @@ def test_the_operator_api_records_and_revokes_a_delegation(world):
     assert revoked.json() == {"revoked": made.json()["delegation_id"]}
 
 
+def test_a_person_delegates_evidence_over_http_and_a_narrowed_grant_stops_its_use(world):
+    """ADR-0038: the T19 evidence delegation is a person's own HTTP call, checked again at each use."""
+    from fastapi.testclient import TestClient
+    from test_cutover import BINDINGS
+
+    from bravo_platform_events.cutover import CutoverService
+    from bravo_platform_events.cutover_api import create_cutover_app
+
+    grant = dict(valid_after=NOW, expires_at=(T0 + timedelta(hours=12)).isoformat(), administration_ref="fixture")
+    world["access"].set_permissions(SPEC.plan_id, person("issuer", T0), permissions=["read", "gate:publish-provenance"],
+                                    command_key="grant-issuer", expected_revision=0, **grant)
+    people = {"issuer-token": person("issuer", world["clock"].now)}
+    http = TestClient(create_cutover_app(CutoverService(world["store"], None, bindings=BINDINGS, clock=world["clock"]),
+                                         resolve_principal=lambda r: people.get(r.headers.get("authorization", "")[7:]),
+                                         delegation_service=world["delegations"]))
+    made = http.post(f"/v1/plans/{SPEC.plan_id}/delegations",
+                     json={"gates": ["evidence"], "expires_at": (world["clock"].now + timedelta(hours=1)).isoformat()},
+                     headers={"Authorization": "Bearer issuer-token", "Idempotency-Key": "e1"})
+    assert made.status_code == 201 and made.json()["gates"] == ["evidence"]
+    use = dict(binding={"context_digest": "a" * 64}, version=None)
+    assert world["delegations"].principal_for(SPEC.plan_id, "evidence", **use).subject_id == "issuer"
+    world["access"].set_permissions(SPEC.plan_id, person("issuer", T0), permissions=["read"],
+                                    command_key="narrow-issuer", expected_revision=1, **grant)
+    with pytest.raises(EventError, match="forbidden"):
+        world["delegations"].principal_for(SPEC.plan_id, "evidence", **use)
+
+
 def test_a_delegated_shift_runs_the_edge_once_per_version_until_100(world, monkeypatch):
     from bravo_platform_events.approval_delegation import DelegatedGates, DelegatedShift
 
