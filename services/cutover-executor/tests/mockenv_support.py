@@ -20,6 +20,20 @@ REPLICATED = ["public.attachments", "public.messages", "cutover.barrier", "cutov
 needs_mockenv = pytest.mark.skipif(not SITES_FILE.exists(), reason="모의 환경 없음 (testing/mockenv.py up)")
 
 
+def _pair() -> tuple[str, str]:
+    """모의 환경의 (출발지, 목적지) 환경 ID. 출발지는 설정의 origin이다. 이름은 mockenv.py up --source/--target이
+    정하므로 시험은 고정하지 않는다(ADR-0034, A9). 모의 환경이 없으면 기본 이름을 돌려준다(시험은 건너뛴다)."""
+    if not SITES_FILE.exists():
+        return "env-aws", "env-onprem"
+    config = load_config(SITES_FILE)
+    [target] = [env for env in config.sites if env != config.origin]
+    return config.origin, target
+
+
+SRC_ENV, DST_ENV = _pair()
+REFS = {SRC_ENV: "mock/src", DST_ENV: "mock/dst"}
+
+
 def mock_config(**settings) -> Config:
     config = load_config(SITES_FILE)
     return config.model_copy(update={"settings": config.settings.model_copy(update=settings)})

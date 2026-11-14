@@ -18,6 +18,7 @@
 | 구독 실행 기반·제품 리허설 | [구독 실행 기반](../../operations/subscription/README.md), [T38 #150](https://github.com/Softbank-Hackathon-Finals/platform/issues/150), [T15 #24](https://github.com/Softbank-Hackathon-Finals/platform/issues/24) | T38 VM·OIDC·격리 Job 기반 → T15 제품 템플릿·최대 3회 재시도·diff/digest 승인 결속. 합성 DB_HOST 검증은 T15 제품 인수가 아님 |
 | 감사 기록·보존 | [T24 감사 기록 v1](T24-audit-record-v1-proposal.md), [ADR-0020](../adr/0020-platform-audit-ledger.md) | T10 이벤트·T11 도구 이벤트·T19/T12 결과 → T24 실행별 체인 → S3 Object Lock → T21 영수증 표시·검토자 검증 |
 | AI 리허설 시험 도구 | [rehearsal.exec 호출 계약](T42-rehearsal-exec-v1-proposal.md), [ADR-0024](../adr/0024-rehearsal-exec-actions.md) · [0025](../adr/0025-rehearsal-exec-spaces-and-order.md) · [0026](../adr/0026-rehearsal-exec-records-and-failures.md) | T11 도구 노출·인자 검사 → T38 broker 통로 → T42 실행부·실행 기록 → T15 시도 기록 `exec_events` → T10 → T24·T21. 응답의 상태·출력은 채점 근거가 아님 |
+| 환경 종류·어댑터 칸·중립 모델 | [environment-kinds.json](environment-kinds.json), [neutral-models.schema.json](neutral-models.schema.json), [ADR-0034](../adr/0034-environment-kind-adapters.md) | 종류 계약 → 서비스별 등록부(A2~A10) → 계획 등록의 조합 준비도. 내보내기 → 중립 모델 → 목적지 적용 |
 | 인프라 접근·자격 | [ADR-0012](../adr/0012-platform-data-access-boundary.md), [platform-data](../../infra/envs/platform-data/README.md) | T7/T30 설치·전달 → 각 런타임 소비. T14의 독립 검증을 대체하지 않음 |
 | IaC 승인·고객 반영 표시 | [IaC 정본](../../infra/iac/README.md), [T21 소비·호스트 연결](../../services/console/docs/security-delivery-ui.md) | T44 계획·T10 infra 승인 → 원하는 상태 PR → 고객 GET 수집 → 인증한 등록 결과 → T21 표시. 승인·동기화·이전 성공은 별도로 확인 |
 

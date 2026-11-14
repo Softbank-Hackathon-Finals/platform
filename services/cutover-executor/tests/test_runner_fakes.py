@@ -245,20 +245,20 @@ def match_with(table: int | None = None, drop: tuple[str, ...] = (), **fields):
 class FakeCutover(Cutover):
     """비교는 기본으로 MATCH를 돌려준다. 실제 DB 지문 비교는 test_db_fingerprint_runner가 잰다."""
 
-    def __init__(self, store, world: World, **kwargs):
+    def __init__(self, store, world: World, config: Config = CONFIG, **kwargs):
         kwargs.setdefault("comparer", FixedComparer(MATCH))
-        super().__init__(store, CONFIG, kube=lambda context: None, **kwargs)
+        super().__init__(store, config, kube=lambda context: None, **kwargs)
         self.world = world
 
     def _side(self, environment_id):
-        s = CONFIG.sites[environment_id]
+        s = self._config.sites[environment_id]
         ns, w = s.namespace, self.world
         return SimpleNamespace(site=s, kube=FakeKube(w, ns), db=FakeDb(w, ns), pool=FakePool(w, ns),
                                pool_config=FakePoolConfig(w, ns), entry=FakeEntry(w, ns))
 
 
-@pytest.fixture
-def world(monkeypatch):
+def make_world(monkeypatch) -> World:
+    """새 World와, 그 World로 앱 쓰기 시험을 답하는 가짜 try_app_write · app_write."""
     w = World()
 
     def try_app_write(dsn, path, timeout_s=3):
@@ -277,6 +277,11 @@ def world(monkeypatch):
     monkeypatch.setattr(runner_module, "try_app_write", try_app_write)
     monkeypatch.setattr(runner_module, "app_write", app_write)
     return w
+
+
+@pytest.fixture
+def world(monkeypatch):
+    return make_world(monkeypatch)
 
 
 REFS = {"env-aws": "fake/src", "env-onprem": "fake/dst"}

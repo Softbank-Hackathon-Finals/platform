@@ -1,8 +1,10 @@
 from copy import deepcopy
 
 import pytest
+from pydantic import ValidationError
 
-from bravo_cutover.prepare import OWNER, OWNER_KEY, cluster_patch, pooler_trust_patch
+from bravo_cutover.prepare import OWNER, OWNER_KEY, cluster_patch, object_names, pooler_trust_patch
+from bravo_cutover.sites import Site
 
 
 def cluster():
@@ -55,3 +57,43 @@ def test_pooler_changes_only_backend_trust_mount():
     assert patches[-1]["path"] == "/spec/template/spec/volumes/0/secret/secretName"
     assert patches[-1]["value"] == "cutover-backend-ca"
     assert len(patches) == 2
+
+
+def named_site(**names) -> Site:
+    """A gcp source whose CNPG objects are not named by the {side}-db rule (ADR-0034, A9)."""
+    return Site(environment_id="gcp-a", kind="gcp", resource_id="cnpg-gcp-a/chat", connection_ref="ref/gcp-a",
+                kube_context="ctx", namespace="chat", subscription="bravo_rev", db_host="db.chat",
+                pgbouncer_admin_dsn="x", pgbouncer_app_dsn="x", db_control_dsn="x", db_app_dsn="x", **names)
+
+
+def test_object_names_default_to_side_rule_when_site_leaves_them_empty():
+    assert object_names("source") == object_names("source", named_site())
+    names = object_names("target", named_site())
+    assert (names.cluster, names.namespace, names.pooler) == ("target-db", "target-dev", "target-pgbouncer")
+    with pytest.raises(ValueError):
+        object_names("origin")
+
+
+def test_cluster_and_pooler_names_are_read_from_site():
+    site = named_site(db_cluster="chat-pg", db_namespace="chat-data", pgbouncer_deployment="chat-pooler")
+    current = cluster()
+    current["metadata"].update(name="chat-pg", namespace="chat-data")
+    assert cluster_patch(current, side="source", site=site)[0]["value"] == "41"
+    with pytest.raises(ValueError, match="unexpected database resource"):
+        cluster_patch(current, side="source")  # the default rule no longer matches
+    with pytest.raises(ValueError, match="unexpected database resource"):
+        cluster_patch(cluster(), side="source", site=site)  # nor does the default name under a configured site
+
+    pooler = {"kind": "Deployment", "metadata": {"name": "chat-pooler", "namespace": "chat-data", "resourceVersion": "7"},
+              "spec": {"replicas": 1, "template": {"spec": {"volumes": [
+                  {"name": "ca", "secret": {"secretName": "cutover-backend-ca"}}]}}}}
+    assert pooler_trust_patch(pooler, side="target", site=site) == [
+        {"op": "test", "path": "/metadata/resourceVersion", "value": "7"}]
+    with pytest.raises(ValueError, match="unexpected singleton pooler"):
+        pooler_trust_patch(pooler, side="target")
+
+
+@pytest.mark.parametrize("field", ["db_cluster", "db_namespace", "pgbouncer_deployment"])
+def test_configured_object_names_must_be_kubernetes_names(field):
+    with pytest.raises(ValidationError):
+        named_site(**{field: "Bad_Name"})

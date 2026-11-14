@@ -15,7 +15,15 @@ from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import Cutover
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
+from tests.mockenv_support import (
+    DST_ENV,
+    SRC_ENV,
+    WriterWatch,
+    mock_config,
+    needs_mockenv,
+    post_message,
+    reset,
+)
 from tests.test_cutover_mockenv import start
 
 pytestmark = needs_mockenv
@@ -24,7 +32,7 @@ pytestmark = needs_mockenv
 @pytest.fixture
 def sides():
     config = mock_config()
-    src, dst = config.sites["env-aws"], config.sites["env-onprem"]
+    src, dst = config.sites[SRC_ENV], config.sites[DST_ENV]
     reset(src, dst)
     yield src, dst
     reset(src, dst)
